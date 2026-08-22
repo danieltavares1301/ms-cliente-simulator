@@ -126,6 +126,77 @@ describe('scanSecrets', () => {
     ]);
   });
 
+  it('detects prefixed credential families across key conventions without exposing values', () => {
+    const opaqueValues = [
+      ['authorization', 'opaque'].join('-'),
+      ['subscription', 'opaque'].join('-'),
+      ['connection', 'opaque'].join('-'),
+      ['signing', 'opaque'].join('-'),
+    ];
+    const payload = {
+      requestAuthorizationHeader: opaqueValues[0],
+      nested: [
+        {
+          ocp_apim_subscription_key: opaqueValues[1],
+          DATABASE_CONNECTION_STRING: opaqueValues[2],
+          'jwt-signing-key': opaqueValues[3],
+        },
+        {
+          proxyPrivateKey: opaqueValues[0],
+          serviceAccessToken: opaqueValues[1],
+          auth_refresh_token: opaqueValues[2],
+          'user-session-token': opaqueValues[3],
+          oauthClientSecret: opaqueValues[0],
+          github_webhook_secret: opaqueValues[1],
+          INTERNAL_API_KEY: opaqueValues[2],
+          responseSetCookie: opaqueValues[3],
+          upstream_cookie: opaqueValues[0],
+        },
+      ],
+      scenarioKey: 'cliente-criado',
+      stepKey: 'consultar-cliente',
+      idempotencyKeyHash: 'sha256:valor-tecnico',
+      requestedBy: 'automacao',
+    };
+
+    const findings = scanSecrets(payload);
+
+    expect(compact(findings)).toEqual([
+      {
+        path: '$.nested[0].DATABASE_CONNECTION_STRING',
+        category: 'CREDENTIAL',
+      },
+      {
+        path: '$.nested[0].ocp_apim_subscription_key',
+        category: 'CREDENTIAL',
+      },
+      {
+        path: '$.nested[0]["jwt-signing-key"]',
+        category: 'CREDENTIAL',
+      },
+      { path: '$.nested[1].auth_refresh_token', category: 'CREDENTIAL' },
+      { path: '$.nested[1].github_webhook_secret', category: 'CREDENTIAL' },
+      { path: '$.nested[1].INTERNAL_API_KEY', category: 'CREDENTIAL' },
+      { path: '$.nested[1].oauthClientSecret', category: 'CREDENTIAL' },
+      { path: '$.nested[1].proxyPrivateKey', category: 'CREDENTIAL' },
+      { path: '$.nested[1].responseSetCookie', category: 'CREDENTIAL' },
+      { path: '$.nested[1].serviceAccessToken', category: 'CREDENTIAL' },
+      { path: '$.nested[1].upstream_cookie', category: 'CREDENTIAL' },
+      {
+        path: '$.nested[1]["user-session-token"]',
+        category: 'CREDENTIAL',
+      },
+      { path: '$.requestAuthorizationHeader', category: 'CREDENTIAL' },
+    ]);
+    expect(
+      findings.every(
+        ({ message }) => message === 'Possivel credencial tecnica detectada.',
+      ),
+    ).toBe(true);
+    for (const value of opaqueValues)
+      expect(JSON.stringify(findings)).not.toContain(value);
+  });
+
   it('detects Bearer, JWT and credential URLs in nested values', () => {
     const jwt = bearer();
     const credentialUrl = [

@@ -24,7 +24,9 @@ fixtures compatíveis com o contrato dependentes de allowlists.
   compatibilidade Salesforce e mantém IDs técnicos namespaced por `runId`.
 - Secret scanning continua bloqueando credenciais e segredos técnicos, incluindo
   password/senha, token, JWT/Bearer, cookie, apiKey, signingKey,
-  subscriptionKey, connectionString, privateKey e equivalentes.
+  subscriptionKey, connectionString, privateKey e equivalentes. Famílias
+  inequívocas também são bloqueadas quando recebem prefixos arbitrários, sem
+  diferença por caixa ou separadores.
 - Schemas Zod, proibição de `Authorization` em logs, ausência de payload bruto e
   minimização da persistência permanecem obrigatórios.
 - Arquivos brutos e exports temporários permanecem fora do Git.

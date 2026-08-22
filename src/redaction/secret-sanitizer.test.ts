@@ -84,6 +84,53 @@ describe('sanitizeSecrets', () => {
       expect(JSON.stringify(result)).not.toContain(secret);
   });
 
+  it('removes prefixed credential families while preserving safe technical keys', () => {
+    const secrets = [
+      ['authorization', 'opaque'].join('-'),
+      ['subscription', 'opaque'].join('-'),
+      ['connection', 'opaque'].join('-'),
+      ['signing', 'opaque'].join('-'),
+    ];
+    const source = {
+      requestAuthorizationHeader: secrets[0],
+      nested: [
+        {
+          ocpApimSubscriptionKey: secrets[1],
+          database_connection_string: secrets[2],
+          'jwt-signing-key': secrets[3],
+        },
+        {
+          proxyPrivateKey: secrets[0],
+          service_access_token: secrets[1],
+          'auth-refresh-token': secrets[2],
+          USER_SESSION_TOKEN: secrets[3],
+          oauthClientSecret: secrets[0],
+          github_webhook_secret: secrets[1],
+          INTERNAL_API_KEY: secrets[2],
+          responseSetCookie: secrets[3],
+          upstream_cookie: secrets[0],
+        },
+      ],
+      scenarioKey: 'cliente-criado',
+      stepKey: 'consultar-cliente',
+      idempotencyKeyHash: 'sha256:valor-tecnico',
+      requestedBy: 'automacao',
+    };
+
+    const result = sanitizeSecrets(source);
+
+    expect(result).toEqual({
+      nested: [{}, {}],
+      scenarioKey: 'cliente-criado',
+      stepKey: 'consultar-cliente',
+      idempotencyKeyHash: 'sha256:valor-tecnico',
+      requestedBy: 'automacao',
+    });
+    expect(scanSecrets(result)).toEqual([]);
+    for (const secret of secrets)
+      expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
   it('redacts embedded Bearer, JWT and URL credentials without removing business text', () => {
     const source = {
       message:

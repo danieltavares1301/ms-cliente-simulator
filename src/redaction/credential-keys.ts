@@ -3,27 +3,28 @@ const CREDENTIAL_KEY_SUFFIXES = [
   'senha',
   'passphrase',
   'apikey',
+  'authorizationheader',
+  'subscriptionkey',
+  'connectionstring',
+  'signingkey',
+  'privatekey',
+  'accesstoken',
+  'refreshtoken',
+  'sessiontoken',
+  'clientsecret',
+  'webhooksecret',
+  'setcookie',
+  'cookie',
   'secret',
   'secretkey',
-  'clientsecret',
   'credential',
   'credentials',
-  'privatekey',
   'accesskey',
   'token',
   'tokens',
 ] as const;
 
-const CREDENTIAL_KEYS = new Set([
-  'authorization',
-  'authorizationheader',
-  'connectionstring',
-  'cookie',
-  'session',
-  'setcookie',
-  'signingkey',
-  'subscriptionkey',
-]);
+const CREDENTIAL_KEYS = new Set(['authorization', 'session']);
 
 const SAFE_TECHNICAL_HASH_KEYS = new Set([
   'idempotencykeyhash',

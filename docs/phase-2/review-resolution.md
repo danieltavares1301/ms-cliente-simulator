@@ -21,9 +21,11 @@ Em 2026-08-22, os achados válidos da revisão sobre `c6b7a55` foram resolvidos:
   `normalizedCorrelationKeyHash`. Não existe exceção genérica para sufixos
   `hash`/`digest`; assim, `passwordHash`, `secretHash` e `tokenDigest` continuam
   sendo credenciais;
-- `cookie`, `setCookie`, `subscriptionKey`, `signingKey`, `webhookSecret` e
-  `connectionString` são detectados sem diferença por caixa ou separadores,
-  inclusive sem valor, em objetos/arrays aninhados, e removidos pelo sanitizador.
+- `authorizationHeader`, `subscriptionKey`, `connectionString`, `signingKey`,
+  `privateKey`, `accessToken`, `refreshToken`, `sessionToken`, `clientSecret`,
+  `webhookSecret`, `apiKey`, `cookie` e `setCookie` são detectados também com
+  prefixos arbitrários, sem diferença por caixa ou separadores, inclusive sem
+  valor, em objetos/arrays aninhados, e removidos pelo sanitizador.
   A CLI revalida o resultado final e não cria o arquivo se ainda houver dado
   sensível;
 - fixtures de contrato geram `numerocpf` sintético e determinístico com checksum
@@ -57,13 +59,15 @@ ADR-0005 substituiu a classificação de dados de negócio: o RED de `0.2.1`
 demonstrou a API antiga e enganosa, a alteração indevida de campos de negócio e o
 CPF incompatível com checksum. O GREEN cobre 64 namespaces sintéticos,
 preservação de dados de negócio e remoção aninhada pelo sanitizador.
+O bloqueador sobre `ba70749` teve RED explícito para famílias prefixadas e GREEN
+para detecção, mensagens sem valores e remoção aninhada sem falsos positivos.
 
 ## Validações finais
 
 - `format` e `format:check`: verdes;
 - `validate:scenarios`: 1 teste aprovado;
 - `validate:fixtures`: 4 fixtures renderizadas aprovadas;
-- suíte completa: 14 arquivos e 120 testes aprovados;
+- suíte completa: 14 arquivos e 122 testes aprovados;
 - `lint`, `typecheck` e `build`: verdes;
 - `db:generate`: duas execuções sem alteração; `db:check`: verde;
 - `npm audit --audit-level=high`: exit code zero para high/critical; permanecem
