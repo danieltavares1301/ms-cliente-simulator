@@ -4,6 +4,9 @@ node_modules/
 # Next.js
 .next/
 out/
+# Next.js auto-generated AI agent guidance files
+AGENTS.md
+CLAUDE.md
 
 # Tests
 coverage/
