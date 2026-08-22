@@ -35,7 +35,10 @@ describe('QStashRunScheduler', () => {
     } as unknown as RunRepository;
     const scheduler = new QStashRunScheduler({
       repository,
-      clientFactory: () => ({ publishJSON }),
+      clientFactory: () => ({
+        publishJSON,
+        messages: { cancel: vi.fn() },
+      }),
       publicAppBaseUrl: 'https://simulator.example.com/',
       retries: 3,
     });
@@ -89,7 +92,10 @@ describe('QStashRunScheduler', () => {
     } as unknown as RunRepository;
     const scheduler = new QStashRunScheduler({
       repository,
-      clientFactory: () => ({ publishJSON }),
+      clientFactory: () => ({
+        publishJSON,
+        messages: { cancel: vi.fn() },
+      }),
       publicAppBaseUrl: 'https://simulator.example.com',
       retries: 2,
     });
@@ -113,6 +119,7 @@ describe('QStashRunScheduler', () => {
       } as unknown as RunRepository,
       clientFactory: () => ({
         publishJSON: vi.fn().mockResolvedValue({ messageId: 'msg-accepted' }),
+        messages: { cancel: vi.fn() },
       }),
       publicAppBaseUrl: 'https://simulator.example.com',
       retries: 1,
@@ -131,6 +138,7 @@ describe('QStashRunScheduler', () => {
   it('does not construct the SDK client before schedule is invoked', async () => {
     const clientFactory = vi.fn(() => ({
       publishJSON: vi.fn().mockResolvedValue({ messageId: 'msg' }),
+      messages: { cancel: vi.fn() },
     }));
     const scheduler = new QStashRunScheduler({
       repository: {
@@ -145,5 +153,22 @@ describe('QStashRunScheduler', () => {
     expect(clientFactory).not.toHaveBeenCalled();
     await scheduler.schedule({ runId, steps: [steps[0]] });
     expect(clientFactory).toHaveBeenCalledOnce();
+  });
+
+  it('cancels pending messages through client.messages.cancel without deprecated delete', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const scheduler = new QStashRunScheduler({
+      repository: {} as RunRepository,
+      clientFactory: () => ({
+        publishJSON: vi.fn(),
+        messages: { cancel },
+      }),
+      publicAppBaseUrl: 'https://simulator.example.com',
+      retries: 1,
+    });
+
+    await scheduler.cancelPending(['msg-1', 'msg-2']);
+
+    expect(cancel).toHaveBeenCalledWith(['msg-1', 'msg-2']);
   });
 });

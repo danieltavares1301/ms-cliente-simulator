@@ -3,10 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import {
+  cancelRunRequestSchema,
   createRunRequestSchema,
   createRunResponseSchema,
   idempotencyKeySchema,
   restErrorResponseSchema,
+  retryRunRequestSchema,
+  runActionResponseSchema,
   runListQuerySchema,
   runListResponseSchema,
   runResponseSchema,
@@ -21,6 +24,11 @@ import {
   RunServiceError,
   type CreateRunServiceResult,
 } from './orchestration';
+import {
+  createRunAdministrationService,
+  RunAdministrationError,
+  type RunAdministrationResult,
+} from './administration';
 
 const REQUEST_BODY_LIMIT = 16_384;
 const requestedBy = 'simulator-admin-api';
@@ -30,6 +38,17 @@ type RunService = {
     idempotencyKey: string;
     request: z.infer<typeof createRunRequestSchema>;
   }): Promise<CreateRunServiceResult>;
+};
+
+type AdministrationService = {
+  cancelRun(input: {
+    runId: string;
+    reasonCode?: z.infer<typeof cancelRunRequestSchema>['reasonCode'];
+  }): Promise<RunAdministrationResult>;
+  retryRun(input: {
+    runId: string;
+    stepKeys?: readonly string[];
+  }): Promise<RunAdministrationResult>;
 };
 
 type HandlerDependencies = {
@@ -43,6 +62,10 @@ type HandlerDependencies = {
     idempotencyPepper: string;
     requestedBy: string;
   }) => RunService;
+  administrationServiceFactory?: (dependencies: {
+    repository: RunRepository;
+    scheduler: Scheduler;
+  }) => AdministrationService;
 };
 
 function errorResponse(
@@ -125,6 +148,54 @@ function pagination(page: number, pageSize: number, total: number) {
     total,
     totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
   };
+}
+
+async function parseOptionalBody(
+  request: Request,
+  schema: z.ZodType,
+): Promise<{ success: true; data: unknown } | { success: false }> {
+  let text: string;
+  try {
+    text = await request.text();
+  } catch {
+    return { success: false };
+  }
+  if (text.length > REQUEST_BODY_LIMIT) return { success: false };
+  if (text.trim().length === 0) {
+    const parsed = schema.safeParse({});
+    return parsed.success
+      ? { success: true, data: parsed.data }
+      : { success: false };
+  }
+  try {
+    const parsed = schema.safeParse(JSON.parse(text));
+    return parsed.success
+      ? { success: true, data: parsed.data }
+      : { success: false };
+  } catch {
+    return { success: false };
+  }
+}
+
+function administrationError(error: unknown): Response {
+  if (error instanceof RunAdministrationError) {
+    if (error.code === 'RUN_NOT_FOUND') {
+      return errorResponse(404, error.code, 'Run not found');
+    }
+    if (
+      error.code === 'RUN_NOT_CANCELLABLE' ||
+      error.code === 'NO_ELIGIBLE_STEPS'
+    ) {
+      return errorResponse(409, error.code, 'Run action conflict');
+    }
+    if (
+      error.code === 'CANCELLATION_FAILED' ||
+      error.code === 'SCHEDULING_FAILED'
+    ) {
+      return errorResponse(503, error.code, 'Run action unavailable');
+    }
+  }
+  return errorResponse(500, 'INTERNAL_ERROR', 'Internal server error');
 }
 
 export function createRunApiHandlers(dependencies: HandlerDependencies) {
@@ -319,6 +390,122 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
         );
       } catch {
         return errorResponse(500, 'INTERNAL_ERROR', 'Internal server error');
+      }
+    },
+
+    async cancelRun(request: Request, runId: string): Promise<Response> {
+      const blocked = guard(request, dependencies.environment);
+      if (blocked) return blocked;
+      if (!z.string().uuid().safeParse(runId).success) {
+        return errorResponse(404, 'RUN_NOT_FOUND', 'Run not found');
+      }
+      const parsed = await parseOptionalBody(request, cancelRunRequestSchema);
+      if (!parsed.success) {
+        return errorResponse(422, 'INVALID_REQUEST', 'Invalid request body');
+      }
+      if (
+        dependencies.scheduler === undefined &&
+        dependencies.schedulerFactory === undefined
+      ) {
+        return errorResponse(
+          503,
+          'SCHEDULER_NOT_CONFIGURED',
+          'Scheduler is not configured',
+        );
+      }
+      try {
+        const repository = getRepository();
+        const scheduler =
+          dependencies.scheduler ?? dependencies.schedulerFactory?.(repository);
+        if (scheduler === undefined) {
+          return errorResponse(
+            503,
+            'SCHEDULER_NOT_CONFIGURED',
+            'Scheduler is not configured',
+          );
+        }
+        const factory =
+          dependencies.administrationServiceFactory ??
+          createRunAdministrationService;
+        const body = parsed.data as z.infer<typeof cancelRunRequestSchema>;
+        const result = await factory({ repository, scheduler }).cancelRun({
+          runId,
+          ...(body.reasonCode === undefined
+            ? {}
+            : { reasonCode: body.reasonCode }),
+        });
+        return Response.json(
+          runActionResponseSchema.parse({
+            data: {
+              runId: result.runId,
+              status: result.status,
+              affectedStepCount: result.affectedStepCount,
+            },
+            replayed: result.replayed,
+          }),
+          {
+            status:
+              result.status === 'CANCELLED' && result.replayed ? 200 : 202,
+            headers: { 'Cache-Control': 'no-store' },
+          },
+        );
+      } catch (error) {
+        return administrationError(error);
+      }
+    },
+
+    async retryRun(request: Request, runId: string): Promise<Response> {
+      const blocked = guard(request, dependencies.environment);
+      if (blocked) return blocked;
+      if (!z.string().uuid().safeParse(runId).success) {
+        return errorResponse(404, 'RUN_NOT_FOUND', 'Run not found');
+      }
+      const parsed = await parseOptionalBody(request, retryRunRequestSchema);
+      if (!parsed.success) {
+        return errorResponse(422, 'INVALID_REQUEST', 'Invalid request body');
+      }
+      if (
+        dependencies.scheduler === undefined &&
+        dependencies.schedulerFactory === undefined
+      ) {
+        return errorResponse(
+          503,
+          'SCHEDULER_NOT_CONFIGURED',
+          'Scheduler is not configured',
+        );
+      }
+      try {
+        const repository = getRepository();
+        const scheduler =
+          dependencies.scheduler ?? dependencies.schedulerFactory?.(repository);
+        if (scheduler === undefined) {
+          return errorResponse(
+            503,
+            'SCHEDULER_NOT_CONFIGURED',
+            'Scheduler is not configured',
+          );
+        }
+        const factory =
+          dependencies.administrationServiceFactory ??
+          createRunAdministrationService;
+        const body = parsed.data as z.infer<typeof retryRunRequestSchema>;
+        const result = await factory({ repository, scheduler }).retryRun({
+          runId,
+          ...(body.stepKeys === undefined ? {} : { stepKeys: body.stepKeys }),
+        });
+        return Response.json(
+          runActionResponseSchema.parse({
+            data: {
+              runId: result.runId,
+              status: result.status,
+              affectedStepCount: result.affectedStepCount,
+            },
+            replayed: false,
+          }),
+          { status: 202, headers: { 'Cache-Control': 'no-store' } },
+        );
+      } catch (error) {
+        return administrationError(error);
       }
     },
   };

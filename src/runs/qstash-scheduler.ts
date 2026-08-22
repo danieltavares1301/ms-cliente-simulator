@@ -15,6 +15,9 @@ type QStashPublishRequest = {
 
 type QStashClient = {
   publishJSON(request: QStashPublishRequest): Promise<{ messageId: string }>;
+  messages: {
+    cancel(messageId: string | string[]): Promise<unknown>;
+  };
 };
 
 type QStashRunSchedulerDependencies = {
@@ -88,6 +91,11 @@ export class QStashRunScheduler implements Scheduler {
       });
       throw new QStashSchedulingError();
     }
+  }
+
+  async cancelPending(messageIds: readonly string[]): Promise<void> {
+    if (messageIds.length === 0) return;
+    await this.getClient().messages.cancel([...messageIds]);
   }
 
   private getClient(): QStashClient {

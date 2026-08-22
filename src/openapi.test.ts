@@ -31,7 +31,7 @@ describe('OpenAPI document', () => {
 
   it('is OpenAPI 3.1 and documents every planned public endpoint', () => {
     expect(openApiDocument.openapi).toBe('3.1.0');
-    expect(openApiDocument.info.version).toBe('0.3.2');
+    expect(openApiDocument.info.version).toBe('0.3.0');
     expect(openApiDocument.info.title).toBeTruthy();
 
     for (const path of publicPaths) {
@@ -72,11 +72,16 @@ describe('OpenAPI document', () => {
       expect(operation?.responses).toHaveProperty('401');
       expect(operation?.responses).toHaveProperty('503');
     }
-    expect(
-      openApiDocument.paths['/api/v1/runs/{runId}/cancellations']?.post?.[
-        'x-implementation-status'
-      ],
-    ).toBe('future');
+    for (const path of [
+      '/api/v1/runs/{runId}/cancellations',
+      '/api/v1/runs/{runId}/retries',
+    ]) {
+      const operation = openApiDocument.paths[path]?.post;
+      expect(operation?.['x-implementation-status']).toBe('implemented');
+      for (const status of ['401', '404', '409', '422', '503']) {
+        expect(operation?.responses).toHaveProperty(status);
+      }
+    }
     expect(
       openApiDocument.paths['/api/ms-clientes/graphql']?.post?.[
         'x-implementation-status'

@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { restErrorResponseSchema } from '../contracts';
 import type { RunRepository } from '../db/run-repository';
+import { RunAdministrationError } from './administration';
 import { createRunApiHandlers } from './handlers';
+import type { Scheduler } from './scheduler';
 
 const adminKey = 'admin-key-that-is-at-least-32-chars';
 const enabledEnvironment = {
@@ -240,5 +242,152 @@ describe('protected runs API handlers', () => {
     expect(detail.status).toBe(404);
     expect(steps.status).toBe(404);
     expect(repository.listSteps).not.toHaveBeenCalled();
+  });
+
+  it('protects cancellation and retry with the same feature gate and bearer auth', async () => {
+    const repositoryFactory = vi.fn();
+    const scheduler = {} as Scheduler;
+    const disabled = createRunApiHandlers({
+      environment: { ORCHESTRATION_ENABLED: 'false' },
+      repositoryFactory,
+      scheduler,
+    });
+    const enabled = createRunApiHandlers({
+      environment: enabledEnvironment,
+      repositoryFactory,
+      scheduler,
+    });
+    const runId = '11111111-1111-4111-8111-111111111111';
+
+    expect(
+      (
+        await disabled.cancelRun(
+          new Request(`http://localhost/api/v1/runs/${runId}/cancellations`, {
+            method: 'POST',
+          }),
+          runId,
+        )
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await enabled.retryRun(
+          new Request(`http://localhost/api/v1/runs/${runId}/retries`, {
+            method: 'POST',
+          }),
+          runId,
+        )
+      ).status,
+    ).toBe(401);
+    expect(repositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it('rejects free text and unknown fields in administrative bodies without reflecting secrets', async () => {
+    const repositoryFactory = vi.fn();
+    const handlers = createRunApiHandlers({
+      environment: enabledEnvironment,
+      repositoryFactory,
+      scheduler: {} as Scheduler,
+    });
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const response = await handlers.cancelRun(
+      request(`http://localhost/api/v1/runs/${runId}/cancellations`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: adminKey }),
+      }),
+      runId,
+    );
+
+    expect(response.status).toBe(422);
+    expect(JSON.stringify(await response.json())).not.toContain(adminKey);
+    expect(repositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it('returns 202 for cancellation, 200 for CANCELLED replay, and 202 for retry', async () => {
+    const cancelRun = vi
+      .fn()
+      .mockResolvedValueOnce({
+        runId: '11111111-1111-4111-8111-111111111111',
+        status: 'CANCELLED',
+        affectedStepCount: 2,
+        replayed: false,
+      })
+      .mockResolvedValueOnce({
+        runId: '11111111-1111-4111-8111-111111111111',
+        status: 'CANCELLED',
+        affectedStepCount: 2,
+        replayed: true,
+      });
+    const retryRun = vi.fn().mockResolvedValue({
+      runId: '11111111-1111-4111-8111-111111111111',
+      status: 'SCHEDULED',
+      affectedStepCount: 1,
+      replayed: false,
+    });
+    const handlers = createRunApiHandlers({
+      environment: enabledEnvironment,
+      repositoryFactory: () => ({}) as RunRepository,
+      scheduler: {} as Scheduler,
+      administrationServiceFactory: () => ({ cancelRun, retryRun }),
+    });
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const cancellation = () =>
+      request(`http://localhost/api/v1/runs/${runId}/cancellations`, {
+        method: 'POST',
+        body: JSON.stringify({ reasonCode: 'OPERATOR_REQUEST' }),
+      });
+    const retry = request(`http://localhost/api/v1/runs/${runId}/retries`, {
+      method: 'POST',
+      body: JSON.stringify({ stepKeys: ['cliente-update'] }),
+    });
+
+    expect((await handlers.cancelRun(cancellation(), runId)).status).toBe(202);
+    expect((await handlers.cancelRun(cancellation(), runId)).status).toBe(200);
+    const retryResponse = await handlers.retryRun(retry, runId);
+    expect(retryResponse.status).toBe(202);
+    expect(await retryResponse.json()).toMatchObject({
+      data: { status: 'SCHEDULED', affectedStepCount: 1 },
+      replayed: false,
+    });
+  });
+
+  it.each([
+    ['RUN_NOT_FOUND', 404],
+    ['RUN_NOT_CANCELLABLE', 409],
+    ['NO_ELIGIBLE_STEPS', 409],
+    ['CANCELLATION_FAILED', 503],
+  ] as const)('maps administrative error %s to %i', async (code, status) => {
+    const action = vi
+      .fn()
+      .mockRejectedValue(new RunAdministrationError(code, 'private detail'));
+    const handlers = createRunApiHandlers({
+      environment: enabledEnvironment,
+      repositoryFactory: () => ({}) as RunRepository,
+      scheduler: {} as Scheduler,
+      administrationServiceFactory: () => ({
+        cancelRun: action,
+        retryRun: action,
+      }),
+    });
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const response =
+      code === 'NO_ELIGIBLE_STEPS'
+        ? await handlers.retryRun(
+            request(`http://localhost/api/v1/runs/${runId}/retries`, {
+              method: 'POST',
+            }),
+            runId,
+          )
+        : await handlers.cancelRun(
+            request(`http://localhost/api/v1/runs/${runId}/cancellations`, {
+              method: 'POST',
+            }),
+            runId,
+          );
+
+    expect(response.status).toBe(status);
+    expect(JSON.stringify(await response.json())).not.toContain(
+      'private detail',
+    );
   });
 });

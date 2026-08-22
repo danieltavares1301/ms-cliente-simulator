@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   atualizarClienteInputSchema,
+  cancelRunRequestSchema,
   createRunRequestSchema,
   createRunResponseSchema,
   dryRunPreviewSchema,
@@ -11,6 +12,8 @@ import {
   graphqlSuccessResponseSchema,
   healthResponseSchema,
   paginationMetadataSchema,
+  retryRunRequestSchema,
+  runActionResponseSchema,
   runListResponseSchema,
   runResponseSchema,
   runStepListResponseSchema,
@@ -158,6 +161,17 @@ const runErrorResponses = {
   '500': errorResponses['500'],
 };
 
+const runActionErrorResponses = {
+  '401': errorResponses['401'],
+  '404': response('Execução não encontrada.', 'RestErrorResponse'),
+  '409': response('Conflito de estado da execução.', 'RestErrorResponse'),
+  '422': response('Corpo estrito inválido.', 'RestErrorResponse'),
+  '503': response(
+    'Orquestração ou integração QStash indisponível.',
+    'RestErrorResponse',
+  ),
+};
+
 const bearerSecurity = [{ bearerAuth: [] }];
 
 const scenarioKeyParameter = {
@@ -215,7 +229,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.3.2',
+    version: '0.3.0',
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },
@@ -482,20 +496,24 @@ export const openApiDocument: OpenApiDocument = {
     '/api/v1/runs/{runId}/cancellations': {
       post: {
         summary: 'Solicitar cancelamento',
-        description: 'Contrato futuro; passos em processamento podem concluir.',
+        description:
+          'Inicia cancelamento idempotente. Mensagens pendentes são canceladas no QStash; passos em processamento podem concluir sem reabrir a execução.',
         operationId: 'cancelRun',
         tags: ['Runs'],
         security: bearerSecurity,
-        'x-implementation-status': 'future',
+        'x-implementation-status': 'implemented',
         parameters: [runIdParameter],
+        requestBody: {
+          required: false,
+          content: jsonContent('CancelRunRequest'),
+        },
         responses: {
-          '202': response('Cancelamento solicitado.', 'RunActionAccepted'),
-          '404': response('Execução não encontrada.', 'RestErrorResponse'),
-          '409': response(
-            'Execução não pode ser cancelada.',
-            'RestErrorResponse',
+          '200': response(
+            'Replay de uma execução já cancelada.',
+            'RunActionResponse',
           ),
-          ...errorResponses,
+          '202': response('Cancelamento solicitado.', 'RunActionResponse'),
+          ...runActionErrorResponses,
         },
       },
     },
@@ -503,17 +521,19 @@ export const openApiDocument: OpenApiDocument = {
       post: {
         summary: 'Repetir passos elegíveis',
         description:
-          'Contrato futuro; cria novas tentativas sem apagar a trilha original.',
+          'Reserva e agenda novas tentativas somente para passos FAILED, sem apagar a trilha original.',
         operationId: 'retryRun',
         tags: ['Runs'],
         security: bearerSecurity,
-        'x-implementation-status': 'future',
+        'x-implementation-status': 'implemented',
         parameters: [runIdParameter],
+        requestBody: {
+          required: false,
+          content: jsonContent('RetryRunRequest'),
+        },
         responses: {
-          '202': response('Retry aceito.', 'RunActionAccepted'),
-          '404': response('Execução não encontrada.', 'RestErrorResponse'),
-          '409': response('Não há passos elegíveis.', 'RestErrorResponse'),
-          ...errorResponses,
+          '202': response('Retry aceito.', 'RunActionResponse'),
+          ...runActionErrorResponses,
         },
       },
     },
@@ -664,22 +684,18 @@ export const openApiDocument: OpenApiDocument = {
         'RunStepListResponse',
         runStepListResponseSchema,
       ),
-      RunActionAccepted: {
-        type: 'object',
-        required: ['data'],
-        properties: {
-          data: {
-            type: 'object',
-            required: ['runId', 'status'],
-            properties: {
-              runId: { type: 'string', minLength: 1 },
-              status: { type: 'string', enum: runStatusValues },
-            },
-            additionalProperties: false,
-          },
-        },
-        additionalProperties: false,
-      },
+      CancelRunRequest: toComponentSchema(
+        'CancelRunRequest',
+        cancelRunRequestSchema,
+      ),
+      RetryRunRequest: toComponentSchema(
+        'RetryRunRequest',
+        retryRunRequestSchema,
+      ),
+      RunActionResponse: toComponentSchema(
+        'RunActionResponse',
+        runActionResponseSchema,
+      ),
     },
   },
 };

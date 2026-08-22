@@ -85,7 +85,9 @@ atomicidade entre run e passos:
 
 Auditoria também é uma operação explícita e separada. Um futuro orquestrador
 deve repetir a criação antes de fazer dispatch e registrar auditoria do recovery.
-Este incremento não cria endpoints de runs, dispatch ou integração QStash.
+No incremento 3.3, cancelamento e retry seguem a mesma estratégia: updates
+condicionais e constraints decidem o vencedor; publicação/cancelamento QStash
+ocorre fora da operação SQL e deixa estado/auditoria recuperáveis em falha.
 
 ## Teste PostgreSQL local
 

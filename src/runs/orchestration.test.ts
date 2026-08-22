@@ -94,6 +94,26 @@ class MemoryRunRepository implements RunRepository {
     throw new Error('not used');
   }
 
+  beginCancellation(): never {
+    throw new Error('not used');
+  }
+
+  finalizeCancellation(): never {
+    throw new Error('not used');
+  }
+
+  recordCancellationFailure(): never {
+    throw new Error('not used');
+  }
+
+  reserveRetries(): never {
+    throw new Error('not used');
+  }
+
+  releaseRetryReservations(): never {
+    throw new Error('not used');
+  }
+
   updateRunStatus(): never {
     throw new Error('not used');
   }
@@ -141,7 +161,7 @@ function createService(repository: RunRepository, scheduler?: Scheduler) {
 describe('run orchestration service', () => {
   it('renders and persists a dry run without scheduling or raw payload persistence', async () => {
     const repository = new MemoryRunRepository();
-    const scheduler = { schedule: vi.fn() };
+    const scheduler = { schedule: vi.fn(), cancelPending: vi.fn() };
     const result = await createService(repository, scheduler).createRun({
       idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
       request,
@@ -232,7 +252,10 @@ describe('run orchestration service', () => {
 
   it('persists and schedules a non-dry run when a scheduler is injected', async () => {
     const repository = new MemoryRunRepository();
-    const scheduler = { schedule: vi.fn().mockResolvedValue(undefined) };
+    const scheduler = {
+      schedule: vi.fn().mockResolvedValue(undefined),
+      cancelPending: vi.fn(),
+    };
     const result = await createService(repository, scheduler).createRun({
       idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
       request: {

@@ -171,6 +171,38 @@ export interface RunStepPage {
   hasMore: boolean;
 }
 
+export type BeginCancellationResult =
+  | {
+      outcome: 'STARTED';
+      messageIds: string[];
+      affectedStepCount: number;
+    }
+  | {
+      outcome: 'REPLAY';
+      status: 'CANCELLED';
+      affectedStepCount: number;
+    }
+  | {
+      outcome: 'IN_PROGRESS';
+      status: 'CANCELLING';
+      affectedStepCount: number;
+    }
+  | { outcome: 'CONFLICT'; status: RunStatus }
+  | { outcome: 'NOT_FOUND' };
+
+export interface RetryStepReservation {
+  stepId: string;
+  stepKey: string;
+  ordinal: number;
+  attemptNumber: number;
+}
+
+export type ReserveRetriesResult =
+  | { outcome: 'RESERVED'; steps: RetryStepReservation[] }
+  | { outcome: 'NO_ELIGIBLE'; status: RunStatus }
+  | { outcome: 'CONFLICT'; status: RunStatus }
+  | { outcome: 'NOT_FOUND' };
+
 export interface RunRepository {
   createRun(input: CreateRunInput): Promise<CreateRunResult>;
   findRun(runId: string): Promise<Run | null>;
@@ -187,6 +219,35 @@ export interface RunRepository {
     event: Omit<AuditEvent, 'id' | 'createdAt'>,
   ): Promise<AuditEvent>;
   listAuditEvents(runId: string, limit: number): Promise<AuditEvent[]>;
+  beginCancellation(input: {
+    runId: string;
+    actor: string;
+    reasonCode?: string;
+  }): Promise<BeginCancellationResult>;
+  finalizeCancellation(input: {
+    runId: string;
+    actor: string;
+    reasonCode?: string;
+    expectedAffectedStepCount: number;
+  }): Promise<{ status: 'CANCELLED'; affectedStepCount: number }>;
+  recordCancellationFailure(input: {
+    runId: string;
+    actor: string;
+    reasonCode?: string;
+    requestedCount: number;
+    errorCode: 'QSTASH_CANCEL_FAILED';
+  }): Promise<void>;
+  reserveRetries(input: {
+    runId: string;
+    stepKeys?: readonly string[];
+    actor: string;
+  }): Promise<ReserveRetriesResult>;
+  releaseRetryReservations(input: {
+    runId: string;
+    stepIds: readonly string[];
+    actor: string;
+    errorCode: 'QSTASH_SCHEDULING_FAILED';
+  }): Promise<void>;
   updateRunStatus(input: {
     runId: string;
     expectedStatus: RunStatus;

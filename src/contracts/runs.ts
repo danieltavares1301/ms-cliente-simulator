@@ -37,6 +37,35 @@ export const createRunRequestSchema = z
 
 export const idempotencyKeySchema = z.string().uuid();
 
+export const cancellationReasonCodeSchema = z.enum([
+  'OPERATOR_REQUEST',
+  'INCIDENT_RESPONSE',
+  'SUPERSEDED',
+]);
+
+export const cancelRunRequestSchema = z
+  .object({
+    reasonCode: cancellationReasonCodeSchema.optional(),
+  })
+  .strict();
+
+const retryStepKeySchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+export const retryRunRequestSchema = z
+  .object({
+    stepKeys: z.array(retryStepKeySchema).min(1).max(100).optional(),
+  })
+  .strict()
+  .refine(
+    ({ stepKeys }) =>
+      stepKeys === undefined || new Set(stepKeys).size === stepKeys.length,
+    { message: 'stepKeys must be unique' },
+  );
+
 const optionalQueryValue = <T extends z.ZodType>(schema: T) =>
   z.preprocess(
     (value) => (value === '' ? undefined : value),
@@ -178,7 +207,25 @@ export const runStepListResponseSchema = z
   })
   .strict();
 
+export const runActionResponseSchema = z
+  .object({
+    data: z
+      .object({
+        runId: runIdSchema,
+        status: runStatusSchema,
+        affectedStepCount: z.number().int().nonnegative(),
+      })
+      .strict(),
+    replayed: z.boolean(),
+  })
+  .strict();
+
 export type CreateRunRequest = z.infer<typeof createRunRequestSchema>;
 export type DryRunPreview = z.infer<typeof dryRunPreviewSchema>;
 export type RunListQuery = z.infer<typeof runListQuerySchema>;
 export type RunStepsQuery = z.infer<typeof runStepsQuerySchema>;
+export type CancellationReasonCode = z.infer<
+  typeof cancellationReasonCodeSchema
+>;
+export type CancelRunRequest = z.infer<typeof cancelRunRequestSchema>;
+export type RetryRunRequest = z.infer<typeof retryRunRequestSchema>;

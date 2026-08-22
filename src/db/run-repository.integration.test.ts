@@ -419,4 +419,259 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       }),
     ]);
   });
+
+  it('atomically begins cancellation, cancels only pending work, and audits sanitized metadata', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'scheduled',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            qstashMessageId: 'msg-scheduled',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'pending',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'running',
+            ordinal: 2,
+            target: 'CLIENTE',
+            status: 'RUNNING',
+            qstashMessageId: 'msg-running',
+            attemptCount: 1,
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+
+    const begun = await repository.beginCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      reasonCode: 'OPERATOR_REQUEST',
+    });
+    expect(begun).toStrictEqual({
+      outcome: 'STARTED',
+      messageIds: ['msg-scheduled'],
+      affectedStepCount: 2,
+    });
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: (await repository.listSteps(created.run.id, { limit: 10 }))
+          .items[0].id,
+        attemptNumber: 1,
+        claimedAt: new Date(),
+      }),
+    ).resolves.toStrictEqual({ outcome: 'TERMINAL' });
+
+    await repository.finalizeCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      reasonCode: 'OPERATOR_REQUEST',
+      expectedAffectedStepCount: 2,
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.map(
+        ({ status }) => status,
+      ),
+    ).toStrictEqual(['CANCELLED', 'CANCELLED', 'RUNNING']);
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'CANCELLED',
+    });
+    const audit = await repository.listAuditEvents(created.run.id, 10);
+    expect(audit.map(({ action }) => action)).toStrictEqual([
+      'RUN_CANCELLED',
+      'RUN_CANCELLATION_STARTED',
+    ]);
+    expect(JSON.stringify(audit)).not.toContain('token');
+    expect(JSON.stringify(audit)).not.toContain('payload');
+  });
+
+  it('keeps a failed QStash cancellation in CANCELLING with a technical audit error', async () => {
+    const created = await repository.createRun(
+      createInput({ run: { status: 'RUNNING' } }),
+    );
+    await repository.beginCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+    });
+    await repository.recordCancellationFailure({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      requestedCount: 1,
+      errorCode: 'QSTASH_CANCEL_FAILED',
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'CANCELLING',
+    });
+    expect(await repository.listAuditEvents(created.run.id, 10)).toContainEqual(
+      expect.objectContaining({
+        action: 'RUN_CANCELLATION_FAILED',
+        metadataRedacted: {
+          count: 1,
+          status: 'CANCELLING',
+          errorCode: 'QSTASH_CANCEL_FAILED',
+        },
+      }),
+    );
+  });
+
+  it('lets only one concurrent cancellation begin', async () => {
+    const created = await repository.createRun(
+      createInput({ run: { status: 'SCHEDULED' } }),
+    );
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        repository.beginCancellation({
+          runId: created.run.id,
+          actor: 'simulator-admin-api',
+        }),
+      ),
+    );
+
+    expect(results.filter(({ outcome }) => outcome === 'STARTED')).toHaveLength(
+      1,
+    );
+    expect(
+      results.filter(({ outcome }) => outcome === 'IN_PROGRESS'),
+    ).toHaveLength(4);
+    expect(
+      (await repository.listAuditEvents(created.run.id, 10)).filter(
+        ({ action }) => action === 'RUN_CANCELLATION_STARTED',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('does not reopen CANCELLED when an already running delivery completes', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await repository.beginCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+    });
+    await repository.finalizeCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      expectedAffectedStepCount: 0,
+    });
+
+    await expect(
+      repository.completeDispatch({
+        runId: created.run.id,
+        stepId: step.id,
+        attemptNumber: 1,
+        requestId: 'late-delivery',
+        httpStatus: 200,
+        durationMs: 1,
+        responseRedacted: { network: false },
+        errorCode: null,
+        finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+      }),
+    ).resolves.toStrictEqual({ runStatus: 'CANCELLED' });
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'CANCELLED',
+    });
+  });
+
+  it('reserves one concurrent retry, increments the attempt, and preserves prior history', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      requestId: 'failed-attempt-1',
+      httpStatus: 503,
+      durationMs: 1,
+      responseRedacted: { network: false },
+      errorCode: 'DISPATCH_TARGET_FAILED',
+      finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        repository.reserveRetries({
+          runId: created.run.id,
+          stepKeys: ['dispatch'],
+          actor: 'simulator-admin-api',
+        }),
+      ),
+    );
+    expect(
+      results.filter(({ outcome }) => outcome === 'RESERVED'),
+    ).toHaveLength(1);
+    expect(
+      results.filter(({ outcome }) => outcome === 'NO_ELIGIBLE'),
+    ).toHaveLength(4);
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toMatchObject([
+      { attemptNumber: 1, requestId: 'failed-attempt-1' },
+      {
+        attemptNumber: 2,
+        requestId: `retry:${created.run.id}:${step.id}:2`,
+      },
+    ]);
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({ status: 'PENDING', attemptCount: 2 });
+  });
 });
