@@ -1,0 +1,6 @@
+.next/
+coverage/
+node_modules/
+docs/
+plano-api-simulador-ms-clientes-2.2.md
+package-lock.json

@@ -4,7 +4,39 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-A **Fase 0 documental está concluída**. Nenhum projeto Node foi inicializado, nenhuma dependência foi instalada e nenhuma metadata Salesforce foi criada ou alterada. A próxima etapa é a **Fase 1 — Fundação do projeto**.
+A **Fase 0 documental está concluída**. O primeiro incremento da **Fase 1 —
+Fundação do projeto** disponibiliza a base API-only em Next.js/TypeScript e o
+health básico. Nenhuma metadata Salesforce foi criada ou alterada.
+
+## Quick Start
+
+Pré-requisito: Node.js LTS compatível com a versão declarada em `package.json`.
+
+```bash
+npm install
+npm run dev
+```
+
+Consulte `GET http://localhost:3000/api/v1/health`. O projeto não possui página
+ou interface web.
+
+O arquivo `.env.example` documenta a configuração deste incremento. Ainda não
+há variáveis obrigatórias; validação completa de ambiente, banco e QStash serão
+implementados em incrementos posteriores.
+
+## Comandos da Fase 1
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+npm run format
+npm run format:check
+npm run typecheck
+npm test
+npm run test:watch
+```
 
 ## Documentação
 
