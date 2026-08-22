@@ -21,6 +21,7 @@ describe('run administration service', () => {
         status: 'CANCELLED',
         affectedStepCount: 3,
       }),
+      recordCancellationProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as RunRepository;
     const scheduler = {
       cancelPending: vi.fn().mockResolvedValue(undefined),
@@ -60,9 +61,10 @@ describe('run administration service', () => {
       recordCancellationFailure: vi.fn().mockResolvedValue(undefined),
     } as unknown as RunRepository;
     const scheduler = {
-      cancelPending: vi
-        .fn()
-        .mockRejectedValue(new Error('secret provider body')),
+      cancelPending: vi.fn().mockResolvedValue({
+        cancelledMessageIds: [],
+        failedMessageIds: ['msg-pending'],
+      }),
     } as unknown as Scheduler;
     const service = createRunAdministrationService({ repository, scheduler });
 
@@ -74,6 +76,7 @@ describe('run administration service', () => {
       actor: 'simulator-admin-api',
       reasonCode: 'INCIDENT_RESPONSE',
       requestedCount: 1,
+      cancelledCount: 0,
       errorCode: 'QSTASH_CANCEL_FAILED',
     });
     expect(
@@ -82,6 +85,112 @@ describe('run administration service', () => {
           .calls,
       ),
     ).not.toContain('secret provider body');
+  });
+
+  it('recovers a CANCELLING replay, persists partial progress, and retries only remaining messages', async () => {
+    const beginCancellation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        outcome: 'IN_PROGRESS',
+        status: 'CANCELLING',
+        messageIds: ['msg-already-cancelled', 'msg-pending'],
+        affectedStepCount: 2,
+      })
+      .mockResolvedValueOnce({
+        outcome: 'IN_PROGRESS',
+        status: 'CANCELLING',
+        messageIds: ['msg-pending'],
+        affectedStepCount: 1,
+      });
+    const recordCancellationProgress = vi.fn().mockResolvedValue(undefined);
+    const recordCancellationFailure = vi.fn().mockResolvedValue(undefined);
+    const finalizeCancellation = vi.fn().mockResolvedValue({
+      status: 'CANCELLED',
+      affectedStepCount: 2,
+    });
+    const repository = {
+      beginCancellation,
+      recordCancellationProgress,
+      recordCancellationFailure,
+      finalizeCancellation,
+    } as unknown as RunRepository;
+    const cancelPending = vi
+      .fn()
+      .mockResolvedValueOnce({
+        cancelledMessageIds: ['msg-already-cancelled'],
+        failedMessageIds: ['msg-pending'],
+      })
+      .mockResolvedValueOnce({
+        cancelledMessageIds: ['msg-pending'],
+        failedMessageIds: [],
+      });
+    const service = createRunAdministrationService({
+      repository,
+      scheduler: { cancelPending } as unknown as Scheduler,
+    });
+
+    await expect(service.cancelRun({ runId })).rejects.toMatchObject({
+      code: 'CANCELLATION_FAILED',
+    });
+    await expect(service.cancelRun({ runId })).resolves.toMatchObject({
+      replayed: true,
+      status: 'CANCELLED',
+    });
+
+    expect(cancelPending).toHaveBeenNthCalledWith(1, [
+      'msg-already-cancelled',
+      'msg-pending',
+    ]);
+    expect(cancelPending).toHaveBeenNthCalledWith(2, ['msg-pending']);
+    expect(recordCancellationProgress).toHaveBeenNthCalledWith(1, {
+      runId,
+      actor: 'simulator-admin-api',
+      messageIds: ['msg-already-cancelled'],
+    });
+    expect(recordCancellationFailure).toHaveBeenCalledWith({
+      runId,
+      actor: 'simulator-admin-api',
+      requestedCount: 2,
+      cancelledCount: 1,
+      errorCode: 'QSTASH_CANCEL_FAILED',
+    });
+    expect(finalizeCancellation).toHaveBeenCalledOnce();
+  });
+
+  it('allows concurrent cancellation replays to converge without inconsistent effects', async () => {
+    const repository = {
+      beginCancellation: vi.fn().mockResolvedValue({
+        outcome: 'IN_PROGRESS',
+        status: 'CANCELLING',
+        messageIds: ['msg-pending'],
+        affectedStepCount: 1,
+      }),
+      recordCancellationProgress: vi.fn().mockResolvedValue(undefined),
+      finalizeCancellation: vi.fn().mockResolvedValue({
+        status: 'CANCELLED',
+        affectedStepCount: 1,
+      }),
+    } as unknown as RunRepository;
+    const cancelled = new Set<string>();
+    const cancelPending = vi.fn(async (messageIds: readonly string[]) => {
+      for (const messageId of messageIds) cancelled.add(messageId);
+      return {
+        cancelledMessageIds: [...messageIds],
+        failedMessageIds: [],
+      };
+    });
+    const service = createRunAdministrationService({
+      repository,
+      scheduler: { cancelPending } as unknown as Scheduler,
+    });
+
+    const results = await Promise.all([
+      service.cancelRun({ runId }),
+      service.cancelRun({ runId }),
+    ]);
+
+    expect(results.every(({ status }) => status === 'CANCELLED')).toBe(true);
+    expect(cancelled).toStrictEqual(new Set(['msg-pending']));
   });
 
   it('returns CANCELLED replay without calling QStash', async () => {

@@ -56,7 +56,7 @@ export function createRunAdministrationService(dependencies: Dependencies) {
           `Run in ${begun.status} cannot be cancelled`,
         );
       }
-      if (begun.outcome === 'REPLAY' || begun.outcome === 'IN_PROGRESS') {
+      if (begun.outcome === 'REPLAY') {
         return {
           runId: input.runId,
           status: begun.status,
@@ -65,9 +65,28 @@ export function createRunAdministrationService(dependencies: Dependencies) {
         };
       }
 
+      let cancellation;
       try {
-        await dependencies.scheduler.cancelPending(begun.messageIds);
+        cancellation = (await dependencies.scheduler.cancelPending(
+          begun.messageIds,
+        )) ?? {
+          cancelledMessageIds: [...begun.messageIds],
+          failedMessageIds: [],
+        };
       } catch {
+        cancellation = {
+          cancelledMessageIds: [],
+          failedMessageIds: [...begun.messageIds],
+        };
+      }
+      if (cancellation.cancelledMessageIds.length > 0) {
+        await dependencies.repository.recordCancellationProgress({
+          runId: input.runId,
+          actor,
+          messageIds: cancellation.cancelledMessageIds,
+        });
+      }
+      if (cancellation.failedMessageIds.length > 0) {
         await dependencies.repository.recordCancellationFailure({
           runId: input.runId,
           actor,
@@ -75,6 +94,7 @@ export function createRunAdministrationService(dependencies: Dependencies) {
             ? {}
             : { reasonCode: input.reasonCode }),
           requestedCount: begun.messageIds.length,
+          cancelledCount: cancellation.cancelledMessageIds.length,
           errorCode: 'QSTASH_CANCEL_FAILED',
         });
         throw new RunAdministrationError(
@@ -95,7 +115,7 @@ export function createRunAdministrationService(dependencies: Dependencies) {
         runId: input.runId,
         status: finalized.status,
         affectedStepCount: finalized.affectedStepCount,
-        replayed: false,
+        replayed: begun.outcome === 'IN_PROGRESS',
       };
     },
 

@@ -185,6 +185,7 @@ export type BeginCancellationResult =
   | {
       outcome: 'IN_PROGRESS';
       status: 'CANCELLING';
+      messageIds: string[];
       affectedStepCount: number;
     }
   | { outcome: 'CONFLICT'; status: RunStatus }
@@ -196,6 +197,12 @@ export interface RetryStepReservation {
   ordinal: number;
   attemptNumber: number;
 }
+
+export type ClaimInitialSchedulingResult =
+  | { outcome: 'CLAIMED'; previousStatus: RunStatus }
+  | { outcome: 'IN_PROGRESS' }
+  | { outcome: 'NOT_RECOVERABLE' }
+  | { outcome: 'NOT_FOUND' };
 
 export type ReserveRetriesResult =
   | { outcome: 'RESERVED'; steps: RetryStepReservation[] }
@@ -224,6 +231,11 @@ export interface RunRepository {
     actor: string;
     reasonCode?: string;
   }): Promise<BeginCancellationResult>;
+  recordCancellationProgress(input: {
+    runId: string;
+    actor: string;
+    messageIds: readonly string[];
+  }): Promise<void>;
   finalizeCancellation(input: {
     runId: string;
     actor: string;
@@ -235,8 +247,14 @@ export interface RunRepository {
     actor: string;
     reasonCode?: string;
     requestedCount: number;
+    cancelledCount?: number;
     errorCode: 'QSTASH_CANCEL_FAILED';
   }): Promise<void>;
+  claimInitialScheduling(input: {
+    runId: string;
+    actor: string;
+    recovery: boolean;
+  }): Promise<ClaimInitialSchedulingResult>;
   reserveRetries(input: {
     runId: string;
     stepKeys?: readonly string[];

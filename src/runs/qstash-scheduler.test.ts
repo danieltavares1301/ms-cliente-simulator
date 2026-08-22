@@ -28,7 +28,7 @@ describe('QStashRunScheduler', () => {
       .mockResolvedValueOnce({ messageId: 'msg-first' })
       .mockResolvedValueOnce({ messageId: 'msg-second' });
     const recordStepScheduled = vi.fn().mockResolvedValue(true);
-    const markRunScheduled = vi.fn().mockResolvedValue(undefined);
+    const markRunScheduled = vi.fn().mockResolvedValue(true);
     const repository = {
       recordStepScheduled,
       markRunScheduled,
@@ -143,7 +143,7 @@ describe('QStashRunScheduler', () => {
     const scheduler = new QStashRunScheduler({
       repository: {
         recordStepScheduled: vi.fn().mockResolvedValue(true),
-        markRunScheduled: vi.fn().mockResolvedValue(undefined),
+        markRunScheduled: vi.fn().mockResolvedValue(true),
       } as unknown as RunRepository,
       clientFactory,
       publicAppBaseUrl: 'https://simulator.example.com',
@@ -155,8 +155,12 @@ describe('QStashRunScheduler', () => {
     expect(clientFactory).toHaveBeenCalledOnce();
   });
 
-  it('cancels pending messages through client.messages.cancel without deprecated delete', async () => {
-    const cancel = vi.fn().mockResolvedValue(undefined);
+  it('cancels messages independently, tolerates repeats, and reports partial failures', async () => {
+    const cancel = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('provider unavailable'))
+      .mockRejectedValueOnce({ status: 404 });
     const scheduler = new QStashRunScheduler({
       repository: {} as RunRepository,
       clientFactory: () => ({
@@ -167,8 +171,19 @@ describe('QStashRunScheduler', () => {
       retries: 1,
     });
 
-    await scheduler.cancelPending(['msg-1', 'msg-2']);
+    await expect(
+      scheduler.cancelPending(['msg-1', 'msg-2']),
+    ).resolves.toStrictEqual({
+      cancelledMessageIds: ['msg-1'],
+      failedMessageIds: ['msg-2'],
+    });
+    await expect(scheduler.cancelPending(['msg-1'])).resolves.toStrictEqual({
+      cancelledMessageIds: ['msg-1'],
+      failedMessageIds: [],
+    });
 
-    expect(cancel).toHaveBeenCalledWith(['msg-1', 'msg-2']);
+    expect(cancel).toHaveBeenNthCalledWith(1, 'msg-1');
+    expect(cancel).toHaveBeenNthCalledWith(2, 'msg-2');
+    expect(cancel).toHaveBeenNthCalledWith(3, 'msg-1');
   });
 });

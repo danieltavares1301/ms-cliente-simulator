@@ -310,40 +310,56 @@ export function createRunOrchestrationService(
       }
       let responseRun = result.run;
       if (
-        result.outcome === 'CREATED' &&
         !input.request.execution.dryRun &&
-        dependencies.scheduler
+        dependencies.scheduler &&
+        (result.outcome === 'CREATED' ||
+          ['FAILED', 'PARTIAL', 'SCHEDULED'].includes(result.run.status))
       ) {
-        const persistedSteps = (
-          await dependencies.repository.listSteps(result.run.id, { limit: 100 })
-        ).items;
-        const fixtureStepsByKey = new Map(
-          fixture.steps.map((step) => [step.key, step]),
-        );
-        try {
-          await dependencies.scheduler.schedule({
-            runId: result.run.id,
-            steps: persistedSteps
-              .filter(({ stepKind }) => stepKind === 'DISPATCH')
-              .map(({ id, stepKey, ordinal }) => ({
-                stepId: id,
-                stepKey,
-                ordinal,
-                delayMs:
-                  (fixtureStepsByKey.get(stepKey)?.delayMs ?? 0) /
-                  input.request.execution.speed,
-                attemptNumber: 1,
-              })),
-          });
-          responseRun =
-            (await dependencies.repository.findRun(result.run.id)) ??
-            result.run;
-        } catch {
-          throw new RunServiceError(
-            'SCHEDULING_FAILED',
-            'Run was persisted but QStash scheduling failed',
+        const claim = await dependencies.repository.claimInitialScheduling({
+          runId: result.run.id,
+          actor: dependencies.requestedBy,
+          recovery: result.outcome === 'REPLAY',
+        });
+        if (claim.outcome === 'CLAIMED') {
+          const persistedSteps = (
+            await dependencies.repository.listSteps(result.run.id, {
+              limit: 100,
+            })
+          ).items;
+          const fixtureStepsByKey = new Map(
+            fixture.steps.map((step) => [step.key, step]),
           );
+          try {
+            await dependencies.scheduler.schedule({
+              runId: result.run.id,
+              steps: persistedSteps
+                .filter(
+                  ({ stepKind, status, qstashMessageId }) =>
+                    stepKind === 'DISPATCH' &&
+                    status === 'PENDING' &&
+                    qstashMessageId === null,
+                )
+                .map(({ id, stepKey, ordinal, attemptCount }) => ({
+                  stepId: id,
+                  stepKey,
+                  ordinal,
+                  delayMs:
+                    (fixtureStepsByKey.get(stepKey)?.delayMs ?? 0) /
+                    input.request.execution.speed,
+                  attemptNumber: Math.max(1, attemptCount),
+                })),
+            });
+          } catch {
+            throw new RunServiceError(
+              'SCHEDULING_FAILED',
+              'Run was persisted but QStash scheduling failed',
+            );
+          }
         }
+      }
+      if (!input.request.execution.dryRun) {
+        responseRun =
+          (await dependencies.repository.findRun(result.run.id)) ?? result.run;
       }
 
       const responseFixture =

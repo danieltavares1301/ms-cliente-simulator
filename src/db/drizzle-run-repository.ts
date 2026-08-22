@@ -26,6 +26,7 @@ import type {
   CreateRunResult,
   DeliveryAttempt,
   DispatchClaimResult,
+  ClaimInitialSchedulingResult,
   NewRunStep,
   Run,
   RunFilters,
@@ -280,8 +281,8 @@ export class DrizzleRunRepository<
         };
       }
       if (existing.status === 'CANCELLING') {
-        const [remaining] = await this.database
-          .select({ total: count() })
+        const remaining = await this.database
+          .select({ messageId: scenarioRunStep.qstashMessageId })
           .from(scenarioRunStep)
           .where(
             and(
@@ -292,9 +293,13 @@ export class DrizzleRunRepository<
         return {
           outcome: 'IN_PROGRESS',
           status: 'CANCELLING',
-          affectedStepCount: remaining?.total ?? 0,
+          messageIds: remaining.flatMap(({ messageId }) =>
+            messageId === null ? [] : [messageId],
+          ),
+          affectedStepCount: remaining.length,
         };
       }
+
       return { outcome: 'CONFLICT', status: existing.status };
     }
 
@@ -332,6 +337,33 @@ export class DrizzleRunRepository<
     };
   }
 
+  async recordCancellationProgress(input: {
+    runId: string;
+    actor: string;
+    messageIds: readonly string[];
+  }): Promise<void> {
+    if (input.messageIds.length === 0) return;
+    const cancelled = await this.database
+      .update(scenarioRunStep)
+      .set({ status: 'CANCELLED', finishedAt: new Date() })
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          inArray(scenarioRunStep.status, ['PENDING', 'SCHEDULED']),
+          inArray(scenarioRunStep.qstashMessageId, [...input.messageIds]),
+        ),
+      )
+      .returning({ id: scenarioRunStep.id });
+    if (cancelled.length === 0) return;
+    await this.appendAuditEvent({
+      actor: input.actor,
+      action: 'RUN_CANCELLATION_PROGRESS',
+      resourceType: 'scenario_run',
+      resourceId: input.runId,
+      metadataRedacted: { count: cancelled.length, status: 'CANCELLING' },
+    });
+  }
+
   async finalizeCancellation(input: {
     runId: string;
     actor: string;
@@ -363,23 +395,33 @@ export class DrizzleRunRepository<
       if (current?.status !== 'CANCELLED') {
         throw new Error('Cancellation could not be finalized');
       }
+    } else {
+      await this.appendAuditEvent({
+        actor: input.actor,
+        action: 'RUN_CANCELLED',
+        resourceType: 'scenario_run',
+        resourceId: input.runId,
+        metadataRedacted: {
+          ...(input.reasonCode === undefined
+            ? {}
+            : { reasonCode: input.reasonCode }),
+          count: cancelledSteps.length,
+          status: 'CANCELLED',
+        },
+      });
     }
-    await this.appendAuditEvent({
-      actor: input.actor,
-      action: 'RUN_CANCELLED',
-      resourceType: 'scenario_run',
-      resourceId: input.runId,
-      metadataRedacted: {
-        ...(input.reasonCode === undefined
-          ? {}
-          : { reasonCode: input.reasonCode }),
-        count: cancelledSteps.length,
-        status: 'CANCELLED',
-      },
-    });
+    const [total] = await this.database
+      .select({ value: count() })
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.status, 'CANCELLED'),
+        ),
+      );
     return {
       status: 'CANCELLED',
-      affectedStepCount: cancelledSteps.length,
+      affectedStepCount: total?.value ?? cancelledSteps.length,
     };
   }
 
@@ -388,6 +430,7 @@ export class DrizzleRunRepository<
     actor: string;
     reasonCode?: string;
     requestedCount: number;
+    cancelledCount?: number;
     errorCode: 'QSTASH_CANCEL_FAILED';
   }): Promise<void> {
     await this.appendAuditEvent({
@@ -399,11 +442,76 @@ export class DrizzleRunRepository<
         ...(input.reasonCode === undefined
           ? {}
           : { reasonCode: input.reasonCode }),
-        count: input.requestedCount,
+        requestedCount: input.requestedCount,
+        cancelledCount: input.cancelledCount ?? 0,
+        pendingCount: input.requestedCount - (input.cancelledCount ?? 0),
         status: 'CANCELLING',
         errorCode: input.errorCode,
       },
     });
+  }
+
+  async claimInitialScheduling(input: {
+    runId: string;
+    actor: string;
+    recovery: boolean;
+  }): Promise<ClaimInitialSchedulingResult> {
+    const [current] = await this.database
+      .select({ status: scenarioRun.status })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, input.runId))
+      .limit(1);
+    if (current === undefined) return { outcome: 'NOT_FOUND' };
+    if (current.status === 'PROVISIONING') return { outcome: 'IN_PROGRESS' };
+    if (
+      !['CREATED', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(current.status)
+    ) {
+      return { outcome: 'NOT_RECOVERABLE' };
+    }
+    const [pending] = await this.database
+      .select({ value: count() })
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, 'DISPATCH'),
+          eq(scenarioRunStep.status, 'PENDING'),
+          isNull(scenarioRunStep.qstashMessageId),
+        ),
+      );
+    if ((pending?.value ?? 0) === 0) return { outcome: 'NOT_RECOVERABLE' };
+
+    const [claimed] = await this.database
+      .update(scenarioRun)
+      .set({ status: 'PROVISIONING' })
+      .where(
+        and(
+          eq(scenarioRun.id, input.runId),
+          eq(scenarioRun.status, current.status),
+          sql`exists (
+            select 1 from ${scenarioRunStep}
+            where ${scenarioRunStep.runId} = ${input.runId}
+              and ${scenarioRunStep.stepKind} = 'DISPATCH'
+              and ${scenarioRunStep.status} = 'PENDING'
+              and ${scenarioRunStep.qstashMessageId} is null
+          )`,
+        ),
+      )
+      .returning({ id: scenarioRun.id });
+    if (claimed === undefined) return { outcome: 'IN_PROGRESS' };
+    if (input.recovery) {
+      await this.appendAuditEvent({
+        actor: input.actor,
+        action: 'RUN_SCHEDULING_RECOVERY_STARTED',
+        resourceType: 'scenario_run',
+        resourceId: input.runId,
+        metadataRedacted: {
+          previousStatus: current.status,
+          pendingCount: pending?.value ?? 0,
+        },
+      });
+    }
+    return { outcome: 'CLAIMED', previousStatus: current.status };
   }
 
   async reserveRetries(input: {
@@ -670,11 +778,16 @@ export class DrizzleRunRepository<
   async markRunScheduled(runId: string): Promise<void> {
     await this.database
       .update(scenarioRun)
-      .set({ status: 'SCHEDULED' })
+      .set({ status: 'SCHEDULED', finishedAt: null })
       .where(
         and(
           eq(scenarioRun.id, runId),
-          inArray(scenarioRun.status, ['CREATED', 'FAILED', 'PARTIAL']),
+          inArray(scenarioRun.status, [
+            'CREATED',
+            'PROVISIONING',
+            'FAILED',
+            'PARTIAL',
+          ]),
         ),
       );
     await this.appendAuditEvent({
@@ -691,13 +804,27 @@ export class DrizzleRunRepository<
     failedStepId: string;
     publishedCount: number;
   }): Promise<void> {
+    const [published] = await this.database
+      .select({ value: count() })
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          sql`${scenarioRunStep.qstashMessageId} is not null`,
+        ),
+      );
     await this.database
       .update(scenarioRun)
-      .set({ status: input.publishedCount > 0 ? 'PARTIAL' : 'FAILED' })
+      .set({
+        status:
+          input.publishedCount > 0 || (published?.value ?? 0) > 0
+            ? 'PARTIAL'
+            : 'FAILED',
+      })
       .where(
         and(
           eq(scenarioRun.id, input.runId),
-          inArray(scenarioRun.status, ['CREATED', 'SCHEDULED']),
+          inArray(scenarioRun.status, ['CREATED', 'PROVISIONING', 'SCHEDULED']),
         ),
       );
     await this.appendAuditEvent({

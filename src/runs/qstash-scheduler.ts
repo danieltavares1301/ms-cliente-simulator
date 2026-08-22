@@ -27,6 +27,17 @@ type QStashRunSchedulerDependencies = {
   retries: number;
 };
 
+function isMissingMessage(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const status =
+    'status' in error
+      ? error.status
+      : 'statusCode' in error
+        ? error.statusCode
+        : undefined;
+  return status === 404 || status === 410;
+}
+
 export class QStashSchedulingError extends Error {
   readonly code = 'QSTASH_SCHEDULING_FAILED';
 
@@ -93,9 +104,22 @@ export class QStashRunScheduler implements Scheduler {
     }
   }
 
-  async cancelPending(messageIds: readonly string[]): Promise<void> {
-    if (messageIds.length === 0) return;
-    await this.getClient().messages.cancel([...messageIds]);
+  async cancelPending(
+    messageIds: readonly string[],
+  ): ReturnType<Scheduler['cancelPending']> {
+    const cancelledMessageIds: string[] = [];
+    const failedMessageIds: string[] = [];
+    for (const messageId of [...new Set(messageIds)]) {
+      try {
+        await this.getClient().messages.cancel(messageId);
+        cancelledMessageIds.push(messageId);
+      } catch (error) {
+        (isMissingMessage(error) ? cancelledMessageIds : failedMessageIds).push(
+          messageId,
+        );
+      }
+    }
+    return { cancelledMessageIds, failedMessageIds };
   }
 
   private getClient(): QStashClient {

@@ -597,6 +597,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       failedStepId: failedStep.id,
       publishedCount: 0,
     });
+
     expect(await repository.findRun(failed.run.id)).toMatchObject({
       status: 'FAILED',
     });
@@ -642,6 +643,67 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
         }),
       }),
     ]);
+  });
+
+  it('conditionally claims initial scheduling recovery once and preserves published steps', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'PARTIAL' },
+        steps: [
+          {
+            stepKey: 'published',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            qstashMessageId: 'msg-published',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'pending',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+
+    const claims = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        repository.claimInitialScheduling({
+          runId: created.run.id,
+          actor: 'simulator-admin-api',
+          recovery: true,
+        }),
+      ),
+    );
+
+    expect(claims.filter(({ outcome }) => outcome === 'CLAIMED')).toHaveLength(
+      1,
+    );
+    expect(
+      claims.filter(({ outcome }) => outcome === 'IN_PROGRESS'),
+    ).toHaveLength(4);
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'PROVISIONING',
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({
+      status: 'SCHEDULED',
+      qstashMessageId: 'msg-published',
+    });
+    expect(await repository.listAuditEvents(created.run.id, 10)).toContainEqual(
+      expect.objectContaining({
+        action: 'RUN_SCHEDULING_RECOVERY_STARTED',
+        metadataRedacted: { pendingCount: 1, previousStatus: 'PARTIAL' },
+      }),
+    );
   });
 
   it('atomically begins cancellation, cancels only pending work, and audits sanitized metadata', async () => {
@@ -748,7 +810,9 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       expect.objectContaining({
         action: 'RUN_CANCELLATION_FAILED',
         metadataRedacted: {
-          count: 1,
+          requestedCount: 1,
+          cancelledCount: 0,
+          pendingCount: 1,
           status: 'CANCELLING',
           errorCode: 'QSTASH_CANCEL_FAILED',
         },
@@ -756,9 +820,110 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     );
   });
 
+  it('persists partial cancellation progress and replay exposes only remaining messages', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'first',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            qstashMessageId: 'msg-first',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'second',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            qstashMessageId: 'msg-second',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    await repository.beginCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+    });
+    await repository.recordCancellationProgress({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      messageIds: ['msg-first'],
+    });
+    await repository.recordCancellationFailure({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      requestedCount: 2,
+      cancelledCount: 1,
+      errorCode: 'QSTASH_CANCEL_FAILED',
+    });
+
+    await expect(
+      repository.beginCancellation({
+        runId: created.run.id,
+        actor: 'simulator-admin-api',
+      }),
+    ).resolves.toStrictEqual({
+      outcome: 'IN_PROGRESS',
+      status: 'CANCELLING',
+      messageIds: ['msg-second'],
+      affectedStepCount: 1,
+    });
+    await repository.recordCancellationProgress({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      messageIds: ['msg-second'],
+    });
+    await repository.finalizeCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+      expectedAffectedStepCount: 1,
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'CANCELLED',
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.map(
+        ({ status }) => status,
+      ),
+    ).toStrictEqual(['CANCELLED', 'CANCELLED']);
+    const audit = await repository.listAuditEvents(created.run.id, 10);
+    expect(audit.map(({ action }) => action)).toEqual(
+      expect.arrayContaining([
+        'RUN_CANCELLATION_PROGRESS',
+        'RUN_CANCELLATION_FAILED',
+        'RUN_CANCELLED',
+      ]),
+    );
+    expect(JSON.stringify(audit)).not.toContain('msg-first');
+    expect(JSON.stringify(audit)).not.toContain('payload');
+  });
+
   it('lets only one concurrent cancellation begin', async () => {
     const created = await repository.createRun(
-      createInput({ run: { status: 'SCHEDULED' } }),
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'scheduled',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            qstashMessageId: 'msg-concurrent',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
     );
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
@@ -775,6 +940,21 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(
       results.filter(({ outcome }) => outcome === 'IN_PROGRESS'),
     ).toHaveLength(4);
+    expect(
+      results
+        .filter(({ outcome }) => outcome === 'IN_PROGRESS')
+        .every(
+          (result) =>
+            'messageIds' in result &&
+            result.messageIds.includes(
+              (
+                results.find(({ outcome }) => outcome === 'STARTED') as {
+                  messageIds: string[];
+                }
+              ).messageIds[0],
+            ),
+        ),
+    ).toBe(true);
     expect(
       (await repository.listAuditEvents(created.run.id, 10)).filter(
         ({ action }) => action === 'RUN_CANCELLATION_STARTED',

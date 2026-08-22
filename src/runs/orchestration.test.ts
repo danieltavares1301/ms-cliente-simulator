@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   CreateRunInput,
   CreateRunResult,
+  AuditEvent,
   Run,
   RunPage,
   RunRepository,
@@ -27,6 +28,10 @@ const request = {
 class MemoryRunRepository implements RunRepository {
   readonly runs: Run[] = [];
   readonly steps = new Map<string, RunStep[]>();
+  readonly audits: Array<{
+    action: string;
+    metadataRedacted: Record<string, unknown>;
+  }> = [];
 
   async createRun(input: CreateRunInput): Promise<CreateRunResult> {
     const existing = this.runs.find(
@@ -86,8 +91,15 @@ class MemoryRunRepository implements RunRepository {
     return { items, total: items.length, hasMore: false };
   }
 
-  appendAuditEvent(): never {
-    throw new Error('not used');
+  async appendAuditEvent(
+    event: Omit<AuditEvent, 'id' | 'createdAt'>,
+  ): Promise<AuditEvent> {
+    this.audits.push(event);
+    return {
+      ...event,
+      id: '33333333-3333-4333-8333-333333333333',
+      createdAt: now,
+    };
   }
 
   listAuditEvents(): never {
@@ -104,6 +116,46 @@ class MemoryRunRepository implements RunRepository {
 
   recordCancellationFailure(): never {
     throw new Error('not used');
+  }
+
+  recordCancellationProgress(): never {
+    throw new Error('not used');
+  }
+
+  async claimInitialScheduling(input: {
+    runId: string;
+    recovery: boolean;
+  }): Promise<
+    | { outcome: 'CLAIMED'; previousStatus: Run['status'] }
+    | { outcome: 'IN_PROGRESS' }
+    | { outcome: 'NOT_RECOVERABLE' }
+  > {
+    const run = this.runs.find(({ id }) => id === input.runId);
+    if (
+      run === undefined ||
+      !['CREATED', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(run.status)
+    ) {
+      return { outcome: 'IN_PROGRESS' };
+    }
+    const pending = (this.steps.get(input.runId) ?? []).filter(
+      (step) =>
+        step.stepKind === 'DISPATCH' &&
+        step.status === 'PENDING' &&
+        step.qstashMessageId === null,
+    );
+    if (pending.length === 0) return { outcome: 'NOT_RECOVERABLE' };
+    const previousStatus = run.status;
+    run.status = 'PROVISIONING';
+    if (input.recovery) {
+      this.audits.push({
+        action: 'RUN_SCHEDULING_RECOVERY_STARTED',
+        metadataRedacted: {
+          previousStatus,
+          pendingCount: pending.length,
+        },
+      });
+    }
+    return { outcome: 'CLAIMED', previousStatus };
   }
 
   reserveRetries(): never {
@@ -281,5 +333,102 @@ describe('run orchestration service', () => {
         ?.filter(({ stepKind }) => stepKind !== 'DISPATCH')
         .every(({ status }) => status === 'SKIPPED'),
     ).toBe(true);
+  });
+
+  it('replays a partially scheduled creation and publishes only PENDING steps without message ids', async () => {
+    const repository = new MemoryRunRepository();
+    const schedule = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        const run = repository.runs[0];
+        const step = repository.steps.get(runId)?.[0];
+        if (run) run.status = 'FAILED';
+        if (step) {
+          step.status = 'PENDING';
+          step.qstashMessageId = null;
+        }
+        throw new Error('provider unavailable');
+      })
+      .mockImplementationOnce(async ({ steps }) => {
+        const run = repository.runs[0];
+        const persisted = repository.steps.get(runId)?.[0];
+        expect(steps).toHaveLength(1);
+        if (run) run.status = 'SCHEDULED';
+        if (persisted) {
+          persisted.status = 'SCHEDULED';
+          persisted.qstashMessageId = 'msg-recovered';
+        }
+      });
+    const service = createService(repository, {
+      schedule,
+      cancelPending: vi.fn(),
+    });
+    const input = {
+      idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+      request: {
+        ...request,
+        execution: { ...request.execution, dryRun: false },
+      },
+    };
+
+    await expect(service.createRun(input)).rejects.toMatchObject({
+      code: 'SCHEDULING_FAILED',
+    });
+    const replay = await service.createRun(input);
+
+    expect(replay).toMatchObject({
+      outcome: 'REPLAY',
+      run: { status: 'SCHEDULED' },
+    });
+    expect(schedule).toHaveBeenCalledTimes(2);
+    expect(repository.audits).toContainEqual({
+      action: 'RUN_SCHEDULING_RECOVERY_STARTED',
+      metadataRedacted: {
+        previousStatus: 'FAILED',
+        pendingCount: 1,
+      },
+    });
+    expect(JSON.stringify(repository.audits)).not.toContain('payload');
+  });
+
+  it('lets only one concurrent replay claim initial scheduling', async () => {
+    const repository = new MemoryRunRepository();
+    let releaseSchedule!: () => void;
+    const scheduling = new Promise<void>((resolve) => {
+      releaseSchedule = resolve;
+    });
+    const schedule = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        repository.runs[0]!.status = 'FAILED';
+        throw new Error('provider unavailable');
+      })
+      .mockImplementationOnce(async () => {
+        await scheduling;
+        repository.runs[0]!.status = 'SCHEDULED';
+      });
+    const service = createService(repository, {
+      schedule,
+      cancelPending: vi.fn(),
+    });
+    const input = {
+      idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+      request: {
+        ...request,
+        execution: { ...request.execution, dryRun: false },
+      },
+    };
+    await expect(service.createRun(input)).rejects.toMatchObject({
+      code: 'SCHEDULING_FAILED',
+    });
+
+    const firstReplay = service.createRun(input);
+    await vi.waitFor(() => expect(schedule).toHaveBeenCalledTimes(2));
+    const secondReplay = await service.createRun(input);
+    releaseSchedule();
+    await firstReplay;
+
+    expect(secondReplay.outcome).toBe('REPLAY');
+    expect(schedule).toHaveBeenCalledTimes(2);
   });
 });

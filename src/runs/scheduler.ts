@@ -11,7 +11,10 @@ export interface Scheduler {
     runId: string;
     steps: readonly ScheduledStepReference[];
   }): Promise<void>;
-  cancelPending(messageIds: readonly string[]): Promise<void>;
+  cancelPending(messageIds: readonly string[]): Promise<{
+    cancelledMessageIds: string[];
+    failedMessageIds: string[];
+  }>;
 }
 
 export interface DispatchPublisher {
