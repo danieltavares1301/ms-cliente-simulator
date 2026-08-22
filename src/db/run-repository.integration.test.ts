@@ -1,0 +1,211 @@
+import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { migrate } from 'drizzle-orm/pglite/migrator';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { DrizzleRunRepository } from './drizzle-run-repository';
+import type { CreateRunInput } from './run-repository';
+import * as schema from './schema';
+
+const actor = 'integration-test';
+const idempotencyKeyHash = 'a'.repeat(64);
+const requestFingerprint = 'b'.repeat(64);
+
+type CreateInputOverrides = {
+  run?: Partial<CreateRunInput['run']>;
+  steps?: CreateRunInput['steps'];
+};
+
+function createInput(overrides: CreateInputOverrides = {}): CreateRunInput {
+  return {
+    run: {
+      scenarioKey: 'match-id-cliente',
+      scenarioVersion: 1,
+      idempotencyKeyHash,
+      requestFingerprint,
+      requestedBy: actor,
+      seed: 42,
+      variablesRedacted: {},
+      dryRun: false,
+      stopOnFailure: true,
+      expectedCallbackMin: 0,
+      expectedCallbackMax: 1,
+      cleanupPolicy: 'ALWAYS',
+      retentionExpiresAt: new Date('2026-08-23T12:00:00.000Z'),
+      ...overrides.run,
+    },
+    steps: overrides.steps ?? [
+      {
+        stepKey: 'setup',
+        ordinal: 0,
+        target: 'SALESFORCE',
+        status: 'PENDING',
+        requestRedacted: {},
+        responseRedacted: {},
+        stepKind: 'SETUP',
+      },
+      {
+        stepKey: 'dispatch',
+        ordinal: 1,
+        target: 'EVENT_GRID',
+        eventType: 'CLIENTE',
+        status: 'PENDING',
+        requestRedacted: {},
+        responseRedacted: {},
+        stepKind: 'DISPATCH',
+      },
+    ],
+  };
+}
+
+describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
+  let client: PGlite;
+  let repository: DrizzleRunRepository;
+
+  beforeEach(async () => {
+    client = new PGlite();
+    const database = drizzle(client, { schema });
+    await migrate(database, { migrationsFolder: 'drizzle' });
+    repository = new DrizzleRunRepository(database);
+  });
+
+  afterEach(async () => {
+    await client.close();
+  });
+
+  it('applies 0000 plus the increment on an empty PostgreSQL-compatible database', async () => {
+    const columns = await client.query<{
+      column_name: string;
+    }>(
+      "select column_name from information_schema.columns where table_name = 'scenario_run'",
+    );
+    const stepStatuses = await client.query<{ enumlabel: string }>(
+      "select enumlabel from pg_enum join pg_type on pg_type.oid = pg_enum.enumtypid where typname = 'step_status' order by enumsortorder",
+    );
+
+    expect(columns.rows.map(({ column_name }) => column_name)).toContain(
+      'request_fingerprint',
+    );
+    expect(stepStatuses.rows.map(({ enumlabel }) => enumlabel)).toStrictEqual([
+      'PENDING',
+      'SCHEDULED',
+      'RUNNING',
+      'SUCCEEDED',
+      'FAILED',
+      'CANCELLED',
+      'SKIPPED',
+    ]);
+  });
+
+  it('creates a run with steps and supports find, list, audit, and conditional status updates', async () => {
+    const created = await repository.createRun(createInput());
+
+    expect(created.outcome).toBe('CREATED');
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      id: created.run.id,
+      requestFingerprint,
+      status: 'CREATED',
+    });
+    const steps = await repository.listSteps(created.run.id);
+    expect(steps).toHaveLength(2);
+    expect((await repository.listRuns({ limit: 1 })).items).toHaveLength(1);
+
+    await repository.appendAuditEvent({
+      actor,
+      action: 'RUN_CREATED',
+      resourceType: 'scenario_run',
+      resourceId: created.run.id,
+      metadataRedacted: {},
+    });
+    expect(await repository.listAuditEvents(created.run.id, 10)).toHaveLength(
+      1,
+    );
+
+    expect(
+      await repository.updateRunStatus({
+        runId: created.run.id,
+        expectedStatus: 'CREATED',
+        nextStatus: 'SCHEDULED',
+      }),
+    ).toBe(true);
+    expect(
+      await repository.updateRunStatus({
+        runId: created.run.id,
+        expectedStatus: 'CREATED',
+        nextStatus: 'RUNNING',
+      }),
+    ).toBe(false);
+    expect(
+      await repository.updateStepStatus({
+        stepId: steps[0].id,
+        expectedStatus: 'PENDING',
+        nextStatus: 'SCHEDULED',
+        scheduledAt: new Date('2026-08-22T12:00:00.000Z'),
+      }),
+    ).toBe(true);
+    expect(
+      await repository.updateStepStatus({
+        stepId: steps[0].id,
+        expectedStatus: 'PENDING',
+        nextStatus: 'RUNNING',
+      }),
+    ).toBe(false);
+  });
+
+  it('returns replay for the same key and fingerprint and conflict for a different body', async () => {
+    const created = await repository.createRun(createInput());
+    const replay = await repository.createRun(createInput());
+    const conflict = await repository.createRun(
+      createInput({
+        run: {
+          ...createInput().run,
+          requestFingerprint: 'c'.repeat(64),
+        },
+      }),
+    );
+
+    expect(created.outcome).toBe('CREATED');
+    expect(replay).toMatchObject({
+      outcome: 'REPLAY',
+      run: { id: created.run.id },
+    });
+    expect(conflict).toMatchObject({
+      outcome: 'CONFLICT',
+      run: { id: created.run.id },
+    });
+  });
+
+  it('converges concurrent creates to one run and recovers missing steps on replay', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => repository.createRun(createInput())),
+    );
+
+    expect(results.filter(({ outcome }) => outcome === 'CREATED')).toHaveLength(
+      1,
+    );
+    expect(new Set(results.map(({ run }) => run.id))).toHaveLength(1);
+    expect(await repository.listSteps(results[0].run.id)).toHaveLength(2);
+
+    await client.query('delete from scenario_run_step where ordinal = 1');
+    const recovered = await repository.createRun(createInput());
+
+    expect(recovered.outcome).toBe('REPLAY');
+    expect(await repository.listSteps(recovered.run.id)).toHaveLength(2);
+  });
+
+  it('enforces repository pagination and database constraints', async () => {
+    await expect(repository.listRuns({ limit: 101 })).rejects.toThrow(
+      'limit must be between 1 and 100',
+    );
+
+    await repository.createRun(createInput());
+    await expect(
+      client.query(
+        `insert into scenario_run_step
+          (run_id, step_key, ordinal, target, status, step_kind)
+         select id, 'invalid', -1, 'TEST', 'PENDING', 'SETUP'
+         from scenario_run limit 1`,
+      ),
+    ).rejects.toThrow();
+  });
+});

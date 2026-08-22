@@ -13,9 +13,115 @@ const validEnvironment = {
 
 describe('parseServerEnvironment', () => {
   it('returns a validated server configuration', () => {
-    expect(parseServerEnvironment(validEnvironment)).toStrictEqual(
-      validEnvironment,
-    );
+    expect(parseServerEnvironment(validEnvironment)).toStrictEqual({
+      ...validEnvironment,
+      ORCHESTRATION_ENABLED: false,
+    });
+  });
+
+  it('keeps orchestration disabled by default without requiring new secrets', () => {
+    const configuration = parseServerEnvironment(validEnvironment);
+
+    expect(configuration.ORCHESTRATION_ENABLED).toBe(false);
+    expect(configuration).not.toHaveProperty('SIMULATOR_ADMIN_API_KEY');
+    expect(configuration).not.toHaveProperty('IDEMPOTENCY_HASH_PEPPER');
+    expect(configuration).not.toHaveProperty('QSTASH_TOKEN');
+  });
+
+  it('ignores empty orchestration-only placeholders while disabled', () => {
+    expect(
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'false',
+        SIMULATOR_ADMIN_API_KEY: '',
+        IDEMPOTENCY_HASH_PEPPER: '',
+        PUBLIC_APP_BASE_URL: '',
+        QSTASH_TOKEN: '',
+        QSTASH_CURRENT_SIGNING_KEY: '',
+        QSTASH_NEXT_SIGNING_KEY: '',
+      }),
+    ).toStrictEqual({
+      ...validEnvironment,
+      ORCHESTRATION_ENABLED: false,
+    });
+  });
+
+  it('requires and validates orchestration-only configuration when enabled', () => {
+    expect(
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      }),
+    ).toMatchObject({
+      ORCHESTRATION_ENABLED: true,
+      PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+    });
+  });
+
+  it.each([
+    'SIMULATOR_ADMIN_API_KEY',
+    'IDEMPOTENCY_HASH_PEPPER',
+    'PUBLIC_APP_BASE_URL',
+    'QSTASH_TOKEN',
+    'QSTASH_CURRENT_SIGNING_KEY',
+    'QSTASH_NEXT_SIGNING_KEY',
+  ] as const)(
+    'fails closed when orchestration is enabled without %s',
+    (variableName) => {
+      const enabledEnvironment: Record<string, string | undefined> = {
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      };
+      delete enabledEnvironment[variableName];
+
+      expect(() => parseServerEnvironment(enabledEnvironment)).toThrowError(
+        variableName,
+      );
+    },
+  );
+
+  it.each([
+    'http://simulator.example.com',
+    'https://user:password@simulator.example.com',
+    'https://simulator.example.com?token=secret',
+    'https://simulator.example.com#fragment',
+  ])('rejects an unsafe public app URL when enabled', (url) => {
+    expect(() =>
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: url,
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      }),
+    ).toThrowError('PUBLIC_APP_BASE_URL');
   });
 
   it('defaults only APP_ENV to development', () => {

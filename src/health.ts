@@ -7,11 +7,14 @@ export type { HealthResponse } from './contracts';
 export function createHealthResponse(
   environment: Record<string, string | undefined>,
 ): HealthResponse {
-  parseServerEnvironment(environment);
+  const configuration = parseServerEnvironment(environment);
 
   return {
     status: 'ok',
     version: packageJson.version,
+    orchestration: configuration.ORCHESTRATION_ENABLED
+      ? 'configured'
+      : 'disabled',
     dependencies: {
       application: 'ok',
       configuration: 'ok',

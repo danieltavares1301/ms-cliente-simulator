@@ -66,8 +66,8 @@ existente nem implementa parsing textual.
 
 Use `.env.example` como referência e mantenha valores reais apenas em arquivos
 locais ignorados pelo Git ou no gerenciador seguro do ambiente. Nunca versione
-URLs com credenciais. O projeto não exige neste incremento tokens Salesforce,
-credenciais de client Salesforce nem token QStash.
+URLs com credenciais. O projeto não exige tokens Salesforce nem credenciais de
+client Salesforce.
 
 - `APP_ENV`: `development`, `test` ou `production`; quando omitida, usa
   `development`.
@@ -76,12 +76,15 @@ credenciais de client Salesforce nem token QStash.
 - `TARGET_SALESFORCE_ORG_ID`: obrigatoriamente `00DHZ000006mzDp2AI`.
 - `DATABASE_URL`: URL `postgres` ou `postgresql` com senha não vazia.
 - `QSTASH_URL`: URL HTTPS sem credenciais, query ou fragment.
+- `ORCHESTRATION_ENABLED`: `false` por padrão. Quando `true`, exige os segredos
+  server-only e a URL pública HTTPS descritos em
+  [database-and-feature-gate.md](docs/phase-3/database-and-feature-gate.md).
 
 As URLs HTTPS têm a barra final removida durante a normalização. O health valida
 a configuração a cada requisição, falha de forma fechada quando ela é inválida
-e responde somente com `dependencies.configuration: "ok"` quando válida, sem
-retornar valores de ambiente. `npm run build` não exige configuração real nem
-acessa as integrações.
+e responde com `dependencies.configuration: "ok"` e
+`orchestration: disabled|configured` quando válida, sem retornar valores de
+ambiente. `npm run build` não exige configuração real nem acessa integrações.
 
 ## Comandos de desenvolvimento
 
@@ -100,6 +103,8 @@ npm run validate:fixtures
 npm run sanitize:export -- <entrada.json> <saida.json>
 npm run db:generate
 npm run db:check
+npm run db:migrate:check
+npm run db:migrate
 ```
 
 ## Schema e migrations
@@ -115,7 +120,8 @@ npm run db:check
 
 `db:generate` deve ser idempotente quando o schema não muda. O projeto não
 oferece `db:push` intencionalmente: migrations devem ser revisadas e aplicadas
-por um fluxo controlado de CI/Neon.
+por um fluxo controlado de CI/Neon. `db:migrate` exige `DATABASE_URL` e nunca
+roda automaticamente no build/deploy.
 
 ## Documentação
 
@@ -125,6 +131,8 @@ por um fluxo controlado de CI/Neon.
 - [Validação de persistência da Fase 1](docs/phase-1/persistence-validation.md)
 - [Validação do incremento 2.1](docs/phase-2/increment-2.1-validation.md)
 - [Validação do incremento 2.4](docs/phase-2/increment-2.4-validation.md)
+- [Validação do incremento 3.0](docs/phase-3/increment-3.0-validation.md)
+- [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
 - [Política de validação de dados de negócio](docs/decisions/0005-business-data-validation-policy.md)

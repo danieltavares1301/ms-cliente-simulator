@@ -19,6 +19,7 @@ describe('createHealthResponse', () => {
     expect(response).toStrictEqual({
       status: 'ok',
       version: packageJson.version,
+      orchestration: 'disabled',
       dependencies: {
         application: 'ok',
         configuration: 'ok',
@@ -38,12 +39,34 @@ describe('createHealthResponse', () => {
     expect(Object.keys(response)).toStrictEqual([
       'status',
       'version',
+      'orchestration',
       'dependencies',
     ]);
     expect(Object.keys(response.dependencies)).toStrictEqual([
       'application',
       'configuration',
     ]);
+  });
+
+  it('reports configured orchestration without probing external dependencies', () => {
+    const response = createHealthResponse({
+      ...validEnvironment,
+      ORCHESTRATION_ENABLED: 'true',
+      SIMULATOR_ADMIN_API_KEY:
+        'admin-api-key-with-at-least-thirty-two-characters',
+      IDEMPOTENCY_HASH_PEPPER:
+        'idempotency-pepper-with-at-least-thirty-two-characters',
+      PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+      QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+      QSTASH_CURRENT_SIGNING_KEY:
+        'current-signing-key-with-at-least-thirty-two-characters',
+      QSTASH_NEXT_SIGNING_KEY:
+        'next-signing-key-with-at-least-thirty-two-characters',
+    });
+
+    expect(response.orchestration).toBe('configured');
+    expect(JSON.stringify(response)).not.toContain('admin-api-key');
+    expect(JSON.stringify(response)).not.toContain('qstash-token');
   });
 
   it('fails closed without returning environment values', () => {

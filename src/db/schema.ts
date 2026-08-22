@@ -40,6 +40,16 @@ export const stepKindEnum = pgEnum('step_kind', [
   'CLEANUP',
 ]);
 
+export const stepStatusEnum = pgEnum('step_status', [
+  'PENDING',
+  'SCHEDULED',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+  'SKIPPED',
+]);
+
 export const cleanupPolicyEnum = pgEnum('cleanup_policy', [
   'ALWAYS',
   'ON_SUCCESS',
@@ -54,6 +64,7 @@ export const scenarioRun = pgTable(
     scenarioVersion: integer('scenario_version').notNull(),
     status: runStatusEnum().notNull().default('CREATED'),
     idempotencyKeyHash: text('idempotency_key_hash').notNull(),
+    requestFingerprint: text('request_fingerprint').notNull(),
     requestedBy: text('requested_by').notNull(),
     seed: integer().notNull(),
     variablesRedacted: redactedJson('variables_redacted'),
@@ -98,7 +109,7 @@ export const scenarioRunStep = pgTable(
     ordinal: integer().notNull(),
     target: text().notNull(),
     eventType: text('event_type'),
-    status: runStatusEnum().notNull().default('CREATED'),
+    status: stepStatusEnum().notNull().default('PENDING'),
     scheduledAt: timestampWithTimezone('scheduled_at'),
     startedAt: timestampWithTimezone('started_at'),
     finishedAt: timestampWithTimezone('finished_at'),

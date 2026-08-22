@@ -12,6 +12,7 @@ import {
   runStatusEnum,
   scenarioRun,
   scenarioRunStep,
+  stepStatusEnum,
   stepKindEnum,
 } from './schema';
 
@@ -44,6 +45,7 @@ describe('persistence schema contract', () => {
     expect(tableColumns(scenarioRun)).toMatchObject({
       scenarioKey: 'scenario_key',
       idempotencyKeyHash: 'idempotency_key_hash',
+      requestFingerprint: 'request_fingerprint',
       variablesRedacted: 'variables_redacted',
       retentionExpiresAt: 'retention_expires_at',
     });
@@ -82,6 +84,15 @@ describe('persistence schema contract', () => {
       'DISPATCH',
       'VERIFY',
       'CLEANUP',
+    ]);
+    expect(stepStatusEnum.enumValues).toStrictEqual([
+      'PENDING',
+      'SCHEDULED',
+      'RUNNING',
+      'SUCCEEDED',
+      'FAILED',
+      'CANCELLED',
+      'SKIPPED',
     ]);
     expect(cleanupPolicyEnum.enumValues).toStrictEqual([
       'ALWAYS',

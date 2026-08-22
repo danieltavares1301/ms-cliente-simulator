@@ -73,6 +73,7 @@ export const healthResponseSchema = z
   .object({
     status: z.literal('ok'),
     version: z.string().min(1),
+    orchestration: z.enum(['disabled', 'configured']),
     dependencies: z
       .object({
         application: z.literal('ok'),
