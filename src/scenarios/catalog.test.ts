@@ -30,7 +30,7 @@ describe('scenarioDefinitionSchema', () => {
 });
 
 describe('versioned scenario catalog', () => {
-  it('loads the four basic contract-only scenarios', () => {
+  it('loads the four basic ready scenarios', () => {
     expect(scenarioCatalog.listActive()).toHaveLength(4);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
@@ -42,22 +42,22 @@ describe('versioned scenario catalog', () => {
       {
         key: 'cliente-update-nova-estrutura',
         version: 1,
-        availability: 'CONTRACT_ONLY',
+        availability: 'READY',
       },
       {
         key: 'match-cpf-sem-id-cliente',
         version: 1,
-        availability: 'CONTRACT_ONLY',
+        availability: 'READY',
       },
       {
         key: 'match-id-cliente',
         version: 1,
-        availability: 'CONTRACT_ONLY',
+        availability: 'READY',
       },
       {
         key: 'no-match-cliente-insert',
         version: 1,
-        availability: 'CONTRACT_ONLY',
+        availability: 'READY',
       },
     ]);
   });

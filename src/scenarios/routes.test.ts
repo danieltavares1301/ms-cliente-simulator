@@ -79,7 +79,7 @@ describe('GET /api/v1/scenarios/{scenarioKey}', () => {
     expect(body).toMatchObject({
       key: 'match-id-cliente',
       version: 1,
-      availability: 'CONTRACT_ONLY',
+      availability: 'READY',
       steps: [{ target: 'CLIENTE', eventType: 'cliente-update' }],
     });
     expect(JSON.stringify(body)).not.toContain('payloadTemplate');

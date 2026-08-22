@@ -1,3 +1,6 @@
+import { renderedScenarioFixtureSchema } from '../contracts/fixtures.ts';
+import { verifySyntheticCpf } from '../synthetic/cpf.ts';
+
 export type SensitiveCategory =
   | 'CPF'
   | 'EMAIL'
@@ -55,10 +58,10 @@ function isApprovedValue(
   emailDomains: ReadonlySet<string>,
 ): boolean {
   if (typeof value !== 'string') return value === null;
-  if (allowed.has(value)) return true;
+  if (allowed.has(value) && !containsCpf(value)) return true;
   if (approvedTestEmail(value, emailDomains)) return true;
   if (/^(?:run_|step_)[a-zA-Z0-9_-]+$/.test(value)) return true;
-  if (/^Cliente Simulado [a-f0-9]{6,32}$/.test(value)) return true;
+  if (/^Cliente Simulado(?: Base)? [a-f0-9]{6,32}$/.test(value)) return true;
   return SYNTHETIC_PREFIXES.some((prefix) => value.startsWith(prefix));
 }
 
@@ -178,9 +181,10 @@ function childPath(parent: string, key: string): string {
     : `${parent}[${JSON.stringify(key)}]`;
 }
 
-export function scanSensitiveData(
+function scanSensitiveDataWithApprovedPaths(
   input: unknown,
-  options: ScanOptions = {},
+  options: ScanOptions,
+  approvedValuesByPath: ReadonlyMap<string, string>,
 ): SensitiveFinding[] {
   const allowed = new Set(options.allowedValues ?? []);
   const emailDomains = new Set([
@@ -200,7 +204,9 @@ export function scanSensitiveData(
   };
 
   const visit = (value: unknown, path: string, key?: string) => {
-    const approved = isApprovedValue(value, allowed, emailDomains);
+    const approved =
+      approvedValuesByPath.get(path) === value ||
+      isApprovedValue(value, allowed, emailDomains);
     if (key !== undefined && !approved) {
       const keyCategory = categoryForSensitiveKey(key);
       const isAddressContainer =
@@ -232,6 +238,52 @@ export function scanSensitiveData(
       left.path.localeCompare(right.path) ||
       left.category.localeCompare(right.category),
   );
+}
+
+export function scanSensitiveData(
+  input: unknown,
+  options: ScanOptions = {},
+): SensitiveFinding[] {
+  return scanSensitiveDataWithApprovedPaths(input, options, new Map());
+}
+
+function valueAtFixturePath(input: unknown, path: string): unknown {
+  const tokens =
+    path
+      .slice(1)
+      .match(/(?:\.([A-Za-z_$][\w$]*)|\[(\d+)\])/g)
+      ?.map((token) =>
+        token.startsWith('.') ? token.slice(1) : Number(token.slice(1, -1)),
+      ) ?? [];
+  let current = input;
+  for (const token of tokens) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string | number, unknown>)[token];
+  }
+  return current;
+}
+
+export function scanRenderedFixtureSensitiveData(
+  input: unknown,
+): SensitiveFinding[] {
+  const fixture = renderedScenarioFixtureSchema.parse(input);
+  const approvedValuesByPath = new Map<string, string>();
+
+  for (const origin of fixture.syntheticOrigins) {
+    const values = origin.paths.map((path) =>
+      valueAtFixturePath(fixture, path),
+    );
+    const cpf = values[0];
+    const provenanceIsValid =
+      typeof cpf === 'string' &&
+      values.every((value) => value === cpf) &&
+      verifySyntheticCpf(fixture.seed, fixture.runId, cpf, origin.proof);
+    if (provenanceIsValid) {
+      for (const path of origin.paths) approvedValuesByPath.set(path, cpf);
+    }
+  }
+
+  return scanSensitiveDataWithApprovedPaths(fixture, {}, approvedValuesByPath);
 }
 
 export function assertNoSensitiveData(

@@ -107,6 +107,20 @@ const response = (description: string, schemaRef?: string) => ({
   ...(schemaRef ? { content: jsonContent(schemaRef) } : {}),
 });
 
+const responseWithExample = (
+  description: string,
+  schemaRef: string,
+  example: unknown,
+) => ({
+  description,
+  content: {
+    'application/json': {
+      schema: { $ref: `#/components/schemas/${schemaRef}` },
+      example,
+    },
+  },
+});
+
 const errorResponses = {
   '400': response('Requisição inválida e sanitizada.', 'RestErrorResponse'),
   '401': response('Autenticação ausente ou inválida.', 'RestErrorResponse'),
@@ -178,7 +192,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.1.0',
+    version: '0.2.0',
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },
@@ -242,7 +256,7 @@ export const openApiDocument: OpenApiDocument = {
       get: {
         summary: 'Listar cenários',
         description:
-          'Lista a versão ativa de cada cenário. CONTRACT_ONLY indica que os templates completos serão publicados no incremento 2.4.',
+          'Lista a versão ativa de cada cenário sem payloads renderizados ou dados pessoais.',
         operationId: 'listScenarios',
         tags: ['Scenarios'],
         security: bearerSecurity,
@@ -261,9 +275,29 @@ export const openApiDocument: OpenApiDocument = {
           },
         ],
         responses: {
-          '200': response(
+          '200': responseWithExample(
             'Página de metadados de cenários.',
             'ScenarioListResponse',
+            {
+              data: [
+                {
+                  key: 'match-id-cliente',
+                  version: 1,
+                  name: 'Match por Id Cliente',
+                  description:
+                    'Atualiza somente a Account encontrada pelo Id Cliente.',
+                  scope: 'CORE',
+                  tags: ['core', 'id-cliente', 'match'],
+                  availability: 'READY',
+                },
+              ],
+              pagination: {
+                page: 1,
+                pageSize: 20,
+                total: 4,
+                totalPages: 1,
+              },
+            },
           ),
           ...errorResponses,
         },
@@ -280,7 +314,39 @@ export const openApiDocument: OpenApiDocument = {
         'x-implementation-status': 'implemented',
         parameters: [scenarioKeyParameter],
         responses: {
-          '200': response('Detalhe público do cenário.', 'ScenarioDetail'),
+          '200': responseWithExample(
+            'Detalhe público do cenário.',
+            'ScenarioDetail',
+            {
+              key: 'match-id-cliente',
+              version: 1,
+              name: 'Match por Id Cliente',
+              description:
+                'Atualiza somente a Account encontrada pelo Id Cliente.',
+              scope: 'CORE',
+              tags: ['core', 'id-cliente', 'match'],
+              availability: 'READY',
+              variablesSchema: {
+                type: 'object',
+                properties: {},
+                required: [],
+                additionalProperties: false,
+              },
+              steps: [
+                {
+                  key: 'cliente-update',
+                  target: 'CLIENTE',
+                  eventType: 'cliente-update',
+                  delayMs: 0,
+                  deliveryPolicy: {
+                    duplicateCount: 0,
+                    retryOn: [],
+                    maxAttempts: 1,
+                  },
+                },
+              ],
+            },
+          ),
           '404': response('Cenário não encontrado.', 'RestErrorResponse'),
           ...errorResponses,
         },

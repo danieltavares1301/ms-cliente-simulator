@@ -4,12 +4,11 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-A **Fase 0 documental está concluída**. A **Fase 1 — Fundação do projeto**
-disponibiliza a base API-only em Next.js/TypeScript, o health, a validação segura
-da configuração server-side e o schema PostgreSQL inicial com migration
-versionada. O incremento **2.1** publica os contratos Zod e o documento OpenAPI
-3.1 antes dos handlers funcionais. Nenhuma metadata Salesforce foi criada ou
-alterada.
+Versão **0.2.0**. As Fases 0, 1 e 2 estão funcionalmente concluídas. A Fase 2
+entrega quatro cenários `CORE` `READY`, fixtures declarativas allowlisted,
+renderer determinístico e validação offline de schemas e PII. Nenhuma metadata
+Salesforce foi criada ou alterada; runs, CRUD de banco, QStash e handlers
+Salesforce continuam fora deste incremento.
 
 ## Quick Start
 
@@ -24,14 +23,21 @@ Configure o ambiente conforme a seção abaixo e consulte
 `GET http://localhost:3000/api/v1/health`. O projeto não possui página ou
 interface web.
 
+Exemplos rápidos do catálogo, sem payload bruto:
+
+```bash
+curl http://localhost:3000/api/v1/scenarios
+curl http://localhost:3000/api/v1/scenarios/match-id-cliente
+```
+
 ## API contract-first
 
 | Endpoint                              | Status       | Observação                                                               |
 | ------------------------------------- | ------------ | ------------------------------------------------------------------------ |
 | `GET /api/v1/health`                  | Implementado | Health atual, sem valores de configuração.                               |
 | `GET /api/v1/openapi`                 | Implementado | OpenAPI 3.1 gerado em TypeScript e servido da memória.                   |
-| `GET /api/v1/scenarios`               | Fase 2       | Somente contrato; catálogo será implementado no próximo incremento.      |
-| `GET /api/v1/scenarios/{scenarioKey}` | Fase 2       | Somente contrato de metadados/detalhe.                                   |
+| `GET /api/v1/scenarios`               | Implementado | Lista metadados sanitizados dos quatro cenários `CORE` `READY`.          |
+| `GET /api/v1/scenarios/{scenarioKey}` | Implementado | Detalhe sanitizado, sem payload renderizado ou CPF.                      |
 | `/api/v1/runs` e sub-recursos         | Futuro       | Criação, consulta, passos, cancelamento e retry não estão implementados. |
 | `POST /api/ms-clientes/graphql`       | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.      |
 
@@ -85,6 +91,8 @@ npm run format:check
 npm run typecheck
 npm test
 npm run test:watch
+npm run validate:scenarios
+npm run validate:fixtures
 npm run db:generate
 npm run db:check
 ```
@@ -111,6 +119,8 @@ por um fluxo controlado de CI/Neon.
 - [Checkpoint 0](docs/phase-0/checkpoint.md)
 - [Validação de persistência da Fase 1](docs/phase-1/persistence-validation.md)
 - [Validação do incremento 2.1](docs/phase-2/increment-2.1-validation.md)
+- [Validação do incremento 2.4](docs/phase-2/increment-2.4-validation.md)
+- [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Escopo de acesso proposto](docs/security/access-scope.md)
 - [ADRs](docs/decisions/)
 

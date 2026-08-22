@@ -2,8 +2,8 @@ import {
   scenarioDefinitionSchema,
   type ScenarioDefinition,
   type ScenarioMetadata,
-} from '../contracts';
-import { basicScenarioDefinitions } from './definitions';
+} from '../contracts/scenarios.ts';
+import { basicScenarioDefinitions } from './definitions.ts';
 
 type DeepReadonly<T> = T extends (...args: never[]) => unknown
   ? T

@@ -3,14 +3,18 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
+  scanRenderedFixtureSensitiveData,
   scanSensitiveData,
   type SensitiveCategory,
 } from '../src/redaction/index.ts';
+import { scenarioCatalog } from '../src/scenarios/catalog.ts';
+import { renderScenarioFixture } from '../src/scenarios/renderer.ts';
+import { renderedScenarioFixtureSchema } from '../src/contracts/fixtures.ts';
 
 export interface FixtureValidationFinding {
   file: string;
   path: string;
-  category: SensitiveCategory | 'INVALID_JSON';
+  category: SensitiveCategory | 'INVALID_JSON' | 'INVALID_FIXTURE';
   message: string;
 }
 
@@ -76,7 +80,11 @@ export async function validateFixtureDirectory(
       });
       continue;
     }
-    for (const finding of scanSensitiveData(parsed)) {
+    const renderedFixture = renderedScenarioFixtureSchema.safeParse(parsed);
+    const fixtureFindings = renderedFixture.success
+      ? scanRenderedFixtureSensitiveData(renderedFixture.data)
+      : scanSensitiveData(parsed);
+    for (const finding of fixtureFindings) {
       findings.push({
         file: path.relative(explicitDirectory, file),
         ...finding,
@@ -86,14 +94,96 @@ export async function validateFixtureDirectory(
   return { checked: files.length, findings };
 }
 
+const validationInput = {
+  seed: 'phase-two-validation',
+  runId: 'run_fixture_validation',
+  eventStartAt: '2026-08-22T15:00:00.000Z',
+} as const;
+
+export function validateRenderedFixtures(): {
+  checked: number;
+  findings: FixtureValidationFinding[];
+} {
+  const findings: FixtureValidationFinding[] = [];
+  const scenarios = scenarioCatalog.listActive();
+
+  for (const scenario of scenarios) {
+    const file = `${scenario.key}@${scenario.version}`;
+    try {
+      const input = {
+        ...validationInput,
+        scenarioKey: scenario.key,
+        version: scenario.version,
+      };
+      const first = renderScenarioFixture(input);
+      const second = renderScenarioFixture(input);
+      const alternateRun = renderScenarioFixture({
+        ...input,
+        runId: 'run_fixture_validation_other',
+      });
+
+      renderedScenarioFixtureSchema.parse(first);
+      if (JSON.stringify(first) !== JSON.stringify(second)) {
+        findings.push({
+          file,
+          path: '$',
+          category: 'INVALID_FIXTURE',
+          message: 'Fixture nao deterministica.',
+        });
+      }
+      if (
+        first.identifiers.accountIdCliente ===
+          alternateRun.identifiers.accountIdCliente ||
+        first.identifiers.accountIdProspect ===
+          alternateRun.identifiers.accountIdProspect
+      ) {
+        findings.push({
+          file,
+          path: '$.identifiers',
+          category: 'INVALID_FIXTURE',
+          message: 'Namespace de fixture invalido.',
+        });
+      }
+      if (
+        /\{\{|\$\{|VARIABLE|GENERATED|CONTRACT_ONLY/.test(JSON.stringify(first))
+      ) {
+        findings.push({
+          file,
+          path: '$',
+          category: 'INVALID_FIXTURE',
+          message: 'Fixture contem placeholder nao resolvido.',
+        });
+      }
+      for (const finding of scanRenderedFixtureSensitiveData(first)) {
+        findings.push({ file, ...finding });
+      }
+    } catch {
+      findings.push({
+        file,
+        path: '$',
+        category: 'INVALID_FIXTURE',
+        message: 'Fixture renderizada invalida.',
+      });
+    }
+  }
+
+  return { checked: scenarios.length, findings };
+}
+
 async function main(): Promise<void> {
   try {
-    const directory = requireLocalPath(process.argv[2]);
-    if (process.argv.length !== 3)
-      throw new Error('Uso: validate:fixtures <diretorio-local>.');
-    const result = await validateFixtureDirectory(directory);
-    if (result.findings.length > 0) {
-      for (const finding of result.findings) {
+    if (process.argv.length > 3)
+      throw new Error('Uso: validate:fixtures [diretorio-local].');
+    const renderedResult = validateRenderedFixtures();
+    const directory = process.argv[2]
+      ? requireLocalPath(process.argv[2])
+      : undefined;
+    const directoryResult = directory
+      ? await validateFixtureDirectory(directory)
+      : { checked: 0, findings: [] };
+    const findings = [...renderedResult.findings, ...directoryResult.findings];
+    if (findings.length > 0) {
+      for (const finding of findings) {
         console.error(
           `${finding.file}: ${finding.category} em ${finding.path}`,
         );
@@ -101,12 +191,10 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    if (result.checked === 0)
-      console.log('Nenhuma fixture JSON encontrada; validacao concluida.');
-    else
-      console.log(
-        `${result.checked} fixture(s) JSON validada(s) sem dados sensiveis.`,
-      );
+    console.log(
+      `${renderedResult.checked} fixture(s) renderizada(s) validada(s); ` +
+        `${directoryResult.checked} fixture(s) JSON adicional(is) validada(s).`,
+    );
   } catch (error) {
     console.error(
       error instanceof Error

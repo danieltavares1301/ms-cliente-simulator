@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { eventTypeSchema } from './event-grid';
+import { eventTypeSchema } from './event-grid.ts';
 
 const kebabCasePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const safePublicTextPattern = /^[^<>\u0000-\u001f\u007f]+$/u;
@@ -150,7 +150,18 @@ const templateReferenceSchema = z.discriminatedUnion('source', [
   z
     .object({
       source: z.literal('GENERATED'),
-      value: z.enum(['RUN_ID', 'STEP_ID', 'EVENT_TIME']),
+      value: z.enum([
+        'RUN_ID',
+        'STEP_ID',
+        'EVENT_ID',
+        'EVENT_TIME',
+        'BASELINE_TIME',
+        'CLIENT_ID',
+        'PROSPECT_ID',
+        'CPF',
+        'PERSON_NAME',
+        'BASE_PERSON_NAME',
+      ]),
     })
     .strict(),
 ]);
@@ -221,6 +232,16 @@ export const publicScenarioStepSchema = scenarioStepSchema.omit({
   payloadTemplate: true,
 });
 
+export const expectedOutcomeCheckSchema = z.enum([
+  'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+  'ACCOUNT_COUNT_BY_CPF_IS_ONE',
+  'ACCOUNT_CLIENT_ID_EQUALS_EVENT',
+  'ACCOUNT_NAME_EQUALS_EVENT',
+  'NO_OTHER_ACCOUNT_UPDATED',
+  'LEAD_NOT_REQUIRED',
+  'PROPONENTE_NOT_REQUIRED',
+]);
+
 export const expectedOutcomeSchema = z
   .object({
     kind: z.literal('BUSINESS_RESULT'),
@@ -231,18 +252,71 @@ export const expectedOutcomeSchema = z
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
     ]),
     description: safePublicTextSchema,
+    checks: z.array(expectedOutcomeCheckSchema).min(1).max(20),
   })
   .strict();
 
-const setupInstructionSchema = z
+const generatedFixtureReferenceSchema = z
   .object({
-    operation: z.enum([
-      'ENSURE_MATCHING_ACCOUNT',
-      'ENSURE_NO_MATCHING_ACCOUNT',
-      'ENSURE_CLIENT_STRUCTURE_ABSENT',
+    source: z.literal('GENERATED'),
+    value: z.enum([
+      'CLIENT_ID',
+      'PROSPECT_ID',
+      'CPF',
+      'PERSON_NAME',
+      'BASE_PERSON_NAME',
+      'BASELINE_TIME',
     ]),
   })
   .strict();
+
+const syntheticAccountTemplateSchema = z
+  .object({
+    idCliente: z.union([generatedFixtureReferenceSchema, z.null()]),
+    idProspect: generatedFixtureReferenceSchema,
+    cpf: generatedFixtureReferenceSchema,
+    name: generatedFixtureReferenceSchema,
+    dataAlteracao: generatedFixtureReferenceSchema,
+  })
+  .strict();
+
+export const setupInstructionSchema = z.discriminatedUnion('operation', [
+  z
+    .object({
+      operation: z.literal('CREATE_SYNTHETIC_ACCOUNT'),
+      matchBy: z.enum(['ID_CLIENTE', 'CPF']),
+      account: syntheticAccountTemplateSchema,
+    })
+    .strict()
+    .superRefine(({ matchBy, account }, context) => {
+      if (matchBy === 'ID_CLIENTE' && account.idCliente === null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'ID_CLIENTE setup requires an idCliente',
+          path: ['account', 'idCliente'],
+        });
+      }
+      if (matchBy === 'CPF' && account.idCliente !== null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'CPF setup must start without an idCliente',
+          path: ['account', 'idCliente'],
+        });
+      }
+    }),
+  z
+    .object({
+      operation: z.literal('ENSURE_ACCOUNT_ABSENT'),
+      keys: z
+        .object({
+          idCliente: generatedFixtureReferenceSchema,
+          idProspect: generatedFixtureReferenceSchema,
+          cpf: generatedFixtureReferenceSchema,
+        })
+        .strict(),
+    })
+    .strict(),
+]);
 
 const cleanupInstructionSchema = z
   .object({
@@ -251,7 +325,7 @@ const cleanupInstructionSchema = z
   })
   .strict();
 
-const asyncPolicySchema = z
+export const asyncPolicySchema = z
   .object({
     expectedCallbacks: z
       .object({

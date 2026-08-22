@@ -4,7 +4,11 @@ export type {
   JsonPrimitive,
   JsonValue,
 } from './anonymizer.ts';
-export { assertNoSensitiveData, scanSensitiveData } from './scanner.ts';
+export {
+  assertNoSensitiveData,
+  scanRenderedFixtureSensitiveData,
+  scanSensitiveData,
+} from './scanner.ts';
 export type {
   ScanOptions,
   SensitiveCategory,

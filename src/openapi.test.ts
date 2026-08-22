@@ -31,6 +31,7 @@ describe('OpenAPI document', () => {
 
   it('is OpenAPI 3.1 and documents every planned public endpoint', () => {
     expect(openApiDocument.openapi).toBe('3.1.0');
+    expect(openApiDocument.info.version).toBe('0.2.0');
     expect(openApiDocument.info.title).toBeTruthy();
 
     for (const path of publicPaths) {
@@ -84,9 +85,17 @@ describe('OpenAPI document', () => {
     expect(JSON.stringify(envelopeSchema)).toContain('endereco-update');
     expect(schemas.ScenarioMetadata.additionalProperties).toBe(false);
     expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('CONTRACT_ONLY');
+    expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('READY');
     expect(JSON.stringify(schemas.ScenarioDetail)).not.toContain(
       'payloadTemplate',
     );
+    const scenarioPaths = JSON.stringify({
+      list: openApiDocument.paths['/api/v1/scenarios'],
+      detail: openApiDocument.paths['/api/v1/scenarios/{scenarioKey}'],
+    });
+    expect(scenarioPaths).toContain('READY');
+    expect(scenarioPaths).not.toContain('numerocpf');
+    expect(scenarioPaths).not.toContain('payloadTemplate');
   });
 });
 
