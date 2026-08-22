@@ -1,0 +1,229 @@
+import { createHash, createHmac } from 'node:crypto';
+
+import { describe, expect, it, vi } from 'vitest';
+
+import type { RunRepository } from '../db/run-repository';
+import {
+  createDispatchHandler,
+  createQStashReceiver,
+  FakeSalesforceDispatchTarget,
+} from './dispatch';
+
+const currentSigningKey = 'current-signing-key-with-at-least-32-characters';
+const nextSigningKey = 'next-signing-key-with-at-least-32-characters';
+const url = 'https://simulator.example.com/api/v1/internal/dispatches';
+const payload = {
+  runId: '11111111-1111-4111-8111-111111111111',
+  stepId: '22222222-2222-4222-8222-222222222222',
+  attemptNumber: 1,
+};
+
+function base64Url(value: string): string {
+  return Buffer.from(value).toString('base64url');
+}
+
+function sign(body: string, key = currentSigningKey): string {
+  const now = Math.floor(Date.now() / 1_000);
+  const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const claims = base64Url(
+    JSON.stringify({
+      iss: 'Upstash',
+      sub: url,
+      iat: now,
+      exp: now + 60,
+      body: createHash('sha256').update(body).digest('base64url'),
+    }),
+  );
+  const unsigned = `${header}.${claims}`;
+  return `${unsigned}.${createHmac('sha256', key).update(unsigned).digest('base64url')}`;
+}
+
+function request(body: string, signature?: string): Request {
+  return new Request(url, {
+    method: 'POST',
+    headers: signature ? { 'Upstash-Signature': signature } : undefined,
+    body,
+  });
+}
+
+function dependencies(repository: Partial<RunRepository>) {
+  return {
+    environment: { ORCHESTRATION_ENABLED: 'true' },
+    repositoryFactory: vi.fn(() => repository as RunRepository),
+    receiverFactory: () =>
+      createQStashReceiver({ currentSigningKey, nextSigningKey }),
+    target: new FakeSalesforceDispatchTarget(),
+  };
+}
+
+describe('internal QStash dispatch handler', () => {
+  it('returns the same 401 for a missing or invalid signature without accessing the database', async () => {
+    const repositoryFactory = vi.fn();
+    const handler = createDispatchHandler({
+      environment: { ORCHESTRATION_ENABLED: 'true' },
+      repositoryFactory,
+      receiverFactory: () =>
+        createQStashReceiver({ currentSigningKey, nextSigningKey }),
+      target: new FakeSalesforceDispatchTarget(),
+    });
+    const raw = JSON.stringify(payload);
+
+    const missing = await handler(request(raw));
+    const invalid = await handler(request(raw, 'invalid'));
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(await missing.json()).toMatchObject({
+      error: { code: 'UNAUTHORIZED', message: 'Unauthorized' },
+    });
+    expect(await invalid.json()).toMatchObject({
+      error: { code: 'UNAUTHORIZED', message: 'Unauthorized' },
+    });
+    expect(repositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it('verifies the raw body with the SDK before parsing JSON or creating the repository', async () => {
+    const repositoryFactory = vi.fn();
+    const verify = vi.fn().mockResolvedValue(false);
+    const handler = createDispatchHandler({
+      environment: { ORCHESTRATION_ENABLED: 'true' },
+      repositoryFactory,
+      receiverFactory: () => ({ verify }),
+      target: new FakeSalesforceDispatchTarget(),
+    });
+
+    const response = await handler(request('{not-json', 'invalid'));
+
+    expect(response.status).toBe(401);
+    expect(verify).toHaveBeenCalledWith({
+      signature: 'invalid',
+      body: '{not-json',
+      url,
+    });
+    expect(repositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid current-key SDK signature and returns uniform 400/422 body errors', async () => {
+    const invalidJson = '{not-json';
+    const invalidShape = JSON.stringify({ ...payload, unexpected: 'blocked' });
+    const handler = createDispatchHandler(
+      dependencies({ claimDispatch: vi.fn() }),
+    );
+
+    const malformed = await handler(
+      request(invalidJson, sign(invalidJson, nextSigningKey)),
+    );
+    const strict = await handler(request(invalidShape, sign(invalidShape)));
+
+    expect(malformed.status).toBe(400);
+    expect(strict.status).toBe(422);
+    expect(await malformed.json()).toMatchObject({
+      error: { code: 'INVALID_REQUEST' },
+    });
+    expect(await strict.json()).toMatchObject({
+      error: { code: 'INVALID_REQUEST' },
+    });
+  });
+
+  it('rejects an oversized signed body before database access', async () => {
+    const body = JSON.stringify({ ...payload, padding: 'x'.repeat(17_000) });
+    const deps = dependencies({});
+    const handler = createDispatchHandler(deps);
+
+    const response = await handler(request(body, sign(body)));
+
+    expect(response.status).toBe(413);
+    expect(deps.repositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it('returns an idempotent 200 no-op for a terminal delivery', async () => {
+    const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'TERMINAL' });
+    const completeDispatch = vi.fn();
+    const target = { dispatch: vi.fn() };
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({ claimDispatch, completeDispatch }),
+      target,
+    });
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toStrictEqual({
+      accepted: true,
+      noop: true,
+    });
+    expect(target.dispatch).not.toHaveBeenCalled();
+    expect(completeDispatch).not.toHaveBeenCalled();
+  });
+
+  it('does not duplicate a running attempt and asks QStash to redeliver', async () => {
+    const completeDispatch = vi.fn();
+    const target = { dispatch: vi.fn() };
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({
+        claimDispatch: vi
+          .fn()
+          .mockResolvedValue({ outcome: 'ALREADY_RUNNING' }),
+        completeDispatch,
+      }),
+      target,
+    });
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('retry-after')).toBe('1');
+    expect(target.dispatch).not.toHaveBeenCalled();
+    expect(completeDispatch).not.toHaveBeenCalled();
+  });
+
+  it('returns a retryable conflict when a prior step has not reached successful terminal state', async () => {
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler(
+      dependencies({
+        claimDispatch: vi.fn().mockResolvedValue({ outcome: 'OUT_OF_ORDER' }),
+      }),
+    );
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get('retry-after')).toBe('1');
+    expect(await response.json()).toMatchObject({
+      error: { code: 'DISPATCH_OUT_OF_ORDER' },
+    });
+  });
+
+  it('executes the deterministic fake target once and records only sanitized result metadata', async () => {
+    const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'CLAIMED' });
+    const completeDispatch = vi.fn().mockResolvedValue({
+      runStatus: 'VERIFYING',
+    });
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler(
+      dependencies({ claimDispatch, completeDispatch }),
+    );
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(200);
+    expect(completeDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...payload,
+        requestId: expect.any(String),
+        httpStatus: 200,
+        durationMs: 0,
+        responseRedacted: {
+          transport: 'FAKE_SALESFORCE',
+          network: false,
+        },
+        errorCode: null,
+      }),
+    );
+    expect(JSON.stringify(completeDispatch.mock.calls)).not.toContain(
+      'numerocpf',
+    );
+  });
+});

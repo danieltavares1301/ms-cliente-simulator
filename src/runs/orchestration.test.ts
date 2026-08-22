@@ -101,6 +101,30 @@ class MemoryRunRepository implements RunRepository {
   updateStepStatus(): never {
     throw new Error('not used');
   }
+
+  recordStepScheduled(): never {
+    throw new Error('not used');
+  }
+
+  markRunScheduled(): never {
+    throw new Error('not used');
+  }
+
+  recordSchedulingFailure(): never {
+    throw new Error('not used');
+  }
+
+  claimDispatch(): never {
+    throw new Error('not used');
+  }
+
+  completeDispatch(): never {
+    throw new Error('not used');
+  }
+
+  listDeliveryAttempts(): never {
+    throw new Error('not used');
+  }
 }
 
 function createService(repository: RunRepository, scheduler?: Scheduler) {
@@ -220,9 +244,19 @@ describe('run orchestration service', () => {
     expect(result.outcome).toBe('CREATED');
     expect(scheduler.schedule).toHaveBeenCalledWith({
       runId,
-      steps: expect.arrayContaining([
-        expect.objectContaining({ stepKey: 'cliente-update' }),
-      ]),
+      steps: [
+        expect.objectContaining({
+          stepKey: 'cliente-update',
+          delayMs: 0,
+          attemptNumber: 1,
+        }),
+      ],
     });
+    expect(
+      repository.steps
+        .get(runId)
+        ?.filter(({ stepKind }) => stepKind !== 'DISPATCH')
+        .every(({ status }) => status === 'SKIPPED'),
+    ).toBe(true);
   });
 });

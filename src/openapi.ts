@@ -215,7 +215,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.3.1',
+    version: '0.3.2',
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },
@@ -413,7 +413,7 @@ export const openApiDocument: OpenApiDocument = {
       post: {
         summary: 'Criar execução',
         description:
-          'Cria ou reproduz uma execução idempotente. dryRun renderiza e persiste somente auditoria técnica, sem dependências externas.',
+          'Cria ou reproduz uma execução idempotente. Non-dry agenda dispatches no QStash; dryRun renderiza e persiste somente auditoria técnica, sem publicação externa.',
         operationId: 'createRun',
         tags: ['Runs'],
         security: bearerSecurity,

@@ -84,6 +84,29 @@ export interface AuditEvent {
   createdAt: Date;
 }
 
+export interface DeliveryAttempt {
+  id: string;
+  stepId: string;
+  attemptNumber: number;
+  requestId: string;
+  httpStatus: number | null;
+  durationMs: number | null;
+  responseRedacted: RedactedMetadata;
+  errorCode: string | null;
+  createdAt: Date;
+}
+
+export type DispatchClaimResult =
+  | { outcome: 'CLAIMED' }
+  | {
+      outcome:
+        | 'TERMINAL'
+        | 'ALREADY_RUNNING'
+        | 'OUT_OF_ORDER'
+        | 'ATTEMPT_CONFLICT'
+        | 'NOT_FOUND';
+    };
+
 export type NewRun = Omit<
   Run,
   'status' | 'createdAt' | 'startedAt' | 'finishedAt' | 'asyncWaitDeadline'
@@ -179,4 +202,35 @@ export interface RunRepository {
     startedAt?: Date;
     finishedAt?: Date;
   }): Promise<boolean>;
+  recordStepScheduled(input: {
+    stepId: string;
+    messageId: string;
+  }): Promise<boolean>;
+  markRunScheduled(runId: string): Promise<void>;
+  recordSchedulingFailure(input: {
+    runId: string;
+    failedStepId: string;
+    publishedCount: number;
+  }): Promise<void>;
+  claimDispatch(input: {
+    runId: string;
+    stepId: string;
+    attemptNumber: number;
+    claimedAt: Date;
+  }): Promise<DispatchClaimResult>;
+  completeDispatch(input: {
+    runId: string;
+    stepId: string;
+    attemptNumber: number;
+    requestId: string;
+    httpStatus: number;
+    durationMs: number;
+    responseRedacted: RedactedMetadata;
+    errorCode: string | null;
+    finishedAt: Date;
+  }): Promise<{ runStatus: RunStatus }>;
+  listDeliveryAttempts(
+    stepId: string,
+    limit: number,
+  ): Promise<DeliveryAttempt[]>;
 }

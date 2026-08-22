@@ -19,7 +19,8 @@ export type RunServiceErrorCode =
   | 'IDEMPOTENCY_CONFLICT'
   | 'INVALID_VARIABLES'
   | 'SCENARIO_NOT_READY'
-  | 'SCHEDULER_NOT_CONFIGURED';
+  | 'SCHEDULER_NOT_CONFIGURED'
+  | 'SCHEDULING_FAILED';
 
 export class RunServiceError extends Error {
   constructor(
@@ -113,13 +114,14 @@ function deriveSteps(
   speed: number,
 ): NewRunStep[] {
   const eventStart = Date.parse(fixture.eventStartAt);
-  const status = dryRun ? ('SKIPPED' as const) : ('PENDING' as const);
+  const nonDispatchStatus = 'SKIPPED' as const;
+  const dispatchStatus = dryRun ? ('SKIPPED' as const) : ('PENDING' as const);
   let ordinal = 0;
   const setup = fixture.setup.map((instruction, index) => ({
     stepKey: `setup-${index + 1}`,
     ordinal: ordinal++,
     target: 'ACCOUNT',
-    status,
+    status: nonDispatchStatus,
     requestRedacted: {
       operation: instruction.operation,
       target: 'ACCOUNT',
@@ -132,7 +134,7 @@ function deriveSteps(
     ordinal: ordinal++,
     target: step.target,
     eventType: step.eventType,
-    status,
+    status: dispatchStatus,
     scheduledAt: new Date(eventStart + step.delayMs / speed),
     requestRedacted: {
       eventId: step.envelope[0].id,
@@ -145,7 +147,7 @@ function deriveSteps(
     stepKey: `verify-${index + 1}`,
     ordinal: ordinal++,
     target: 'SALESFORCE',
-    status,
+    status: nonDispatchStatus,
     requestRedacted: {
       kind: outcome.kind,
       checks: [...outcome.checks],
@@ -157,7 +159,7 @@ function deriveSteps(
     stepKey: `cleanup-${index + 1}`,
     ordinal: ordinal++,
     target: instruction.target,
-    status,
+    status: nonDispatchStatus,
     requestRedacted: {
       operation: instruction.operation,
       target: instruction.target,
@@ -306,19 +308,42 @@ export function createRunOrchestrationService(
           'Idempotency key was already used with a different request',
         );
       }
+      let responseRun = result.run;
       if (
         result.outcome === 'CREATED' &&
         !input.request.execution.dryRun &&
         dependencies.scheduler
       ) {
-        await dependencies.scheduler.schedule({
-          runId: result.run.id,
-          steps: steps.map(({ stepKey, ordinal, scheduledAt }) => ({
-            stepKey,
-            ordinal,
-            scheduledAt: scheduledAt ?? null,
-          })),
-        });
+        const persistedSteps = (
+          await dependencies.repository.listSteps(result.run.id, { limit: 100 })
+        ).items;
+        const fixtureStepsByKey = new Map(
+          fixture.steps.map((step) => [step.key, step]),
+        );
+        try {
+          await dependencies.scheduler.schedule({
+            runId: result.run.id,
+            steps: persistedSteps
+              .filter(({ stepKind }) => stepKind === 'DISPATCH')
+              .map(({ id, stepKey, ordinal }) => ({
+                stepId: id,
+                stepKey,
+                ordinal,
+                delayMs:
+                  (fixtureStepsByKey.get(stepKey)?.delayMs ?? 0) /
+                  input.request.execution.speed,
+                attemptNumber: 1,
+              })),
+          });
+          responseRun =
+            (await dependencies.repository.findRun(result.run.id)) ??
+            result.run;
+        } catch {
+          throw new RunServiceError(
+            'SCHEDULING_FAILED',
+            'Run was persisted but QStash scheduling failed',
+          );
+        }
       }
 
       const responseFixture =
@@ -333,7 +358,7 @@ export function createRunOrchestrationService(
           : fixture;
       return {
         outcome: result.outcome,
-        run: result.run,
+        run: responseRun,
         ...(input.request.execution.dryRun
           ? {
               preview: createPreview(

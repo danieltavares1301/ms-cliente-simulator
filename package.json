@@ -1,6 +1,6 @@
 {
   "name": "ms-clientes-simulator",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@upstash/qstash": "^2.11.3",
     "drizzle-orm": "^0.45.2",
     "next": "16.3.2",
     "react": "19.2.8",

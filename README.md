@@ -4,11 +4,11 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.3.1**. O incremento 3.1 entrega a API administrativa protegida de
-runs, criação idempotente, `dryRun` determinístico e consultas paginadas. Os
-quatro cenários `CORE` permanecem `READY`. QStash, dispatch, cancelamento,
-retry e qualquer chamada ou alteração Salesforce continuam fora deste
-incremento.
+Versão **0.3.2**. O incremento 3.2 conecta runs non-dry ao QStash, verifica a
+assinatura no receiver interno e executa dispatch idempotente contra um
+Salesforce fake determinístico, sem rede. Os quatro cenários `CORE` permanecem
+`READY`. Cancelamento, retry administrativo, callback/verifier e qualquer
+chamada ou alteração Salesforce real continuam fora deste incremento.
 
 ## Quick Start
 
@@ -32,18 +32,18 @@ curl http://localhost:3000/api/v1/scenarios/match-id-cliente
 
 ## API contract-first
 
-| Endpoint                              | Status       | Observação                                                             |
-| ------------------------------------- | ------------ | ---------------------------------------------------------------------- |
-| `GET /api/v1/health`                  | Implementado | Health atual, sem valores de configuração.                             |
-| `GET /api/v1/openapi`                 | Implementado | OpenAPI 3.1 gerado em TypeScript e servido da memória.                 |
-| `GET /api/v1/scenarios`               | Implementado | Lista metadados sanitizados dos quatro cenários `CORE` `READY`.        |
-| `GET /api/v1/scenarios/{scenarioKey}` | Implementado | Detalhe sanitizado, sem payload renderizado ou CPF.                    |
-| `POST /api/v1/runs`                   | Implementado | Criação/replay idempotente; `dryRun` não acessa dependências externas. |
-| `GET /api/v1/runs`                    | Implementado | Listagem paginada com filtros seguros e máximo de 100 itens.           |
-| `GET /api/v1/runs/{runId}`            | Implementado | Estado sanitizado de uma execução.                                     |
-| `GET /api/v1/runs/{runId}/steps`      | Implementado | Passos sanitizados, paginados e ordenados.                             |
-| Cancelamento e retry de runs          | Futuro       | Permanecem sem handlers neste incremento.                              |
-| `POST /api/ms-clientes/graphql`       | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.    |
+| Endpoint                              | Status       | Observação                                                                           |
+| ------------------------------------- | ------------ | ------------------------------------------------------------------------------------ |
+| `GET /api/v1/health`                  | Implementado | Health atual, sem valores de configuração.                                           |
+| `GET /api/v1/openapi`                 | Implementado | OpenAPI 3.1 gerado em TypeScript e servido da memória.                               |
+| `GET /api/v1/scenarios`               | Implementado | Lista metadados sanitizados dos quatro cenários `CORE` `READY`.                      |
+| `GET /api/v1/scenarios/{scenarioKey}` | Implementado | Detalhe sanitizado, sem payload renderizado ou CPF.                                  |
+| `POST /api/v1/runs`                   | Implementado | Criação/replay idempotente; non-dry agenda QStash e `dryRun` publica zero mensagens. |
+| `GET /api/v1/runs`                    | Implementado | Listagem paginada com filtros seguros e máximo de 100 itens.                         |
+| `GET /api/v1/runs/{runId}`            | Implementado | Estado sanitizado de uma execução.                                                   |
+| `GET /api/v1/runs/{runId}/steps`      | Implementado | Passos sanitizados, paginados e ordenados.                                           |
+| Cancelamento e retry de runs          | Futuro       | Permanecem sem handlers neste incremento.                                            |
+| `POST /api/ms-clientes/graphql`       | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.                  |
 
 Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
 `phase-2` ou `future`. O endpoint interno de dispatch não é incluído no
@@ -72,9 +72,11 @@ expressão “não cria registros” refere-se a registros Salesforce: nenhum se
 verify, cleanup, agendamento ou publicação externa é executado. O preview
 autenticado não inclui envelopes/payloads brutos.
 
-Runs com `dryRun=false` falham fechados com `503 SCHEDULER_NOT_CONFIGURED`
-antes da persistência. As interfaces `Scheduler` e `DispatchPublisher` estão
-preparadas para o incremento seguinte, sem implementação QStash nesta versão.
+Runs com `dryRun=false` usam `QStashRunScheduler` quando a feature está ligada.
+O destino é sempre derivado de `PUBLIC_APP_BASE_URL`; falhas parciais ficam
+visíveis como `PARTIAL`/`FAILED` e em auditoria, sem rollback fictício. O
+receiver interno aceita somente assinatura QStash e não é publicado no OpenAPI.
+`dryRun=true` continua sem construir cliente ou publicar mensagens.
 
 Os schemas Zod em `src/contracts/` são estritos na borda pública. O envelope
 Event Grid aceita exatamente um dos seis eventos de cliente, contato ou
@@ -114,6 +116,8 @@ a configuração a cada requisição, falha de forma fechada quando ela é invá
 e responde com `dependencies.configuration: "ok"` e
 `orchestration: disabled|configured` quando válida, sem retornar valores de
 ambiente. `npm run build` não exige configuração real nem acessa integrações.
+O `Client` e o `Receiver` QStash são construídos de forma lazy somente durante
+agendamento ou recepção com a feature habilitada.
 
 ## Comandos de desenvolvimento
 
@@ -162,6 +166,7 @@ roda automaticamente no build/deploy.
 - [Validação do incremento 2.4](docs/phase-2/increment-2.4-validation.md)
 - [Validação do incremento 3.0](docs/phase-3/increment-3.0-validation.md)
 - [Validação do incremento 3.1](docs/phase-3/increment-3.1-validation.md)
+- [Validação do incremento 3.2](docs/phase-3/increment-3.2-validation.md)
 - [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)

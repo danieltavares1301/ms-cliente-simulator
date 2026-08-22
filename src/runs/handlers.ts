@@ -36,6 +36,7 @@ type HandlerDependencies = {
   environment: Record<string, string | undefined>;
   repositoryFactory: () => RunRepository;
   scheduler?: Scheduler;
+  schedulerFactory?: (repository: RunRepository) => Scheduler;
   serviceFactory?: (dependencies: {
     repository: RunRepository;
     scheduler?: Scheduler;
@@ -165,7 +166,8 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
       }
       if (
         !parsed.data.execution.dryRun &&
-        dependencies.scheduler === undefined
+        dependencies.scheduler === undefined &&
+        dependencies.schedulerFactory === undefined
       ) {
         return errorResponse(
           503,
@@ -185,11 +187,13 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
 
       try {
         const repository = getRepository();
+        const scheduler =
+          dependencies.scheduler ?? dependencies.schedulerFactory?.(repository);
         const factory =
           dependencies.serviceFactory ?? createRunOrchestrationService;
         const service = factory({
           repository,
-          scheduler: dependencies.scheduler,
+          scheduler,
           idempotencyPepper: pepper,
           requestedBy,
         });
@@ -216,6 +220,13 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
           }
           if (code === 'SCHEDULER_NOT_CONFIGURED') {
             return errorResponse(503, code, 'Scheduler is not configured');
+          }
+          if (code === 'SCHEDULING_FAILED') {
+            return errorResponse(
+              503,
+              code,
+              'Run persisted with auditable scheduling failure',
+            );
           }
           if (code === 'SCENARIO_NOT_READY' || code === 'INVALID_VARIABLES') {
             return errorResponse(422, code, 'Run request is not valid');

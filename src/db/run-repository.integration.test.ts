@@ -258,4 +258,165 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(page.items[0].ordinal).toBe(1);
     expect(page.total).toBe(2);
   });
+
+  it('atomically claims one concurrent delivery, blocks out-of-order steps, and persists attempts', async () => {
+    const created = await repository.createRun(
+      createInput({
+        steps: [
+          {
+            stepKey: 'dispatch-1',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'dispatch-2',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const [first, second] = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items;
+
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: second.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({ outcome: 'OUT_OF_ORDER' });
+
+    const claims = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        repository.claimDispatch({
+          runId: created.run.id,
+          stepId: first.id,
+          attemptNumber: 1,
+          claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+        }),
+      ),
+    );
+    expect(claims.filter(({ outcome }) => outcome === 'CLAIMED')).toHaveLength(
+      1,
+    );
+    expect(
+      claims.filter(({ outcome }) => outcome === 'ALREADY_RUNNING'),
+    ).toHaveLength(4);
+
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: first.id,
+      attemptNumber: 1,
+      requestId: 'delivery-request-1',
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: first.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:01.000Z'),
+      }),
+    ).resolves.toMatchObject({ outcome: 'TERMINAL' });
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: second.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:01.000Z'),
+      }),
+    ).resolves.toMatchObject({ outcome: 'CLAIMED' });
+
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: second.id,
+      attemptNumber: 1,
+      requestId: 'delivery-request-2',
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'WAITING_ASYNC',
+    });
+    expect(await repository.listDeliveryAttempts(first.id, 10)).toHaveLength(1);
+    expect(await repository.listDeliveryAttempts(second.id, 10)).toHaveLength(
+      1,
+    );
+  });
+
+  it('persists QStash message ids and exposes FAILED/PARTIAL scheduling recovery through audit', async () => {
+    const failed = await repository.createRun(createInput());
+    const failedStep = (
+      await repository.listSteps(failed.run.id, { limit: 10 })
+    ).items[1];
+    await repository.recordSchedulingFailure({
+      runId: failed.run.id,
+      failedStepId: failedStep.id,
+      publishedCount: 0,
+    });
+    expect(await repository.findRun(failed.run.id)).toMatchObject({
+      status: 'FAILED',
+    });
+
+    const partial = await repository.createRun(
+      createInput({
+        run: {
+          id: '33333333-3333-4333-8333-333333333333',
+          idempotencyKeyHash: 'd'.repeat(64),
+        },
+      }),
+    );
+    const partialStep = (
+      await repository.listSteps(partial.run.id, { limit: 10 })
+    ).items[1];
+    expect(
+      await repository.recordStepScheduled({
+        stepId: partialStep.id,
+        messageId: 'msg-persisted',
+      }),
+    ).toBe(true);
+    await repository.recordSchedulingFailure({
+      runId: partial.run.id,
+      failedStepId: partialStep.id,
+      publishedCount: 1,
+    });
+
+    expect(await repository.findRun(partial.run.id)).toMatchObject({
+      status: 'PARTIAL',
+    });
+    expect(
+      (await repository.listSteps(partial.run.id, { limit: 10 })).items[1],
+    ).toMatchObject({
+      qstashMessageId: 'msg-persisted',
+      status: 'SCHEDULED',
+    });
+    expect(await repository.listAuditEvents(partial.run.id, 10)).toEqual([
+      expect.objectContaining({
+        action: 'RUN_SCHEDULING_FAILED',
+        metadataRedacted: expect.objectContaining({
+          publishedCount: 1,
+          recoveryRequired: true,
+        }),
+      }),
+    ]);
+  });
 });
