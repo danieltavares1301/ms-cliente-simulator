@@ -59,6 +59,48 @@ describe('anonymizeJson', () => {
     expect(source.cpf).toBe(cpf());
   });
 
+  it('removes opaque credential fields recursively while preserving legitimate technical keys', () => {
+    const secrets = [
+      ['prod', 'secret'].join('-'),
+      ['sk', 'live', '123'].join('_'),
+      ['seg', 'redo'].join(''),
+    ];
+    const source = {
+      password: secrets[0],
+      apiKey: secrets[1],
+      senha: secrets[2],
+      nested: [
+        {
+          pass_phrase: secrets[0],
+          Secret: secrets[1],
+          clientSecret: secrets[2],
+          credential: secrets[0],
+        },
+        {
+          privateKey: secrets[1],
+          access_token: secrets[2],
+          refreshToken: secrets[0],
+          session_token: secrets[1],
+        },
+      ],
+      scenarioKey: 'cliente-criado',
+      stepKey: 'consultar-cliente',
+      idempotencyKeyHash: 'sha256:valor-tecnico',
+    };
+
+    const result = anonymizeJson(source, { seed: 'seed-controlada' });
+    const serialized = JSON.stringify(result);
+
+    expect(result).toEqual({
+      nested: [{}, {}],
+      scenarioKey: 'cliente-criado',
+      stepKey: 'consultar-cliente',
+      idempotencyKeyHash: 'sha256:valor-tecnico',
+    });
+    for (const secret of secrets) expect(serialized).not.toContain(secret);
+    expect(scanSensitiveData(result)).toEqual([]);
+  });
+
   it('uses stable tokens for repeated values and distinct tokens for distinct values', () => {
     const result = anonymizeJson(
       {

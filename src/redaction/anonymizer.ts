@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { isCredentialKey, normalizeKey } from './credential-keys.ts';
 import { assertNoSensitiveData } from './scanner.ts';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -23,14 +24,6 @@ const FREE_TEXT_KEYS = new Set([
   'bodytext',
 ]);
 
-function normalizeKey(key: string): string {
-  return key
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLowerCase();
-}
-
 function token(seed: string, category: string, value: string): string {
   return createHash('sha256')
     .update(`${seed}\u0000${category}\u0000${value}`)
@@ -52,10 +45,6 @@ function ensurePlainJson(value: unknown): asserts value is JsonValue {
     throw new Error('A anonimizacao aceita somente JSON controlado.');
   }
   Object.values(value).forEach(ensurePlainJson);
-}
-
-function isCredentialKey(key: string): boolean {
-  return /(?:authorization|token|clientsecret|session)/.test(key);
 }
 
 function isCpfKey(key: string): boolean {
@@ -85,7 +74,7 @@ function anonymizeValue(
   sourceKey?: string,
 ): JsonValue | undefined {
   const key = normalizeKey(sourceKey ?? '');
-  if (sourceKey !== undefined && (isCredentialKey(key) || isCpfKey(key)))
+  if (sourceKey !== undefined && (isCredentialKey(sourceKey) || isCpfKey(key)))
     return undefined;
   if (sourceKey !== undefined && FREE_TEXT_KEYS.has(key)) {
     throw new Error(

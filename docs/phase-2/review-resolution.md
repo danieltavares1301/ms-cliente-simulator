@@ -10,6 +10,15 @@ Em 2026-08-22, os achados válidos da revisão sobre `c6b7a55` foram resolvidos:
 - o scanner executa detectores de credencial, JWT/Bearer, URL com credenciais,
   Salesforce ID e PII antes das permissões sintéticas, cujos formatos agora são
   restritos;
+- scanner e anonimizador compartilham a mesma classificação de chaves opacas de
+  credenciais, sem diferença por caixa, separadores ou camelCase. Campos como
+  `password`, `senha`, `passphrase`, `apiKey`, `secret`, `clientSecret`,
+  `credential(s)`, `privateKey` e tokens de acesso, renovação ou sessão são
+  reportados apenas por categoria/caminho e removidos deterministicamente,
+  inclusive em objetos e arrays aninhados;
+- chaves técnicas como `scenarioKey`, `stepKey` e `idempotencyKeyHash` são
+  preservadas; hashes/digests não são confundidos com credenciais brutas. A CLI
+  revalida o resultado final e não cria o arquivo se ainda houver dado sensível;
 - `datanascimento` aceita somente uma data civil válida em `YYYY-MM-DD`, em
   alinhamento com o `parseDate` Apex e com o OpenAPI.
 
@@ -28,4 +37,6 @@ Os testes de regressão foram escritos e executados antes das correções. O RED
 reproduziu rejeição ausente de UNC/device/traversal, bypass do scanner por
 prefixo, segurança indevida nos endpoints públicos, ausência de validação de
 `datanascimento` e divergência do OpenAPI. Após a implementação, os mesmos
-testes passaram no GREEN.
+testes passaram no GREEN. A regressão bloqueante de credenciais opacas também
+foi reproduzida com valores montados em runtime antes da correção; os testes
+confirmam ausência desses valores nos achados, erros e arquivos de saída.

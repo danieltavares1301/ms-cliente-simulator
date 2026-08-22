@@ -1,5 +1,6 @@
 import { renderedScenarioFixtureSchema } from '../contracts/fixtures.ts';
 import { verifySyntheticCpf } from '../synthetic/cpf.ts';
+import { isCredentialKey, normalizeKey } from './credential-keys.ts';
 
 export type SensitiveCategory =
   | 'CPF'
@@ -27,14 +28,6 @@ const SYNTHETIC_MARKER_PATTERNS = [
   /^(?:CLI|PRO|EVT)-SIM-[a-f0-9]{6,32}(?:-[a-f0-9]{6,32})?$/i,
   /^(?:TEL|END|CEP)-SIM-[a-f0-9]{6,32}$/i,
 ];
-
-function normalizeKey(key: string): string {
-  return key
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLowerCase();
-}
 
 function approvedTestEmail(
   value: string,
@@ -69,8 +62,7 @@ function categoryForSensitiveKey(key: string): SensitiveCategory | undefined {
   if (normalized.includes('nome')) return 'NAME';
   if (/(?:endereco|address|logradouro|cep|bairro)/.test(normalized))
     return 'ADDRESS';
-  if (/(?:authorization|token|clientsecret|session)/.test(normalized))
-    return 'CREDENTIAL';
+  if (isCredentialKey(key)) return 'CREDENTIAL';
   return undefined;
 }
 

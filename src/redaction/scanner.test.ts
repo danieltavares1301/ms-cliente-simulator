@@ -89,6 +89,60 @@ describe('scanSensitiveData', () => {
     expect(JSON.stringify(findings)).not.toContain('dado-nao-permitido');
   });
 
+  it('detects common credential keys across casing and separators without blocking technical keys', () => {
+    const opaqueValues = [
+      ['prod', 'secret'].join('-'),
+      ['sk', 'live', '123'].join('_'),
+      ['seg', 'redo'].join(''),
+    ];
+    const payload = {
+      password: opaqueValues[0],
+      API_KEY: opaqueValues[1],
+      nested: [
+        {
+          Senha: opaqueValues[2],
+          passPhrase: opaqueValues[0],
+          client_secret: opaqueValues[1],
+          credentials: opaqueValues[2],
+        },
+        {
+          private_key: opaqueValues[0],
+          accessToken: opaqueValues[1],
+          refresh_token: opaqueValues[2],
+          SESSION_TOKEN: opaqueValues[0],
+        },
+      ],
+      scenarioKey: 'cliente-criado',
+      stepKey: 'consultar-cliente',
+      idempotencyKeyHash: 'sha256:valor-tecnico',
+    };
+
+    const findings = scanSensitiveData(payload);
+
+    expect(compact(findings)).toEqual([
+      { path: '$.API_KEY', category: 'CREDENTIAL' },
+      { path: '$.nested[0].client_secret', category: 'CREDENTIAL' },
+      { path: '$.nested[0].credentials', category: 'CREDENTIAL' },
+      { path: '$.nested[0].passPhrase', category: 'CREDENTIAL' },
+      { path: '$.nested[0].Senha', category: 'CREDENTIAL' },
+      { path: '$.nested[1].accessToken', category: 'CREDENTIAL' },
+      { path: '$.nested[1].private_key', category: 'CREDENTIAL' },
+      { path: '$.nested[1].refresh_token', category: 'CREDENTIAL' },
+      { path: '$.nested[1].SESSION_TOKEN', category: 'CREDENTIAL' },
+      { path: '$.password', category: 'CREDENTIAL' },
+    ]);
+    for (const value of opaqueValues) {
+      expect(JSON.stringify(findings)).not.toContain(value);
+    }
+    expect(findings.some(({ path }) => path.includes('scenarioKey'))).toBe(
+      false,
+    );
+    expect(findings.some(({ path }) => path.includes('stepKey'))).toBe(false);
+    expect(
+      findings.some(({ path }) => path.includes('idempotencyKeyHash')),
+    ).toBe(false);
+  });
+
   it('detects sensitive value patterns in nested objects, arrays, and strings', () => {
     const cpf = makeCpf(['5', '2', '9', '9', '8', '2', '2', '4', '7'].join(''));
     const email = outsideTestEmail();

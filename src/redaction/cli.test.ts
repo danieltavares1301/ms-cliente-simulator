@@ -166,6 +166,42 @@ describe('offline redaction commands', () => {
     expect(io.writeFile).not.toHaveBeenCalled();
   });
 
+  it('rejects the final CLI output without writing when a sensitive value remains', async () => {
+    const remainingSecret = [
+      'Bear',
+      'er ',
+      'eyJ',
+      'hbGciOiJIUzI1NiJ9',
+      '.',
+      'eyJzdWIiOiIxIn0',
+      '.',
+      'runtime-signature',
+    ].join('');
+    const io = {
+      readFile: vi.fn(async () =>
+        JSON.stringify({ opaqueRuntimeValue: remainingSecret }),
+      ),
+      writeFile: vi.fn(),
+      mkdir: vi.fn(),
+    };
+
+    let caught: unknown;
+    try {
+      await runAnonymizeCommand(
+        ['D:\\exports\\raw.json', 'D:\\exports\\safe.json'],
+        io,
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(String(caught)).toContain('CREDENTIAL em $.opaqueRuntimeValue');
+    expect(String(caught)).not.toContain(remainingSecret);
+    expect(io.mkdir).not.toHaveBeenCalled();
+    expect(io.writeFile).not.toHaveBeenCalled();
+  });
+
   it('reports fixture findings without exposing detected values', async () => {
     const detected = sourceEmail();
     const safe = ['cliente', 'example', 'test']
