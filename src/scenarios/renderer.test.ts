@@ -175,40 +175,15 @@ describe('renderScenarioFixture', () => {
   );
 
   it.each(scenarioKeys)(
-    'passes the fixture-aware scanner while the generic scanner still rejects its CPF for %s',
+    'passes both scanners without provenance bypass for %s',
     (scenarioKey) => {
       const fixture = renderScenarioFixture({ ...input, scenarioKey });
 
       expect(scanRenderedFixtureSensitiveData(fixture)).toEqual([]);
-      expect(scanSensitiveData(fixture)).toEqual(
-        expect.arrayContaining([expect.objectContaining({ category: 'CPF' })]),
-      );
+      expect(scanSensitiveData(fixture)).toEqual([]);
+      expect(fixture).not.toHaveProperty('syntheticOrigins');
     },
   );
-
-  it('does not accept a valid CPF with forged fixture provenance', () => {
-    const fixture = renderScenarioFixture({
-      ...input,
-      scenarioKey: 'no-match-cliente-insert',
-    });
-    const other = renderScenarioFixture({
-      ...input,
-      scenarioKey: 'no-match-cliente-insert',
-      runId: 'run_other_namespace',
-    });
-    const forged = structuredClone(fixture);
-    forged.steps[0].envelope[0].data.numerocpf =
-      other.steps[0].envelope[0].data.numerocpf;
-
-    expect(scanRenderedFixtureSensitiveData(forged)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '$.steps[0].envelope[0].data.numerocpf',
-          category: 'CPF',
-        }),
-      ]),
-    );
-  });
 
   it('describes exact allowlisted setup and cleanup operations', () => {
     const byId = renderScenarioFixture({

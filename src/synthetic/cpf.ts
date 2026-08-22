@@ -1,15 +1,5 @@
 import { createHash } from 'node:crypto';
 
-export const SYNTHETIC_CPF_GENERATOR = 'DETERMINISTIC_CPF_V1' as const;
-
-export interface SyntheticCpf {
-  value: string;
-  origin: {
-    generator: typeof SYNTHETIC_CPF_GENERATOR;
-    proof: string;
-  };
-}
-
 function digest(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -21,37 +11,30 @@ function checkDigit(digits: string, factor: number): number {
   return remainder === 10 ? 0 : remainder;
 }
 
-function proofFor(seed: string, runId: string, value: string): string {
-  return digest(`fixture-cpf-v1|${seed}|${runId}|${value}`).slice(0, 32);
+function cpfChecksumIsValid(candidate: string): boolean {
+  if (!/^\d{11}$/.test(candidate) || /^(\d)\1{10}$/.test(candidate))
+    return false;
+  const first = checkDigit(candidate.slice(0, 9), 10);
+  return (
+    first === Number(candidate[9]) &&
+    checkDigit(`${candidate.slice(0, 9)}${first}`, 11) === Number(candidate[10])
+  );
 }
 
-export function generateSyntheticCpf(
+export function isNonRealCpfForContractFixture(value: string): boolean {
+  return /^000\d{8}$/.test(value) && !cpfChecksumIsValid(value);
+}
+
+export function generateNonRealCpfForContractFixture(
   seed: string,
   runId: string,
-): SyntheticCpf {
-  const source = digest(`fixture-cpf-digits-v1|${seed}|${runId}`);
-  let base = [...source.slice(0, 9)]
+): string {
+  const source = digest(`contract-document-v2|${seed}|${runId}`);
+  const namespaceDigits = [...source.slice(0, 6)]
     .map((character) => Number.parseInt(character, 16) % 10)
     .join('');
-  if (/^(\d)\1{8}$/.test(base)) base = `${base.slice(0, 8)}7`;
+  const base = `000${namespaceDigits}`;
   const first = checkDigit(base, 10);
-  const value = `${base}${first}${checkDigit(`${base}${first}`, 11)}`;
-
-  return {
-    value,
-    origin: {
-      generator: SYNTHETIC_CPF_GENERATOR,
-      proof: proofFor(seed, runId, value),
-    },
-  };
-}
-
-export function verifySyntheticCpf(
-  seed: string,
-  runId: string,
-  value: string,
-  proof: string,
-): boolean {
-  const generated = generateSyntheticCpf(seed, runId);
-  return generated.value === value && generated.origin.proof === proof;
+  const deliberatelyWrongSecond = (checkDigit(`${base}${first}`, 11) + 1) % 10;
+  return `${base}${first}${deliberatelyWrongSecond}`;
 }

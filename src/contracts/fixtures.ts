@@ -110,17 +110,6 @@ const renderedFixtureStepSchema = z
     }
   });
 
-const syntheticCpfOriginSchema = z
-  .object({
-    kind: z.literal('CPF'),
-    generator: z.literal('DETERMINISTIC_CPF_V1'),
-    proof: z.string().regex(/^[a-f0-9]{32}$/),
-    paths: z
-      .array(z.string().regex(/^\$(?:\.[A-Za-z_$][\w$]*|\[\d+\])+$/))
-      .min(1),
-  })
-  .strict();
-
 export const renderedScenarioFixtureSchema = z
   .object({
     scenarioKey: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
@@ -145,7 +134,6 @@ export const renderedScenarioFixtureSchema = z
     expectedOutcomes: z.array(expectedOutcomeSchema).min(1).max(20),
     asyncPolicy: asyncPolicySchema,
     cleanup: z.array(renderedCleanupInstructionSchema).min(1).max(20),
-    syntheticOrigins: z.array(syntheticCpfOriginSchema).length(1),
   })
   .strict();
 

@@ -89,7 +89,7 @@ describe('scanSensitiveData', () => {
     expect(JSON.stringify(findings)).not.toContain('dado-nao-permitido');
   });
 
-  it('detects common credential keys across casing and separators without blocking technical keys', () => {
+  it('detects credential keys across nesting, casing and separators while allowing only modeled technical hashes', () => {
     const opaqueValues = [
       ['prod', 'secret'].join('-'),
       ['sk', 'live', '123'].join('_'),
@@ -110,11 +110,23 @@ describe('scanSensitiveData', () => {
           accessToken: opaqueValues[1],
           refresh_token: opaqueValues[2],
           SESSION_TOKEN: opaqueValues[0],
+          cookie: opaqueValues[1],
+          SET_COOKIE: opaqueValues[2],
+          'subscription-key': opaqueValues[0],
+          signingKey: opaqueValues[1],
+          webhook_secret: opaqueValues[2],
+          ConnectionString: opaqueValues[0],
+          passwordHash: opaqueValues[1],
+          secret_hash: opaqueValues[2],
+          TOKEN_DIGEST: opaqueValues[0],
         },
       ],
       scenarioKey: 'cliente-criado',
       stepKey: 'consultar-cliente',
       idempotencyKeyHash: 'sha256:valor-tecnico',
+      idClienteHash: 'sha256:cliente',
+      id_prospect_hash: 'sha256:prospect',
+      'normalized-correlation-key-hash': 'sha256:correlation',
     };
 
     const findings = scanSensitiveData(payload);
@@ -126,9 +138,21 @@ describe('scanSensitiveData', () => {
       { path: '$.nested[0].passPhrase', category: 'CREDENTIAL' },
       { path: '$.nested[0].Senha', category: 'CREDENTIAL' },
       { path: '$.nested[1].accessToken', category: 'CREDENTIAL' },
+      { path: '$.nested[1].ConnectionString', category: 'CREDENTIAL' },
+      { path: '$.nested[1].cookie', category: 'CREDENTIAL' },
+      { path: '$.nested[1].passwordHash', category: 'CREDENTIAL' },
       { path: '$.nested[1].private_key', category: 'CREDENTIAL' },
       { path: '$.nested[1].refresh_token', category: 'CREDENTIAL' },
+      { path: '$.nested[1].secret_hash', category: 'CREDENTIAL' },
       { path: '$.nested[1].SESSION_TOKEN', category: 'CREDENTIAL' },
+      { path: '$.nested[1].SET_COOKIE', category: 'CREDENTIAL' },
+      { path: '$.nested[1].signingKey', category: 'CREDENTIAL' },
+      { path: '$.nested[1].TOKEN_DIGEST', category: 'CREDENTIAL' },
+      { path: '$.nested[1].webhook_secret', category: 'CREDENTIAL' },
+      {
+        path: '$.nested[1]["subscription-key"]',
+        category: 'CREDENTIAL',
+      },
       { path: '$.password', category: 'CREDENTIAL' },
     ]);
     for (const value of opaqueValues) {
@@ -141,6 +165,30 @@ describe('scanSensitiveData', () => {
     expect(
       findings.some(({ path }) => path.includes('idempotencyKeyHash')),
     ).toBe(false);
+    expect(findings.some(({ path }) => path.includes('idClienteHash'))).toBe(
+      false,
+    );
+    expect(findings.some(({ path }) => path.includes('id_prospect_hash'))).toBe(
+      false,
+    );
+    expect(
+      findings.some(({ path }) =>
+        path.includes('normalized-correlation-key-hash'),
+      ),
+    ).toBe(false);
+  });
+
+  it('reports credential keys even when their values are absent', () => {
+    expect(
+      compact(
+        scanSensitiveData({
+          nested: [{ cookie: null }, { set_cookie: undefined }],
+        }),
+      ),
+    ).toStrictEqual([
+      { path: '$.nested[0].cookie', category: 'CREDENTIAL' },
+      { path: '$.nested[1].set_cookie', category: 'CREDENTIAL' },
+    ]);
   });
 
   it('detects sensitive value patterns in nested objects, arrays, and strings', () => {

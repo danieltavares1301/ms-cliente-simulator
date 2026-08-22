@@ -7,7 +7,7 @@ import {
   renderedScenarioFixtureSchema,
   type RenderedScenarioFixture,
 } from '../contracts/fixtures.ts';
-import { generateSyntheticCpf } from '../synthetic/cpf.ts';
+import { generateNonRealCpfForContractFixture } from '../synthetic/cpf.ts';
 import { scenarioCatalog } from './catalog.ts';
 
 const renderInputSchema = z
@@ -73,25 +73,6 @@ function resolveTemplate(value: unknown, context: RenderContext): unknown {
   return value;
 }
 
-function collectValuePaths(
-  value: unknown,
-  expected: string,
-  path = '$',
-): string[] {
-  if (value === expected) return [path];
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) =>
-      collectValuePaths(item, expected, `${path}[${index}]`),
-    );
-  }
-  if (value !== null && typeof value === 'object') {
-    return Object.entries(value).flatMap(([key, child]) =>
-      collectValuePaths(child, expected, `${path}.${key}`),
-    );
-  }
-  return [];
-}
-
 export function renderScenarioFixture(
   candidate: RenderScenarioFixtureInput,
 ): RenderedScenarioFixture {
@@ -106,7 +87,10 @@ export function renderScenarioFixture(
   const namespaceToken = digest(`run|${input.runId}`).slice(0, 10);
   const accountIdCliente = `CLI-SIM-${namespaceToken}-${seedToken}`;
   const accountIdProspect = `PRO-SIM-${namespaceToken}-${seedToken}`;
-  const syntheticCpf = generateSyntheticCpf(input.seed, input.runId);
+  const nonRealContractDocument = generateNonRealCpfForContractFixture(
+    input.seed,
+    input.runId,
+  );
   const baseContext = {
     RUN_ID: input.runId,
     STEP_ID: '',
@@ -115,7 +99,7 @@ export function renderScenarioFixture(
     BASELINE_TIME: new Date(Date.parse(eventStartAt) - 1_000).toISOString(),
     CLIENT_ID: accountIdCliente,
     PROSPECT_ID: accountIdProspect,
-    CPF: syntheticCpf.value,
+    CPF: nonRealContractDocument,
     PERSON_NAME: `Cliente Simulado ${seedToken}`,
     BASE_PERSON_NAME: `Cliente Simulado Base ${seedToken}`,
   } satisfies RenderContext;
@@ -170,7 +154,7 @@ export function renderScenarioFixture(
     waitTimeoutMs: definition.asyncPolicy.waitTimeoutMs,
     missingCallbackResult: definition.asyncPolicy.missingCallbackResult,
   };
-  const fixtureWithoutOrigins = {
+  const fixture = {
     scenarioKey: definition.key,
     version: definition.version,
     seed: input.seed,
@@ -187,23 +171,5 @@ export function renderScenarioFixture(
     asyncPolicy,
     cleanup,
   };
-  const cpfPaths = collectValuePaths(
-    {
-      setup: fixtureWithoutOrigins.setup,
-      steps: fixtureWithoutOrigins.steps,
-    },
-    syntheticCpf.value,
-  );
-
-  return renderedScenarioFixtureSchema.parse({
-    ...fixtureWithoutOrigins,
-    syntheticOrigins: [
-      {
-        kind: 'CPF',
-        generator: syntheticCpf.origin.generator,
-        proof: syntheticCpf.origin.proof,
-        paths: cpfPaths,
-      },
-    ],
-  });
+  return renderedScenarioFixtureSchema.parse(fixture);
 }

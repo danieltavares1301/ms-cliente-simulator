@@ -37,7 +37,8 @@ evento por envelope.
 - `format` e `format:check`: verdes;
 - `validate:scenarios`: 1 teste aprovado;
 - `validate:fixtures`: 4 fixtures renderizadas, determinísticas, namespaced,
-  válidas nos schemas e sem findings do scanner contextual;
+  válidas nos schemas e sem findings do scanner genérico, sem bypass por
+  proveniência;
 - `lint` e `typecheck`: verdes, sem warnings;
 - `build`: verde, incluindo os dois validadores no `prebuild`;
 - `db:generate`: executado duas vezes, sem alteração de schema ou migration;
@@ -45,3 +46,12 @@ evento por envelope.
 - `npm audit --audit-level=high`: exit code zero para high/critical. Permanecem
   quatro vulnerabilidades moderadas transitivas de `drizzle-kit`; a correção
   sugerida pelo npm exige downgrade incompatível e não foi aplicada.
+
+## Endurecimento final
+
+Sobre `bd832f6`, o renderer deixou de gerar CPF com checksum válido. A chave
+contratual `numerocpf` continua presente, mas recebe um documento determinístico
+de 11 dígitos, gerado em runtime e deliberadamente inválido segundo o checksum de
+CPF. O scanner comum o aceita pelo formato de fixture não real, sem metadado de
+origem ou bypass contextual. Se a org exigir checksum no E2E Salesforce da Fase
+4, será necessário mapping de CPF de teste válido formalmente aprovado.

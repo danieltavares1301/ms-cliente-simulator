@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
-import { isCredentialKey, normalizeKey } from './credential-keys.ts';
+import {
+  isCredentialKey,
+  isSafeTechnicalHashKey,
+  normalizeKey,
+} from './credential-keys.ts';
 import { assertNoSensitiveData } from './scanner.ts';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -109,6 +113,8 @@ function anonymizeValue(
   }
 
   const stable = (category: string) => token(seed, category, value);
+  if (sourceKey !== undefined && isSafeTechnicalHashKey(sourceKey))
+    return value;
   if (key.includes('email')) return `cliente+${stable('email')}@example.test`;
   if (/(?:telefone|celular|phone|whatsapp)/.test(key))
     return `TEL-SIM-${stable('phone')}`;

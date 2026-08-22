@@ -16,9 +16,22 @@ Em 2026-08-22, os achados válidos da revisão sobre `c6b7a55` foram resolvidos:
   `credential(s)`, `privateKey` e tokens de acesso, renovação ou sessão são
   reportados apenas por categoria/caminho e removidos deterministicamente,
   inclusive em objetos e arrays aninhados;
-- chaves técnicas como `scenarioKey`, `stepKey` e `idempotencyKeyHash` são
-  preservadas; hashes/digests não são confundidos com credenciais brutas. A CLI
-  revalida o resultado final e não cria o arquivo se ainda houver dado sensível;
+- chaves técnicas como `scenarioKey` e `stepKey` são preservadas. A única
+  allowlist de hashes contém campos comprovados no schema:
+  `idempotencyKeyHash`, `idClienteHash`, `idProspectHash` e
+  `normalizedCorrelationKeyHash`. Não existe exceção genérica para sufixos
+  `hash`/`digest`; assim, `passwordHash`, `secretHash` e `tokenDigest` continuam
+  sendo credenciais;
+- `cookie`, `setCookie`, `subscriptionKey`, `signingKey`, `webhookSecret` e
+  `connectionString` são detectados sem diferença por caixa ou separadores,
+  inclusive sem valor, em objetos/arrays aninhados, e removidos pelo anonymizer.
+  A CLI revalida o resultado final e não cria o arquivo se ainda houver dado
+  sensível;
+- fixtures de contrato não geram CPF válido. `numerocpf` recebe em runtime um
+  documento determinístico de 11 dígitos deliberadamente não real, sempre
+  inválido no checksum de CPF e aceito pelo scanner comum sem bypass de
+  proveniência. Antes do E2E Salesforce da Fase 4, deverá existir mapping de CPF
+  de teste válido formalmente aprovado caso a org exija checksum;
 - `datanascimento` aceita somente uma data civil válida em `YYYY-MM-DD`, em
   alinhamento com o `parseDate` Apex e com o OpenAPI.
 
@@ -40,3 +53,18 @@ prefixo, segurança indevida nos endpoints públicos, ausência de validação d
 testes passaram no GREEN. A regressão bloqueante de credenciais opacas também
 foi reproduzida com valores montados em runtime antes da correção; os testes
 confirmam ausência desses valores nos achados, erros e arquivos de saída.
+No endurecimento final sobre `bd832f6`, o RED também comprovou a exceção genérica
+de hash/digest, as novas famílias de chaves e a geração de CPF com checksum
+válido. O GREEN cobre 64 namespaces de documento não real, scanner genérico sem
+proveniência e remoção aninhada pelo anonymizer.
+
+## Validações finais
+
+- `format` e `format:check`: verdes;
+- `validate:scenarios`: 1 teste aprovado;
+- `validate:fixtures`: 4 fixtures renderizadas aprovadas;
+- suíte completa: 14 arquivos e 124 testes aprovados;
+- `lint`, `typecheck` e `build`: verdes;
+- `db:generate`: duas execuções sem alteração; `db:check`: verde;
+- `npm audit --audit-level=high`: exit code zero para high/critical; permanecem
+  quatro vulnerabilidades moderadas transitivas de `drizzle-kit`.

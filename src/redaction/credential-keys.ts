@@ -17,7 +17,19 @@ const CREDENTIAL_KEY_SUFFIXES = [
 const CREDENTIAL_KEYS = new Set([
   'authorization',
   'authorizationheader',
+  'connectionstring',
+  'cookie',
   'session',
+  'setcookie',
+  'signingkey',
+  'subscriptionkey',
+]);
+
+const SAFE_TECHNICAL_HASH_KEYS = new Set([
+  'idempotencykeyhash',
+  'idclientehash',
+  'idprospecthash',
+  'normalizedcorrelationkeyhash',
 ]);
 
 export function normalizeKey(key: string): string {
@@ -30,10 +42,18 @@ export function normalizeKey(key: string): string {
 
 export function isCredentialKey(key: string): boolean {
   const normalized = normalizeKey(key);
-  if (normalized.endsWith('hash') || normalized.endsWith('digest'))
-    return false;
+  if (SAFE_TECHNICAL_HASH_KEYS.has(normalized)) return false;
+  const withoutOpaqueSuffix = normalized.replace(/(?:hash|digest)$/, '');
   return (
     CREDENTIAL_KEYS.has(normalized) ||
-    CREDENTIAL_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+    CREDENTIAL_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix)) ||
+    CREDENTIAL_KEYS.has(withoutOpaqueSuffix) ||
+    CREDENTIAL_KEY_SUFFIXES.some((suffix) =>
+      withoutOpaqueSuffix.endsWith(suffix),
+    )
   );
+}
+
+export function isSafeTechnicalHashKey(key: string): boolean {
+  return SAFE_TECHNICAL_HASH_KEYS.has(normalizeKey(key));
 }

@@ -14,7 +14,13 @@ O pipeline não contém cliente HTTP, `fetch` ou integração com Salesforce, Ne
 
 A mesma seed e o mesmo valor de origem produzem o mesmo token SHA-256 truncado, permitindo correlação sem persistir o valor original. E-mails usam `example.test`; nomes usam `Cliente Simulado <token>`; contatos, endereços e IDs técnicos recebem prefixos `TEL-SIM`, `END-SIM`, `CEP-SIM`, `CLI-SIM`, `PRO-SIM` ou `EVT-SIM`.
 
-Não existe faixa oficial reservada de CPF. Por isso o pipeline **não inventa CPF sintético**: campos de CPF/cadastro nacional são removidos. Se um contrato futuro exigir esse campo, a equipe deverá fornecer um mapping sintético formalmente aprovado; isso não faz parte deste incremento.
+Não existe faixa oficial reservada de CPF. Por isso o anonymizer offline remove
+campos de CPF/cadastro nacional. As fixtures de contrato, cujo schema exige a
+chave `numerocpf` nos cenários de match, geram em runtime um documento
+determinístico de 11 dígitos deliberadamente não real e inválido no checksum de
+CPF. Esse formato não usa proveniência para escapar do scanner. Antes do E2E
+Salesforce da Fase 4, deverá existir mapping de CPF de teste válido formalmente
+aprovado caso a org exija checksum.
 
 Credenciais, authorization, tokens, client secrets e sessões são removidos. Texto livre, mensagens, descrições e stack traces são rejeitados, não transformados: remova-os antes de repetir o comando.
 

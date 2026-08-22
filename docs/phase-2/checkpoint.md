@@ -9,7 +9,7 @@
 | Fixtures determinísticas | Concluído | `renderScenarioFixture` valida entrada, aplica seed, namespace por `runId`, datas UTC e delay. |
 | Setup e cleanup allowlisted | Concluído | Somente `CREATE_SYNTHETIC_ACCOUNT`, `ENSURE_ACCOUNT_ABSENT` e `DELETE_OWNED_RECORDS` tipados; não há SOQL, DML ou nomes livres. |
 | Envelope Event Grid estrito | Concluído | Cada passo produz exatamente um evento `cliente-insert` ou `cliente-update` validado por Zod. |
-| Proteção de PII | Concluído | Nomes são marcadores sintéticos; CPF válido nasce somente do gerador determinístico oficial e requer proveniência válida por path no scanner de fixture. |
+| Proteção de PII | Concluído | Nomes são marcadores sintéticos; fixtures de contrato preenchem `numerocpf` com documento de 11 dígitos deliberadamente não real e inválido no checksum de CPF, sem bypass de proveniência no scanner. |
 | Comportamento Apex honesto | Concluído | Os cenários sem match prometem Person Account, mas não Lead/Proponente/callback sem as flags reais de divergência ou vínculo. |
 | Validação offline de fixtures | Concluído | `validate:fixtures` renderiza todas as fixtures, verifica determinismo, namespace cruzado, schema, placeholders e scanner. |
 
@@ -21,6 +21,9 @@
 - Não há implementação GraphQL, alteração Apex ou metadata Salesforce.
 - Opportunity e Proponente não são prometidos nos quatro casos, porque os
   payloads básicos não acionam as flags correspondentes no Apex atual.
+- Antes do E2E Salesforce da Fase 4, deverá existir mapping de CPF de teste válido
+  formalmente aprovado caso a org exija checksum; a Fase 2 não presume faixa
+  oficial reservada nem envia CPF válido.
 
 ## Gate
 

@@ -1,5 +1,5 @@
 import { renderedScenarioFixtureSchema } from '../contracts/fixtures.ts';
-import { verifySyntheticCpf } from '../synthetic/cpf.ts';
+import { isNonRealCpfForContractFixture } from '../synthetic/cpf.ts';
 import { isCredentialKey, normalizeKey } from './credential-keys.ts';
 
 export type SensitiveCategory =
@@ -48,6 +48,7 @@ function isApprovedValue(
 ): boolean {
   if (typeof value !== 'string') return value === null;
   if (allowed.has(value) && !containsCpf(value)) return true;
+  if (isNonRealCpfForContractFixture(value)) return true;
   if (approvedTestEmail(value, emailDomains)) return true;
   if (/^(?:run_|step_)[a-zA-Z0-9_-]+$/.test(value)) return true;
   if (/^Cliente Simulado(?: Base)? [a-f0-9]{6,32}$/.test(value)) return true;
@@ -166,10 +167,9 @@ function childPath(parent: string, key: string): string {
     : `${parent}[${JSON.stringify(key)}]`;
 }
 
-function scanSensitiveDataWithApprovedPaths(
+function scanSensitiveDataInternal(
   input: unknown,
   options: ScanOptions,
-  approvedValuesByPath: ReadonlyMap<string, string>,
 ): SensitiveFinding[] {
   const allowed = new Set(options.allowedValues ?? []);
   const emailDomains = new Set([
@@ -191,13 +191,12 @@ function scanSensitiveDataWithApprovedPaths(
   const visit = (value: unknown, path: string, key?: string) => {
     const detectedCategories =
       typeof value === 'string' ? valueCategories(value, emailDomains) : [];
-    const approvedByVerifiedProvenance =
-      approvedValuesByPath.get(path) === value;
     const approved =
-      approvedByVerifiedProvenance ||
-      (detectedCategories.length === 0 &&
-        isApprovedValue(value, allowed, emailDomains));
-    if (key !== undefined && !approved) {
+      detectedCategories.length === 0 &&
+      isApprovedValue(value, allowed, emailDomains);
+    const credentialKey = key !== undefined && isCredentialKey(key);
+    if (credentialKey) add(path, 'CREDENTIAL');
+    if (key !== undefined && !credentialKey && !approved) {
       const keyCategory = categoryForSensitiveKey(key);
       const isAddressContainer =
         keyCategory === 'ADDRESS' &&
@@ -207,8 +206,7 @@ function scanSensitiveDataWithApprovedPaths(
     }
 
     if (typeof value === 'string') {
-      if (!approvedByVerifiedProvenance)
-        for (const category of detectedCategories) add(path, category);
+      for (const category of detectedCategories) add(path, category);
       return;
     }
     if (Array.isArray(value)) {
@@ -233,46 +231,14 @@ export function scanSensitiveData(
   input: unknown,
   options: ScanOptions = {},
 ): SensitiveFinding[] {
-  return scanSensitiveDataWithApprovedPaths(input, options, new Map());
-}
-
-function valueAtFixturePath(input: unknown, path: string): unknown {
-  const tokens =
-    path
-      .slice(1)
-      .match(/(?:\.([A-Za-z_$][\w$]*)|\[(\d+)\])/g)
-      ?.map((token) =>
-        token.startsWith('.') ? token.slice(1) : Number(token.slice(1, -1)),
-      ) ?? [];
-  let current = input;
-  for (const token of tokens) {
-    if (current === null || typeof current !== 'object') return undefined;
-    current = (current as Record<string | number, unknown>)[token];
-  }
-  return current;
+  return scanSensitiveDataInternal(input, options);
 }
 
 export function scanRenderedFixtureSensitiveData(
   input: unknown,
 ): SensitiveFinding[] {
   const fixture = renderedScenarioFixtureSchema.parse(input);
-  const approvedValuesByPath = new Map<string, string>();
-
-  for (const origin of fixture.syntheticOrigins) {
-    const values = origin.paths.map((path) =>
-      valueAtFixturePath(fixture, path),
-    );
-    const cpf = values[0];
-    const provenanceIsValid =
-      typeof cpf === 'string' &&
-      values.every((value) => value === cpf) &&
-      verifySyntheticCpf(fixture.seed, fixture.runId, cpf, origin.proof);
-    if (provenanceIsValid) {
-      for (const path of origin.paths) approvedValuesByPath.set(path, cpf);
-    }
-  }
-
-  return scanSensitiveDataWithApprovedPaths(fixture, {}, approvedValuesByPath);
+  return scanSensitiveData(fixture);
 }
 
 export function assertNoSensitiveData(

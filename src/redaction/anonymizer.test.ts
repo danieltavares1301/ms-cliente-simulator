@@ -59,7 +59,7 @@ describe('anonymizeJson', () => {
     expect(source.cpf).toBe(cpf());
   });
 
-  it('removes opaque credential fields recursively while preserving legitimate technical keys', () => {
+  it('removes credential fields recursively while preserving only modeled technical hashes', () => {
     const secrets = [
       ['prod', 'secret'].join('-'),
       ['sk', 'live', '123'].join('_'),
@@ -81,11 +81,23 @@ describe('anonymizeJson', () => {
           access_token: secrets[2],
           refreshToken: secrets[0],
           session_token: secrets[1],
+          cookie: null,
+          SET_COOKIE: secrets[0],
+          'subscription-key': secrets[1],
+          signing_key: secrets[2],
+          WebhookSecret: secrets[0],
+          connection_string: secrets[1],
+          passwordHash: secrets[2],
+          secret_hash: secrets[0],
+          tokenDigest: secrets[1],
         },
       ],
       scenarioKey: 'cliente-criado',
       stepKey: 'consultar-cliente',
       idempotencyKeyHash: 'sha256:valor-tecnico',
+      idClienteHash: 'sha256:cliente',
+      id_prospect_hash: 'sha256:prospect',
+      'normalized-correlation-key-hash': 'sha256:correlation',
     };
 
     const result = anonymizeJson(source, { seed: 'seed-controlada' });
@@ -96,6 +108,9 @@ describe('anonymizeJson', () => {
       scenarioKey: 'cliente-criado',
       stepKey: 'consultar-cliente',
       idempotencyKeyHash: 'sha256:valor-tecnico',
+      idClienteHash: 'sha256:cliente',
+      id_prospect_hash: 'sha256:prospect',
+      'normalized-correlation-key-hash': 'sha256:correlation',
     });
     for (const secret of secrets) expect(serialized).not.toContain(secret);
     expect(scanSensitiveData(result)).toEqual([]);
