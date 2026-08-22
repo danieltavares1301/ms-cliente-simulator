@@ -239,6 +239,53 @@ describe('Event Grid contracts', () => {
     ).toThrow();
   });
 
+  it('accepts the two UTC timestamp variants verified in Apex', () => {
+    for (const timestamp of [
+      '2026-08-21T10:00:00Z',
+      '2026-08-21T10:00:00.000Z',
+    ]) {
+      expect(() =>
+        eventGridEnvelopeSchema.parse([
+          {
+            ...commonEvent,
+            eventTime: timestamp,
+            ...variants[0],
+            data: { ...variants[0].data, dataalteracao: timestamp },
+          },
+        ]),
+      ).not.toThrow();
+    }
+  });
+
+  it('accepts only Apex parseDate-compatible client birth dates', () => {
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          ...variants[0],
+          data: { ...variants[0].data, datanascimento: '1990-02-28' },
+        },
+      ]),
+    ).not.toThrow();
+
+    for (const datanascimento of [
+      'texto-arbitrario',
+      '1990-02-28T00:00:00Z',
+      '1990-02-31',
+      '28/02/1990',
+    ]) {
+      expect(() =>
+        eventGridEnvelopeSchema.parse([
+          {
+            ...commonEvent,
+            ...variants[0],
+            data: { ...variants[0].data, datanascimento },
+          },
+        ]),
+      ).toThrow();
+    }
+  });
+
   it('rejects divergent data.id and data.idcliente values', () => {
     expect(() =>
       eventGridEnvelopeSchema.parse([

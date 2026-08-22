@@ -62,6 +62,59 @@ describe('offline redaction commands', () => {
     expect(io.mkdir).not.toHaveBeenCalled();
   });
 
+  it.each([
+    String.raw`\\server\share\export.json`,
+    '//server/share/export.json',
+    String.raw`\\?\C:\exports\raw.json`,
+    String.raw`\\.\C:\exports\raw.json`,
+  ])(
+    'rejects Windows remote or device path %s before any I/O',
+    async (inputPath) => {
+      const io = {
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        mkdir: vi.fn(),
+      };
+
+      await expect(
+        runAnonymizeCommand([inputPath, String.raw`D:\exports\safe.json`], io),
+      ).rejects.toThrow('caminho local explicito');
+      expect(io.readFile).not.toHaveBeenCalled();
+      expect(io.writeFile).not.toHaveBeenCalled();
+      expect(io.mkdir).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects Windows remote fixture roots before probing the filesystem', async () => {
+    const io = {
+      exists: vi.fn(),
+      listJsonFiles: vi.fn(),
+      readFile: vi.fn(),
+    };
+
+    await expect(
+      validateFixtureDirectory('//server/share/fixtures', io),
+    ).rejects.toThrow('caminho local explicito');
+    expect(io.exists).not.toHaveBeenCalled();
+    expect(io.listJsonFiles).not.toHaveBeenCalled();
+    expect(io.readFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects fixture files that resolve outside the selected root without reading them', async () => {
+    const io = {
+      exists: vi.fn(async () => true),
+      listJsonFiles: vi.fn(async () => [
+        String.raw`D:\repo\fixtures\..\outside.json`,
+      ]),
+      readFile: vi.fn(),
+    };
+
+    await expect(
+      validateFixtureDirectory(String.raw`D:\repo\fixtures`, io),
+    ).rejects.toThrow('fora da raiz permitida');
+    expect(io.readFile).not.toHaveBeenCalled();
+  });
+
   it('returns a non-zero process exit code for a rejected remote path', () => {
     const script = fileURLToPath(
       new URL('../../scripts/anonymize-log-export.ts', import.meta.url),

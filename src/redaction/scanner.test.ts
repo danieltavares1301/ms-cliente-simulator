@@ -165,6 +165,64 @@ describe('scanSensitiveData', () => {
     ).toEqual([]);
   });
 
+  it('runs sensitive detectors before synthetic-prefix allowlists', () => {
+    const cpf = makeCpf(['5', '2', '9', '9', '8', '2', '2', '4', '7'].join(''));
+    const email = outsideTestEmail();
+    const credential = bearer();
+    const credentialUrl = [
+      'https://',
+      ['usuario', 'senha'].join(':'),
+      '@',
+      'host.invalid',
+    ].join('');
+    const sfid = salesforceId();
+    const phone = brazilianPhone();
+    const values = {
+      credential: ['CLI-SIM-', credential].join(''),
+      credentialUrl: ['PRO-SIM-', credentialUrl].join(''),
+      salesforceId: ['EVT-SIM-', sfid].join(''),
+      email: ['TEL-SIM-', email].join(''),
+      cpf: ['END-SIM-', cpf].join(''),
+      phone: ['CEP-SIM-', phone].join(''),
+    };
+
+    const findings = scanSensitiveData(values);
+
+    expect(compact(findings)).toEqual(
+      expect.arrayContaining([
+        { path: '$.credential', category: 'CREDENTIAL' },
+        { path: '$.credentialUrl', category: 'URL_CREDENTIALS' },
+        { path: '$.salesforceId', category: 'SALESFORCE_ID' },
+        { path: '$.email', category: 'EMAIL' },
+        { path: '$.cpf', category: 'CPF' },
+        { path: '$.phone', category: 'PHONE' },
+      ]),
+    );
+    for (const value of Object.values(values)) {
+      expect(JSON.stringify(findings)).not.toContain(value);
+    }
+    let caught: unknown;
+    try {
+      assertNoSensitiveData(values);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    for (const value of Object.values(values)) {
+      expect(String(caught)).not.toContain(value);
+    }
+  });
+
+  it('allows only documented synthetic-marker formats to suppress key findings', () => {
+    expect(scanSensitiveData({ telefone: 'TEL-SIM-a1b2c3' })).toEqual([]);
+    expect(
+      compact(scanSensitiveData({ telefone: 'TEL-SIM-not-hex' })),
+    ).toContainEqual({
+      path: '$.telefone',
+      category: 'PHONE',
+    });
+  });
+
   it('throws only generic categories and paths', () => {
     const sensitive = outsideTestEmail();
 

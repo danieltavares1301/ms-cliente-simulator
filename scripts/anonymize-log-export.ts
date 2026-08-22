@@ -6,6 +6,7 @@ import {
   anonymizeJson,
   assertNoSensitiveData,
 } from '../src/redaction/index.ts';
+import { requireExplicitLocalPath } from './local-path.ts';
 
 export interface AnonymizeIo {
   readFile(path: string): Promise<string>;
@@ -20,20 +21,19 @@ const defaultIo: AnonymizeIo = {
   mkdir: (directory) => mkdir(directory, { recursive: true }),
 };
 
-function requireLocalPath(value: string | undefined, label: string): string {
-  if (!value || value === '-' || /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(value)) {
-    throw new Error(`${label}: informe um caminho local explicito.`);
-  }
-  return value;
-}
-
 function parseArguments(args: readonly string[]): {
   inputPath: string;
   outputPath: string;
   seed: string;
 } {
-  const inputPath = requireLocalPath(args[0], 'Entrada');
-  const outputPath = requireLocalPath(args[1], 'Saida');
+  const inputPath = requireExplicitLocalPath(
+    args[0],
+    'Entrada: informe um caminho local explicito.',
+  );
+  const outputPath = requireExplicitLocalPath(
+    args[1],
+    'Saida: informe um caminho local explicito.',
+  );
   let seed = 'offline-redaction-v1';
 
   for (let index = 2; index < args.length; index += 1) {

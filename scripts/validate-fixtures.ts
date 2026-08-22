@@ -10,6 +10,7 @@ import {
 import { scenarioCatalog } from '../src/scenarios/catalog.ts';
 import { renderScenarioFixture } from '../src/scenarios/renderer.ts';
 import { renderedScenarioFixtureSchema } from '../src/contracts/fixtures.ts';
+import { requireExplicitLocalPath, resolvesInsidePath } from './local-path.ts';
 
 export interface FixtureValidationFinding {
   file: string;
@@ -50,22 +51,27 @@ const defaultIo: FixtureValidationIo = {
   readFile: (filePath) => readFile(filePath, 'utf8'),
 };
 
-function requireLocalPath(value: string | undefined): string {
-  if (!value || value === '-' || /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(value)) {
-    throw new Error('Informe um caminho local explicito para as fixtures.');
-  }
-  return value;
-}
-
 export async function validateFixtureDirectory(
   directory: string,
   io: FixtureValidationIo = defaultIo,
 ): Promise<{ checked: number; findings: FixtureValidationFinding[] }> {
-  const explicitDirectory = requireLocalPath(directory);
+  const explicitDirectory = requireExplicitLocalPath(
+    directory,
+    'Informe um caminho local explicito para as fixtures.',
+  );
   if (!(await io.exists(explicitDirectory)))
     return { checked: 0, findings: [] };
 
   const files = await io.listJsonFiles(explicitDirectory);
+  for (const file of files) {
+    requireExplicitLocalPath(
+      file,
+      'Fixture deve usar um caminho local explicito.',
+    );
+    if (!resolvesInsidePath(explicitDirectory, file)) {
+      throw new Error('Fixture resolve fora da raiz permitida.');
+    }
+  }
   const findings: FixtureValidationFinding[] = [];
   for (const file of files) {
     let parsed: unknown;
@@ -176,7 +182,10 @@ async function main(): Promise<void> {
       throw new Error('Uso: validate:fixtures [diretorio-local].');
     const renderedResult = validateRenderedFixtures();
     const directory = process.argv[2]
-      ? requireLocalPath(process.argv[2])
+      ? requireExplicitLocalPath(
+          process.argv[2],
+          'Informe um caminho local explicito para as fixtures.',
+        )
       : undefined;
     const directoryResult = directory
       ? await validateFixtureDirectory(directory)

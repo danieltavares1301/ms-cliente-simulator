@@ -23,13 +23,9 @@ export interface ScanOptions {
 }
 
 const GENERIC_MESSAGE = 'Possivel dado sensivel detectado.' as const;
-const SYNTHETIC_PREFIXES = [
-  'CLI-SIM-',
-  'PRO-SIM-',
-  'EVT-SIM-',
-  'TEL-SIM-',
-  'END-SIM-',
-  'CEP-SIM-',
+const SYNTHETIC_MARKER_PATTERNS = [
+  /^(?:CLI|PRO|EVT)-SIM-[a-f0-9]{6,32}(?:-[a-f0-9]{6,32})?$/i,
+  /^(?:TEL|END|CEP)-SIM-[a-f0-9]{6,32}$/i,
 ];
 
 function normalizeKey(key: string): string {
@@ -62,7 +58,7 @@ function isApprovedValue(
   if (approvedTestEmail(value, emailDomains)) return true;
   if (/^(?:run_|step_)[a-zA-Z0-9_-]+$/.test(value)) return true;
   if (/^Cliente Simulado(?: Base)? [a-f0-9]{6,32}$/.test(value)) return true;
-  return SYNTHETIC_PREFIXES.some((prefix) => value.startsWith(prefix));
+  return SYNTHETIC_MARKER_PATTERNS.some((pattern) => pattern.test(value));
 }
 
 function categoryForSensitiveKey(key: string): SensitiveCategory | undefined {
@@ -131,10 +127,7 @@ function containsSalesforceId(value: string): boolean {
       /(?<![A-Za-z0-9])[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?(?![A-Za-z0-9])/g,
     ) ?? [];
   return candidates.some(
-    (candidate) =>
-      !SYNTHETIC_PREFIXES.some((prefix) => candidate.startsWith(prefix)) &&
-      /[A-Za-z]/.test(candidate) &&
-      /\d/.test(candidate),
+    (candidate) => /[A-Za-z]/.test(candidate) && /\d/.test(candidate),
   );
 }
 
@@ -204,9 +197,14 @@ function scanSensitiveDataWithApprovedPaths(
   };
 
   const visit = (value: unknown, path: string, key?: string) => {
+    const detectedCategories =
+      typeof value === 'string' ? valueCategories(value, emailDomains) : [];
+    const approvedByVerifiedProvenance =
+      approvedValuesByPath.get(path) === value;
     const approved =
-      approvedValuesByPath.get(path) === value ||
-      isApprovedValue(value, allowed, emailDomains);
+      approvedByVerifiedProvenance ||
+      (detectedCategories.length === 0 &&
+        isApprovedValue(value, allowed, emailDomains));
     if (key !== undefined && !approved) {
       const keyCategory = categoryForSensitiveKey(key);
       const isAddressContainer =
@@ -217,9 +215,8 @@ function scanSensitiveDataWithApprovedPaths(
     }
 
     if (typeof value === 'string') {
-      if (!approved)
-        for (const category of valueCategories(value, emailDomains))
-          add(path, category);
+      if (!approvedByVerifiedProvenance)
+        for (const category of detectedCategories) add(path, category);
       return;
     }
     if (Array.isArray(value)) {

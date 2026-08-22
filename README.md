@@ -51,8 +51,10 @@ endereço e exige `idcliente`. `eventTime` e `dataalteracao`, quando presente,
 aceitam somente UTC no formato comprovadamente compatível com o Apex
 (`yyyy-MM-ddTHH:mm:ss[.000]Z`). O Apex de origem aceita lotes e
 `dataalteracao` ausente, mas o simulador restringe a cardinalidade por decisão
-do MVP. Frações diferentes de `.000` não são prometidas porque
-`EventGrid.parseDateTime` remove explicitamente apenas `.000Z`.
+do MVP. As variantes UTC com e sem `.000` foram verificadas na org alvo;
+frações diferentes de `.000` não são prometidas. `datanascimento`, quando
+presente em eventos de cliente, aceita somente `yyyy-MM-dd`, formato consumido
+por `Date.valueOf` no `parseDate` do Apex.
 
 O contrato GraphQL modela o input que o Apex pode emitir, as políticas futuras
 e as respostas JSON de sucesso/erro. Ele não altera o `/Cliente`, o GraphQL

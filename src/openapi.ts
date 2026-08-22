@@ -135,6 +135,12 @@ const errorResponses = {
   ),
 };
 
+const publicScenarioErrorResponses = {
+  '400': errorResponses['400'],
+  '422': errorResponses['422'],
+  '500': errorResponses['500'],
+};
+
 const bearerSecurity = [{ bearerAuth: [] }];
 
 const scenarioKeyParameter = {
@@ -259,7 +265,6 @@ export const openApiDocument: OpenApiDocument = {
           'Lista a versão ativa de cada cenário sem payloads renderizados ou dados pessoais.',
         operationId: 'listScenarios',
         tags: ['Scenarios'],
-        security: bearerSecurity,
         'x-implementation-status': 'implemented',
         parameters: [
           ...paginationParameters,
@@ -299,7 +304,7 @@ export const openApiDocument: OpenApiDocument = {
               },
             },
           ),
-          ...errorResponses,
+          ...publicScenarioErrorResponses,
         },
       },
     },
@@ -310,7 +315,6 @@ export const openApiDocument: OpenApiDocument = {
           'Retorna a versão ativa, variáveis declarativas e passos sanitizados sem payload templates.',
         operationId: 'getScenario',
         tags: ['Scenarios'],
-        security: bearerSecurity,
         'x-implementation-status': 'implemented',
         parameters: [scenarioKeyParameter],
         responses: {
@@ -348,7 +352,7 @@ export const openApiDocument: OpenApiDocument = {
             },
           ),
           '404': response('Cenário não encontrado.', 'RestErrorResponse'),
-          ...errorResponses,
+          ...publicScenarioErrorResponses,
         },
       },
     },

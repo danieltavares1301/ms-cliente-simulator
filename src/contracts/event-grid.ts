@@ -54,7 +54,7 @@ const clienteDataSchema = requireConsistentClientIds(
       ...commonEventDataShape,
       categoria: optionalText,
       codsap: optionalText,
-      datanascimento: optionalText,
+      datanascimento: z.iso.date().optional(),
       escolaridade: optionalText,
       estadocivil: optionalText,
       naturalidade: optionalText,

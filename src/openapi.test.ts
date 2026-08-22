@@ -72,6 +72,33 @@ describe('OpenAPI document', () => {
     ).toBe('future');
   });
 
+  it('matches authentication exactly to implemented public and future handlers', () => {
+    const publicScenarioOperations = [
+      openApiDocument.paths['/api/v1/scenarios']?.get,
+      openApiDocument.paths['/api/v1/scenarios/{scenarioKey}']?.get,
+    ];
+    for (const operation of publicScenarioOperations) {
+      expect(operation?.security).toBeUndefined();
+      expect(Object.keys(operation?.responses ?? {}).sort()).not.toContain(
+        '401',
+      );
+      expect(Object.keys(operation?.responses ?? {}).sort()).not.toContain(
+        '403',
+      );
+    }
+    expect(
+      Object.keys(publicScenarioOperations[0]?.responses ?? {}).sort(),
+    ).toEqual(['200', '400', '422', '500']);
+    expect(
+      Object.keys(publicScenarioOperations[1]?.responses ?? {}).sort(),
+    ).toEqual(['200', '400', '404', '422', '500']);
+
+    const futureRun = openApiDocument.paths['/api/v1/runs']?.post;
+    expect(futureRun?.security).toStrictEqual([{ bearerAuth: [] }]);
+    expect(futureRun?.responses).toHaveProperty('401');
+    expect(futureRun?.responses).toHaveProperty('403');
+  });
+
   it('keeps key schemas strict and aligned with contract requirements', () => {
     const schemas = openApiDocument.components.schemas;
     const errorSchema = schemas.RestErrorResponse;
@@ -83,6 +110,9 @@ describe('OpenAPI document', () => {
     expect(JSON.stringify(envelopeSchema)).toContain('idcliente');
     expect(JSON.stringify(envelopeSchema)).toContain('cliente-insert');
     expect(JSON.stringify(envelopeSchema)).toContain('endereco-update');
+    expect(JSON.stringify(envelopeSchema)).toContain(
+      '"datanascimento":{"type":"string","format":"date"',
+    );
     expect(schemas.ScenarioMetadata.additionalProperties).toBe(false);
     expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('CONTRACT_ONLY');
     expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('READY');
