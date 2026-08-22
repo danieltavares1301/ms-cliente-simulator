@@ -48,6 +48,12 @@ export class RunRecoveryError extends Error {
 }
 
 const DISPATCH_CLAIM_RECOVERY_MS = 1_000;
+const DEFAULT_SCHEDULING_LEASE_MS = 60_000;
+
+type DrizzleRunRepositoryOptions = {
+  now?: () => Date;
+  schedulingLeaseMs?: number;
+};
 
 function assertLimit(limit: number): void {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
@@ -78,7 +84,19 @@ export class DrizzleRunRepository<
 > implements RunRepository {
   constructor(
     private readonly database: PgDatabase<TQueryResult, typeof schema>,
+    private readonly options: DrizzleRunRepositoryOptions = {},
   ) {}
+
+  private schedulingLease(): { now: Date; expiresAt: Date } {
+    const now = this.options.now?.() ?? new Date();
+    return {
+      now,
+      expiresAt: new Date(
+        now.getTime() +
+          (this.options.schedulingLeaseMs ?? DEFAULT_SCHEDULING_LEASE_MS),
+      ),
+    };
+  }
 
   async createRun(input: CreateRunInput): Promise<CreateRunResult> {
     const [inserted] = await this.database
@@ -456,15 +474,32 @@ export class DrizzleRunRepository<
     actor: string;
     recovery: boolean;
   }): Promise<ClaimInitialSchedulingResult> {
+    const lease = this.schedulingLease();
     const [current] = await this.database
-      .select({ status: scenarioRun.status })
+      .select({
+        status: scenarioRun.status,
+        schedulingKind: scenarioRun.schedulingKind,
+        schedulingLeaseExpiresAt: scenarioRun.schedulingLeaseExpiresAt,
+      })
       .from(scenarioRun)
       .where(eq(scenarioRun.id, input.runId))
       .limit(1);
     if (current === undefined) return { outcome: 'NOT_FOUND' };
-    if (current.status === 'PROVISIONING') return { outcome: 'IN_PROGRESS' };
-    if (
-      !['CREATED', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(current.status)
+    const reclaiming = current.status === 'PROVISIONING';
+    if (reclaiming) {
+      if (
+        current.schedulingKind !== 'INITIAL' ||
+        current.schedulingLeaseExpiresAt === null
+      ) {
+        return { outcome: 'NOT_RECOVERABLE' };
+      }
+      if (current.schedulingLeaseExpiresAt.getTime() > lease.now.getTime()) {
+        return { outcome: 'IN_PROGRESS' };
+      }
+    } else if (
+      !['CREATED', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(current.status) ||
+      current.schedulingKind !== null ||
+      current.schedulingLeaseExpiresAt !== null
     ) {
       return { outcome: 'NOT_RECOVERABLE' };
     }
@@ -479,27 +514,42 @@ export class DrizzleRunRepository<
           isNull(scenarioRunStep.qstashMessageId),
         ),
       );
-    if ((pending?.value ?? 0) === 0) return { outcome: 'NOT_RECOVERABLE' };
+    if ((pending?.value ?? 0) === 0 && !reclaiming) {
+      return { outcome: 'NOT_RECOVERABLE' };
+    }
 
     const [claimed] = await this.database
       .update(scenarioRun)
-      .set({ status: 'PROVISIONING' })
+      .set({
+        status: 'PROVISIONING',
+        schedulingKind: 'INITIAL',
+        schedulingLeaseExpiresAt: lease.expiresAt,
+      })
       .where(
         and(
           eq(scenarioRun.id, input.runId),
           eq(scenarioRun.status, current.status),
-          sql`exists (
-            select 1 from ${scenarioRunStep}
-            where ${scenarioRunStep.runId} = ${input.runId}
-              and ${scenarioRunStep.stepKind} = 'DISPATCH'
-              and ${scenarioRunStep.status} = 'PENDING'
-              and ${scenarioRunStep.qstashMessageId} is null
-          )`,
+          reclaiming
+            ? and(
+                eq(scenarioRun.schedulingKind, 'INITIAL'),
+                lte(scenarioRun.schedulingLeaseExpiresAt, lease.now),
+              )
+            : and(
+                isNull(scenarioRun.schedulingKind),
+                isNull(scenarioRun.schedulingLeaseExpiresAt),
+                sql`exists (
+                  select 1 from ${scenarioRunStep}
+                  where ${scenarioRunStep.runId} = ${input.runId}
+                    and ${scenarioRunStep.stepKind} = 'DISPATCH'
+                    and ${scenarioRunStep.status} = 'PENDING'
+                    and ${scenarioRunStep.qstashMessageId} is null
+                )`,
+              ),
         ),
       )
       .returning({ id: scenarioRun.id });
     if (claimed === undefined) return { outcome: 'IN_PROGRESS' };
-    if (input.recovery) {
+    if (input.recovery || reclaiming) {
       await this.appendAuditEvent({
         actor: input.actor,
         action: 'RUN_SCHEDULING_RECOVERY_STARTED',
@@ -519,6 +569,7 @@ export class DrizzleRunRepository<
     stepKeys?: readonly string[];
     actor: string;
   }): Promise<ReserveRetriesResult> {
+    const lease = this.schedulingLease();
     const [run] = await this.database
       .select({ status: scenarioRun.status })
       .from(scenarioRun)
@@ -534,13 +585,28 @@ export class DrizzleRunRepository<
         id: scenarioRunStep.id,
         stepKey: scenarioRunStep.stepKey,
         ordinal: scenarioRunStep.ordinal,
+        status: scenarioRunStep.status,
+        attemptCount: scenarioRunStep.attemptCount,
+        schedulingKind: scenarioRunStep.schedulingKind,
+        schedulingLeaseExpiresAt: scenarioRunStep.schedulingLeaseExpiresAt,
       })
       .from(scenarioRunStep)
       .where(
         and(
           eq(scenarioRunStep.runId, input.runId),
           eq(scenarioRunStep.stepKind, 'DISPATCH'),
-          eq(scenarioRunStep.status, 'FAILED'),
+          or(
+            and(
+              eq(scenarioRunStep.status, 'FAILED'),
+              isNull(scenarioRunStep.schedulingKind),
+              isNull(scenarioRunStep.schedulingLeaseExpiresAt),
+            ),
+            and(
+              eq(scenarioRunStep.status, 'PENDING'),
+              eq(scenarioRunStep.schedulingKind, 'RETRY'),
+              isNull(scenarioRunStep.qstashMessageId),
+            ),
+          ),
           input.stepKeys === undefined
             ? undefined
             : inArray(scenarioRunStep.stepKey, [...input.stepKeys]),
@@ -549,7 +615,61 @@ export class DrizzleRunRepository<
       .orderBy(asc(scenarioRunStep.ordinal));
 
     const reserved: import('./run-repository').RetryStepReservation[] = [];
+    let inProgress = false;
+    let reclaimedCount = 0;
     for (const candidate of candidates) {
+      if (candidate.status === 'PENDING') {
+        if (
+          candidate.schedulingKind !== 'RETRY' ||
+          candidate.schedulingLeaseExpiresAt === null
+        ) {
+          continue;
+        }
+        if (
+          candidate.schedulingLeaseExpiresAt.getTime() > lease.now.getTime()
+        ) {
+          inProgress = true;
+          continue;
+        }
+        const [reclaimed] = await this.database
+          .update(scenarioRunStep)
+          .set({ schedulingLeaseExpiresAt: lease.expiresAt })
+          .where(
+            and(
+              eq(scenarioRunStep.id, candidate.id),
+              eq(scenarioRunStep.status, 'PENDING'),
+              eq(scenarioRunStep.schedulingKind, 'RETRY'),
+              eq(
+                scenarioRunStep.schedulingLeaseExpiresAt,
+                candidate.schedulingLeaseExpiresAt,
+              ),
+              isNull(scenarioRunStep.qstashMessageId),
+            ),
+          )
+          .returning({ attemptCount: scenarioRunStep.attemptCount });
+        if (reclaimed === undefined) {
+          inProgress = true;
+          continue;
+        }
+        await this.database
+          .insert(deliveryAttempt)
+          .values({
+            stepId: candidate.id,
+            attemptNumber: reclaimed.attemptCount,
+            requestId: `retry:${input.runId}:${candidate.id}:${reclaimed.attemptCount}`,
+            errorCode: 'RETRY_SCHEDULED',
+          })
+          .onConflictDoNothing();
+        reserved.push({
+          stepId: candidate.id,
+          stepKey: candidate.stepKey,
+          ordinal: candidate.ordinal,
+          attemptNumber: reclaimed.attemptCount,
+        });
+        reclaimedCount += 1;
+        continue;
+      }
+
       const [updated] = await this.database
         .update(scenarioRunStep)
         .set({
@@ -563,11 +683,15 @@ export class DrizzleRunRepository<
           responseRedacted: {},
           errorCode: null,
           attemptCount: sql`${scenarioRunStep.attemptCount} + 1`,
+          schedulingKind: 'RETRY',
+          schedulingLeaseExpiresAt: lease.expiresAt,
         })
         .where(
           and(
             eq(scenarioRunStep.id, candidate.id),
             eq(scenarioRunStep.status, 'FAILED'),
+            isNull(scenarioRunStep.schedulingKind),
+            isNull(scenarioRunStep.schedulingLeaseExpiresAt),
             sql`exists (
               select 1 from ${scenarioRun}
               where ${scenarioRun.id} = ${input.runId}
@@ -590,17 +714,17 @@ export class DrizzleRunRepository<
         .onConflictDoNothing()
         .returning({ id: deliveryAttempt.id });
       if (attempt === undefined) {
-        await this.database
-          .update(scenarioRunStep)
-          .set({ status: 'FAILED' })
+        const [existing] = await this.database
+          .select({ id: deliveryAttempt.id })
+          .from(deliveryAttempt)
           .where(
             and(
-              eq(scenarioRunStep.id, candidate.id),
-              eq(scenarioRunStep.status, 'PENDING'),
-              eq(scenarioRunStep.attemptCount, attemptNumber),
+              eq(deliveryAttempt.stepId, candidate.id),
+              eq(deliveryAttempt.attemptNumber, attemptNumber),
             ),
-          );
-        continue;
+          )
+          .limit(1);
+        if (existing === undefined) continue;
       }
       reserved.push({
         stepId: candidate.id,
@@ -611,6 +735,9 @@ export class DrizzleRunRepository<
     }
 
     if (reserved.length === 0) {
+      if (inProgress) {
+        return { outcome: 'IN_PROGRESS', status: run.status };
+      }
       return { outcome: 'NO_ELIGIBLE', status: run.status };
     }
     await this.appendAuditEvent({
@@ -620,6 +747,7 @@ export class DrizzleRunRepository<
       resourceId: input.runId,
       metadataRedacted: {
         count: reserved.length,
+        reclaimedCount,
         status: run.status,
       },
     });
@@ -633,14 +761,17 @@ export class DrizzleRunRepository<
     errorCode: 'QSTASH_SCHEDULING_FAILED';
   }): Promise<void> {
     if (input.stepIds.length > 0) {
+      const { now } = this.schedulingLease();
       await this.database
         .update(scenarioRunStep)
-        .set({ status: 'FAILED' })
+        .set({ schedulingLeaseExpiresAt: now })
         .where(
           and(
             eq(scenarioRunStep.runId, input.runId),
             inArray(scenarioRunStep.id, [...input.stepIds]),
-            inArray(scenarioRunStep.status, ['PENDING', 'SCHEDULED']),
+            eq(scenarioRunStep.status, 'PENDING'),
+            eq(scenarioRunStep.schedulingKind, 'RETRY'),
+            isNull(scenarioRunStep.qstashMessageId),
           ),
         );
     }
@@ -731,6 +862,8 @@ export class DrizzleRunRepository<
       .set({
         status: 'SCHEDULED',
         qstashMessageId: input.messageId,
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
       })
       .where(
         and(
@@ -743,7 +876,11 @@ export class DrizzleRunRepository<
 
     const [deliveredBeforePersistence] = await this.database
       .update(scenarioRunStep)
-      .set({ qstashMessageId: input.messageId })
+      .set({
+        qstashMessageId: input.messageId,
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
+      })
       .where(
         and(
           eq(scenarioRunStep.id, input.stepId),
@@ -778,7 +915,12 @@ export class DrizzleRunRepository<
   async markRunScheduled(runId: string): Promise<void> {
     await this.database
       .update(scenarioRun)
-      .set({ status: 'SCHEDULED', finishedAt: null })
+      .set({
+        status: 'SCHEDULED',
+        finishedAt: null,
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
+      })
       .where(
         and(
           eq(scenarioRun.id, runId),
@@ -820,6 +962,8 @@ export class DrizzleRunRepository<
           input.publishedCount > 0 || (published?.value ?? 0) > 0
             ? 'PARTIAL'
             : 'FAILED',
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
       })
       .where(
         and(
@@ -856,6 +1000,8 @@ export class DrizzleRunRepository<
         status: 'RUNNING',
         startedAt: input.claimedAt,
         attemptCount: input.attemptNumber,
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
       })
       .where(
         and(
@@ -868,7 +1014,7 @@ export class DrizzleRunRepository<
             select 1 from ${scenarioRun}
             where ${scenarioRun.id} = ${input.runId}
               and ${scenarioRun.status} in (
-                'CREATED', 'SCHEDULED', 'RUNNING', 'FAILED', 'PARTIAL'
+                'CREATED', 'PROVISIONING', 'SCHEDULED', 'RUNNING', 'FAILED', 'PARTIAL'
               )
           )`,
           sql`not exists (
@@ -1109,6 +1255,8 @@ export class DrizzleRunRepository<
           attempt.httpStatus === null
             ? 'DISPATCH_PERSISTENCE_FAILED'
             : attempt.errorCode,
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
       })
       .where(
         and(

@@ -15,6 +15,13 @@
       "when": 1787418091135,
       "tag": "0001_sleepy_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787433758073,
+      "tag": "0002_first_molten_man",
+      "breakpoints": true
     }
   ]
 }

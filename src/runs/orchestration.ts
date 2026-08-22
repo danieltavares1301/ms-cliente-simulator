@@ -313,7 +313,9 @@ export function createRunOrchestrationService(
         !input.request.execution.dryRun &&
         dependencies.scheduler &&
         (result.outcome === 'CREATED' ||
-          ['FAILED', 'PARTIAL', 'SCHEDULED'].includes(result.run.status))
+          ['PROVISIONING', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(
+            result.run.status,
+          ))
       ) {
         const claim = await dependencies.repository.claimInitialScheduling({
           runId: result.run.id,

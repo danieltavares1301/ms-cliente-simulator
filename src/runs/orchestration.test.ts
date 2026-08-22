@@ -55,6 +55,8 @@ class MemoryRunRepository implements RunRepository {
       asyncWaitDeadline: input.run.asyncWaitDeadline ?? null,
       startedAt: input.run.startedAt ?? null,
       finishedAt: input.run.finishedAt ?? null,
+      schedulingKind: input.run.schedulingKind ?? null,
+      schedulingLeaseExpiresAt: input.run.schedulingLeaseExpiresAt ?? null,
       createdAt: now,
     };
     this.runs.push(persisted);
@@ -73,6 +75,8 @@ class MemoryRunRepository implements RunRepository {
         attemptCount: step.attemptCount ?? 0,
         qstashMessageId: step.qstashMessageId ?? null,
         errorCode: step.errorCode ?? null,
+        schedulingKind: step.schedulingKind ?? null,
+        schedulingLeaseExpiresAt: step.schedulingLeaseExpiresAt ?? null,
       })),
     );
     return { outcome: 'CREATED', run: persisted };

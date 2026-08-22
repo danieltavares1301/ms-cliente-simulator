@@ -131,6 +131,14 @@ export function createRunAdministrationService(dependencies: Dependencies) {
       if (reserved.outcome === 'NOT_FOUND') {
         throw new RunAdministrationError('RUN_NOT_FOUND', 'Run not found');
       }
+      if (reserved.outcome === 'IN_PROGRESS') {
+        return {
+          runId: input.runId,
+          status: reserved.status,
+          affectedStepCount: 0,
+          replayed: true,
+        };
+      }
       if (
         reserved.outcome === 'CONFLICT' ||
         reserved.outcome === 'NO_ELIGIBLE'

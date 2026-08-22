@@ -56,6 +56,11 @@ export const cleanupPolicyEnum = pgEnum('cleanup_policy', [
   'NEVER',
 ]);
 
+export const schedulingKindEnum = pgEnum('scheduling_kind', [
+  'INITIAL',
+  'RETRY',
+]);
+
 export const scenarioRun = pgTable(
   'scenario_run',
   {
@@ -78,6 +83,10 @@ export const scenarioRun = pgTable(
     startedAt: timestampWithTimezone('started_at'),
     finishedAt: timestampWithTimezone('finished_at'),
     retentionExpiresAt: timestampWithTimezone('retention_expires_at').notNull(),
+    schedulingKind: schedulingKindEnum('scheduling_kind'),
+    schedulingLeaseExpiresAt: timestampWithTimezone(
+      'scheduling_lease_expires_at',
+    ),
   },
   (table) => [
     unique('scenario_run_requester_idempotency_key_unique').on(
@@ -95,6 +104,15 @@ export const scenarioRun = pgTable(
     ),
     index('scenario_run_status_idx').on(table.status),
     index('scenario_run_retention_expires_at_idx').on(table.retentionExpiresAt),
+    index('scenario_run_scheduling_lease_idx').on(
+      table.schedulingKind,
+      table.schedulingLeaseExpiresAt,
+    ),
+    check(
+      'scenario_run_scheduling_lease_valid',
+      sql`(${table.schedulingKind} is null and ${table.schedulingLeaseExpiresAt} is null)
+        or (${table.schedulingKind} = 'INITIAL' and ${table.schedulingLeaseExpiresAt} is not null)`,
+    ),
   ],
 );
 
@@ -121,6 +139,10 @@ export const scenarioRunStep = pgTable(
     qstashMessageId: text('qstash_message_id'),
     errorCode: text('error_code'),
     stepKind: stepKindEnum('step_kind').notNull(),
+    schedulingKind: schedulingKindEnum('scheduling_kind'),
+    schedulingLeaseExpiresAt: timestampWithTimezone(
+      'scheduling_lease_expires_at',
+    ),
   },
   (table) => [
     unique('scenario_run_step_run_step_key_unique').on(
@@ -145,6 +167,16 @@ export const scenarioRunStep = pgTable(
       sql`${table.attemptCount} >= 0`,
     ),
     index('scenario_run_step_run_status_idx').on(table.runId, table.status),
+    index('scenario_run_step_scheduling_lease_idx').on(
+      table.runId,
+      table.schedulingKind,
+      table.schedulingLeaseExpiresAt,
+    ),
+    check(
+      'scenario_run_step_scheduling_lease_valid',
+      sql`(${table.schedulingKind} is null and ${table.schedulingLeaseExpiresAt} is null)
+        or (${table.schedulingKind} = 'RETRY' and ${table.schedulingLeaseExpiresAt} is not null)`,
+    ),
   ],
 );
 

@@ -24,11 +24,13 @@ export const stepStatuses = [
 
 export const stepKinds = ['SETUP', 'DISPATCH', 'VERIFY', 'CLEANUP'] as const;
 export const cleanupPolicies = ['ALWAYS', 'ON_SUCCESS', 'NEVER'] as const;
+export const schedulingKinds = ['INITIAL', 'RETRY'] as const;
 
 export type RunStatus = (typeof runStatuses)[number];
 export type StepStatus = (typeof stepStatuses)[number];
 export type StepKind = (typeof stepKinds)[number];
 export type CleanupPolicy = (typeof cleanupPolicies)[number];
+export type SchedulingKind = (typeof schedulingKinds)[number];
 export type RedactedMetadata = Record<string, unknown>;
 
 export interface Run {
@@ -51,6 +53,8 @@ export interface Run {
   startedAt: Date | null;
   finishedAt: Date | null;
   retentionExpiresAt: Date;
+  schedulingKind: SchedulingKind | null;
+  schedulingLeaseExpiresAt: Date | null;
 }
 
 export interface RunStep {
@@ -72,6 +76,8 @@ export interface RunStep {
   qstashMessageId: string | null;
   errorCode: string | null;
   stepKind: StepKind;
+  schedulingKind: SchedulingKind | null;
+  schedulingLeaseExpiresAt: Date | null;
 }
 
 export interface AuditEvent {
@@ -109,12 +115,20 @@ export type DispatchClaimResult =
 
 export type NewRun = Omit<
   Run,
-  'status' | 'createdAt' | 'startedAt' | 'finishedAt' | 'asyncWaitDeadline'
+  | 'status'
+  | 'createdAt'
+  | 'startedAt'
+  | 'finishedAt'
+  | 'asyncWaitDeadline'
+  | 'schedulingKind'
+  | 'schedulingLeaseExpiresAt'
 > & {
   status?: RunStatus;
   asyncWaitDeadline?: Date | null;
   startedAt?: Date | null;
   finishedAt?: Date | null;
+  schedulingKind?: SchedulingKind | null;
+  schedulingLeaseExpiresAt?: Date | null;
 };
 
 export type NewRunStep = Omit<
@@ -130,6 +144,8 @@ export type NewRunStep = Omit<
   | 'attemptCount'
   | 'qstashMessageId'
   | 'errorCode'
+  | 'schedulingKind'
+  | 'schedulingLeaseExpiresAt'
 > & {
   eventType?: string | null;
   scheduledAt?: Date | null;
@@ -140,6 +156,8 @@ export type NewRunStep = Omit<
   attemptCount?: number;
   qstashMessageId?: string | null;
   errorCode?: string | null;
+  schedulingKind?: SchedulingKind | null;
+  schedulingLeaseExpiresAt?: Date | null;
 };
 
 export interface CreateRunInput {
@@ -206,6 +224,7 @@ export type ClaimInitialSchedulingResult =
 
 export type ReserveRetriesResult =
   | { outcome: 'RESERVED'; steps: RetryStepReservation[] }
+  | { outcome: 'IN_PROGRESS'; status: RunStatus }
   | { outcome: 'NO_ELIGIBLE'; status: RunStatus }
   | { outcome: 'CONFLICT'; status: RunStatus }
   | { outcome: 'NOT_FOUND' };

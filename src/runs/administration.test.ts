@@ -266,6 +266,7 @@ describe('run administration service', () => {
       } as unknown as RunRepository,
       scheduler,
     });
+
     const noEligible = createRunAdministrationService({
       repository: {
         reserveRetries: vi
@@ -285,6 +286,27 @@ describe('run administration service', () => {
         code: 'NO_ELIGIBLE_STEPS',
       }),
     );
+  });
+
+  it('returns an in-progress retry replay without publishing a duplicate', async () => {
+    const repository = {
+      reserveRetries: vi.fn().mockResolvedValue({
+        outcome: 'IN_PROGRESS',
+        status: 'FAILED',
+      }),
+    } as unknown as RunRepository;
+    const scheduler = {
+      schedule: vi.fn(),
+    } as unknown as Scheduler;
+    const service = createRunAdministrationService({ repository, scheduler });
+
+    await expect(service.retryRun({ runId })).resolves.toStrictEqual({
+      runId,
+      status: 'FAILED',
+      affectedStepCount: 0,
+      replayed: true,
+    });
+    expect(scheduler.schedule).not.toHaveBeenCalled();
   });
 
   it('releases reserved retries after scheduling failure so recovery stays possible', async () => {

@@ -86,6 +86,16 @@ livre. Runs `SUCCEEDED`, `FAILED` e `PARTIAL` não são canceláveis; `FAILED` e
 `PARTIAL` podem reservar retry de steps `FAILED`. Falha ao cancelar no QStash
 mantém `CANCELLING` com auditoria técnica, sem falso `CANCELLED`.
 
+Claims de agendamento inicial e reservas de retry usam leases UTC persistidas.
+Replays não publicam durante uma lease válida; após expiração, um CAS retoma
+somente steps sem `qstashMessageId`, preservando o mesmo número de tentativa em
+retries. O `deduplicationId` QStash permanece determinístico, mas não é a única
+garantia: há uma janela at-least-once entre publicar e persistir o `messageId`,
+na qual uma republicação pode ocorrer. O claim idempotente do dispatch torna a
+duplicata segura. Mensagens publicadas nessa janela não podem ser canceladas por
+ID enquanto o ID não tiver sido persistido; late dispatch/cancel convergem pelo
+estado durável, sem reabrir steps terminais.
+
 Os schemas Zod em `src/contracts/` são estritos na borda pública. O envelope
 Event Grid aceita exatamente um dos seis eventos de cliente, contato ou
 endereço e exige `idcliente`. `eventTime` e `dataalteracao`, quando presente,

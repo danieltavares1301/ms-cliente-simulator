@@ -1,0 +1,912 @@
+{
+  "id": "bb2c3018-3642-4b2b-b5d8-e744819c450c",
+  "prevId": "1178dad3-000c-457b-827e-fb8e7efb572b",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.audit_event": {
+      "name": "audit_event",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata_redacted": {
+          "name": "metadata_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "audit_event_resource_created_at_idx": {
+          "name": "audit_event_resource_created_at_idx",
+          "columns": [
+            {
+              "expression": "resource_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_event_action_created_at_idx": {
+          "name": "audit_event_action_created_at_idx",
+          "columns": [
+            {
+              "expression": "action",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.delivery_attempt": {
+      "name": "delivery_attempt",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "step_id": {
+          "name": "step_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_number": {
+          "name": "attempt_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "response_redacted": {
+          "name": "response_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "delivery_attempt_step_created_at_idx": {
+          "name": "delivery_attempt_step_created_at_idx",
+          "columns": [
+            {
+              "expression": "step_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "delivery_attempt_step_id_scenario_run_step_id_fk": {
+          "name": "delivery_attempt_step_id_scenario_run_step_id_fk",
+          "tableFrom": "delivery_attempt",
+          "tableTo": "scenario_run_step",
+          "columnsFrom": ["step_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "delivery_attempt_request_id_unique": {
+          "name": "delivery_attempt_request_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["request_id"]
+        },
+        "delivery_attempt_step_attempt_number_unique": {
+          "name": "delivery_attempt_step_attempt_number_unique",
+          "nullsNotDistinct": false,
+          "columns": ["step_id", "attempt_number"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "delivery_attempt_number_positive": {
+          "name": "delivery_attempt_number_positive",
+          "value": "\"delivery_attempt\".\"attempt_number\" > 0"
+        },
+        "delivery_attempt_http_status_valid": {
+          "name": "delivery_attempt_http_status_valid",
+          "value": "\"delivery_attempt\".\"http_status\" is null or \"delivery_attempt\".\"http_status\" between 100 and 599"
+        },
+        "delivery_attempt_duration_nonnegative": {
+          "name": "delivery_attempt_duration_nonnegative",
+          "value": "\"delivery_attempt\".\"duration_ms\" is null or \"delivery_attempt\".\"duration_ms\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.graphql_callback": {
+      "name": "graphql_callback",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_name": {
+          "name": "operation_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id_cliente_hash": {
+          "name": "id_cliente_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "id_prospect_hash": {
+          "name": "id_prospect_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "normalized_correlation_key_hash": {
+          "name": "normalized_correlation_key_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "policy": {
+          "name": "policy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_redacted": {
+          "name": "request_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "response_redacted": {
+          "name": "response_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "graphql_callback_run_created_at_idx": {
+          "name": "graphql_callback_run_created_at_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "graphql_callback_correlation_key_idx": {
+          "name": "graphql_callback_correlation_key_idx",
+          "columns": [
+            {
+              "expression": "normalized_correlation_key_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "graphql_callback_run_id_scenario_run_id_fk": {
+          "name": "graphql_callback_run_id_scenario_run_id_fk",
+          "tableFrom": "graphql_callback",
+          "tableTo": "scenario_run",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "graphql_callback_request_id_unique": {
+          "name": "graphql_callback_request_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["request_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "graphql_callback_http_status_valid": {
+          "name": "graphql_callback_http_status_valid",
+          "value": "\"graphql_callback\".\"http_status\" between 100 and 599"
+        },
+        "graphql_callback_duration_nonnegative": {
+          "name": "graphql_callback_duration_nonnegative",
+          "value": "\"graphql_callback\".\"duration_ms\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.scenario_run": {
+      "name": "scenario_run",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "scenario_key": {
+          "name": "scenario_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scenario_version": {
+          "name": "scenario_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "run_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'CREATED'"
+        },
+        "idempotency_key_hash": {
+          "name": "idempotency_key_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_fingerprint": {
+          "name": "request_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seed": {
+          "name": "seed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "variables_redacted": {
+          "name": "variables_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "dry_run": {
+          "name": "dry_run",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "stop_on_failure": {
+          "name": "stop_on_failure",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "expected_callback_min": {
+          "name": "expected_callback_min",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "expected_callback_max": {
+          "name": "expected_callback_max",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "async_wait_deadline": {
+          "name": "async_wait_deadline",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cleanup_policy": {
+          "name": "cleanup_policy",
+          "type": "cleanup_policy",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retention_expires_at": {
+          "name": "retention_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scheduling_kind": {
+          "name": "scheduling_kind",
+          "type": "scheduling_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scheduling_lease_expires_at": {
+          "name": "scheduling_lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "scenario_run_status_idx": {
+          "name": "scenario_run_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scenario_run_retention_expires_at_idx": {
+          "name": "scenario_run_retention_expires_at_idx",
+          "columns": [
+            {
+              "expression": "retention_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scenario_run_scheduling_lease_idx": {
+          "name": "scenario_run_scheduling_lease_idx",
+          "columns": [
+            {
+              "expression": "scheduling_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scheduling_lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "scenario_run_requester_idempotency_key_unique": {
+          "name": "scenario_run_requester_idempotency_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["requested_by", "idempotency_key_hash"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "scenario_run_version_positive": {
+          "name": "scenario_run_version_positive",
+          "value": "\"scenario_run\".\"scenario_version\" > 0"
+        },
+        "scenario_run_callback_min_nonnegative": {
+          "name": "scenario_run_callback_min_nonnegative",
+          "value": "\"scenario_run\".\"expected_callback_min\" >= 0"
+        },
+        "scenario_run_callback_max_valid": {
+          "name": "scenario_run_callback_max_valid",
+          "value": "\"scenario_run\".\"expected_callback_max\" >= \"scenario_run\".\"expected_callback_min\""
+        },
+        "scenario_run_scheduling_lease_valid": {
+          "name": "scenario_run_scheduling_lease_valid",
+          "value": "(\"scenario_run\".\"scheduling_kind\" is null and \"scenario_run\".\"scheduling_lease_expires_at\" is null)\n        or (\"scenario_run\".\"scheduling_kind\" = 'INITIAL' and \"scenario_run\".\"scheduling_lease_expires_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.scenario_run_step": {
+      "name": "scenario_run_step",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "step_key": {
+          "name": "step_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ordinal": {
+          "name": "ordinal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target": {
+          "name": "target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "step_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "scheduled_at": {
+          "name": "scheduled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "request_redacted": {
+          "name": "request_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "response_redacted": {
+          "name": "response_redacted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "http_status": {
+          "name": "http_status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "qstash_message_id": {
+          "name": "qstash_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "step_kind": {
+          "name": "step_kind",
+          "type": "step_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scheduling_kind": {
+          "name": "scheduling_kind",
+          "type": "scheduling_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scheduling_lease_expires_at": {
+          "name": "scheduling_lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "scenario_run_step_run_status_idx": {
+          "name": "scenario_run_step_run_status_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scenario_run_step_scheduling_lease_idx": {
+          "name": "scenario_run_step_scheduling_lease_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scheduling_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scheduling_lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "scenario_run_step_run_id_scenario_run_id_fk": {
+          "name": "scenario_run_step_run_id_scenario_run_id_fk",
+          "tableFrom": "scenario_run_step",
+          "tableTo": "scenario_run",
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "scenario_run_step_run_step_key_unique": {
+          "name": "scenario_run_step_run_step_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["run_id", "step_key"]
+        },
+        "scenario_run_step_run_ordinal_unique": {
+          "name": "scenario_run_step_run_ordinal_unique",
+          "nullsNotDistinct": false,
+          "columns": ["run_id", "ordinal"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "scenario_run_step_ordinal_nonnegative": {
+          "name": "scenario_run_step_ordinal_nonnegative",
+          "value": "\"scenario_run_step\".\"ordinal\" >= 0"
+        },
+        "scenario_run_step_http_status_valid": {
+          "name": "scenario_run_step_http_status_valid",
+          "value": "\"scenario_run_step\".\"http_status\" is null or \"scenario_run_step\".\"http_status\" between 100 and 599"
+        },
+        "scenario_run_step_duration_nonnegative": {
+          "name": "scenario_run_step_duration_nonnegative",
+          "value": "\"scenario_run_step\".\"duration_ms\" is null or \"scenario_run_step\".\"duration_ms\" >= 0"
+        },
+        "scenario_run_step_attempt_count_nonnegative": {
+          "name": "scenario_run_step_attempt_count_nonnegative",
+          "value": "\"scenario_run_step\".\"attempt_count\" >= 0"
+        },
+        "scenario_run_step_scheduling_lease_valid": {
+          "name": "scenario_run_step_scheduling_lease_valid",
+          "value": "(\"scenario_run_step\".\"scheduling_kind\" is null and \"scenario_run_step\".\"scheduling_lease_expires_at\" is null)\n        or (\"scenario_run_step\".\"scheduling_kind\" = 'RETRY' and \"scenario_run_step\".\"scheduling_lease_expires_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.cleanup_policy": {
+      "name": "cleanup_policy",
+      "schema": "public",
+      "values": ["ALWAYS", "ON_SUCCESS", "NEVER"]
+    },
+    "public.run_status": {
+      "name": "run_status",
+      "schema": "public",
+      "values": [
+        "CREATED",
+        "PROVISIONING",
+        "SCHEDULED",
+        "RUNNING",
+        "WAITING_ASYNC",
+        "VERIFYING",
+        "SUCCEEDED",
+        "FAILED",
+        "PARTIAL",
+        "CANCELLING",
+        "CANCELLED"
+      ]
+    },
+    "public.scheduling_kind": {
+      "name": "scheduling_kind",
+      "schema": "public",
+      "values": ["INITIAL", "RETRY"]
+    },
+    "public.step_kind": {
+      "name": "step_kind",
+      "schema": "public",
+      "values": ["SETUP", "DISPATCH", "VERIFY", "CLEANUP"]
+    },
+    "public.step_status": {
+      "name": "step_status",
+      "schema": "public",
+      "values": [
+        "PENDING",
+        "SCHEDULED",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
+        "SKIPPED"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

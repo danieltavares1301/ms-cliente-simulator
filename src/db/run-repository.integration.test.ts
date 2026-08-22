@@ -62,30 +62,51 @@ function createInput(overrides: CreateInputOverrides = {}): CreateRunInput {
 describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
   let client: PGlite;
   let repository: DrizzleRunRepository;
+  let currentTime: Date;
 
   beforeEach(async () => {
+    currentTime = new Date('2026-08-22T12:00:00.000Z');
     client = new PGlite();
     const database = drizzle(client, { schema });
     await migrate(database, { migrationsFolder: 'drizzle' });
-    repository = new DrizzleRunRepository(database);
+    repository = new DrizzleRunRepository(database, {
+      now: () => currentTime,
+    });
   });
 
   afterEach(async () => {
     await client.close();
   });
 
-  it('applies 0000 plus the increment on an empty PostgreSQL-compatible database', async () => {
-    const columns = await client.query<{
+  it('applies migrations 0000 through the lease increment on an empty PostgreSQL-compatible database', async () => {
+    const runColumns = await client.query<{
       column_name: string;
     }>(
       "select column_name from information_schema.columns where table_name = 'scenario_run'",
+    );
+    const stepColumns = await client.query<{
+      column_name: string;
+    }>(
+      "select column_name from information_schema.columns where table_name = 'scenario_run_step'",
     );
     const stepStatuses = await client.query<{ enumlabel: string }>(
       "select enumlabel from pg_enum join pg_type on pg_type.oid = pg_enum.enumtypid where typname = 'step_status' order by enumsortorder",
     );
 
-    expect(columns.rows.map(({ column_name }) => column_name)).toContain(
+    expect(runColumns.rows.map(({ column_name }) => column_name)).toContain(
       'request_fingerprint',
+    );
+    expect(runColumns.rows.map(({ column_name }) => column_name)).toEqual(
+      expect.arrayContaining([
+        'scheduling_kind',
+        'scheduling_lease_expires_at',
+      ]),
+    );
+    expect(stepColumns.rows.map(({ column_name }) => column_name)).toEqual(
+      expect.arrayContaining([
+        'scheduling_kind',
+        'scheduling_lease_expires_at',
+      ]),
     );
     expect(stepStatuses.rows.map(({ enumlabel }) => enumlabel)).toStrictEqual([
       'PENDING',
@@ -589,6 +610,11 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
 
   it('persists QStash message ids and exposes FAILED/PARTIAL scheduling recovery through audit', async () => {
     const failed = await repository.createRun(createInput());
+    await repository.claimInitialScheduling({
+      runId: failed.run.id,
+      actor,
+      recovery: false,
+    });
     const failedStep = (
       await repository.listSteps(failed.run.id, { limit: 10 })
     ).items[1];
@@ -600,6 +626,8 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
 
     expect(await repository.findRun(failed.run.id)).toMatchObject({
       status: 'FAILED',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
     });
 
     const partial = await repository.createRun(
@@ -613,6 +641,11 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     const partialStep = (
       await repository.listSteps(partial.run.id, { limit: 10 })
     ).items[1];
+    await repository.claimInitialScheduling({
+      runId: partial.run.id,
+      actor,
+      recovery: false,
+    });
     expect(
       await repository.recordStepScheduled({
         stepId: partialStep.id,
@@ -627,6 +660,8 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
 
     expect(await repository.findRun(partial.run.id)).toMatchObject({
       status: 'PARTIAL',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
     });
     expect(
       (await repository.listSteps(partial.run.id, { limit: 10 })).items[1],
@@ -691,6 +726,8 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ).toHaveLength(4);
     expect(await repository.findRun(created.run.id)).toMatchObject({
       status: 'PROVISIONING',
+      schedulingKind: 'INITIAL',
+      schedulingLeaseExpiresAt: new Date('2026-08-22T12:01:00.000Z'),
     });
     expect(
       (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
@@ -704,6 +741,56 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
         metadataRedacted: { pendingCount: 1, previousStatus: 'PARTIAL' },
       }),
     );
+    await repository.markRunScheduled(created.run.id);
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'SCHEDULED',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
+    });
+  });
+
+  it('reclaims an expired initial scheduling lease but not a valid lease', async () => {
+    const created = await repository.createRun(createInput());
+
+    await expect(
+      repository.claimInitialScheduling({
+        runId: created.run.id,
+        actor,
+        recovery: false,
+      }),
+    ).resolves.toMatchObject({ outcome: 'CLAIMED' });
+
+    currentTime = new Date('2026-08-22T12:00:59.999Z');
+    await expect(
+      repository.claimInitialScheduling({
+        runId: created.run.id,
+        actor,
+        recovery: true,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'IN_PROGRESS' });
+
+    currentTime = new Date('2026-08-22T12:01:00.000Z');
+    const claims = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        repository.claimInitialScheduling({
+          runId: created.run.id,
+          actor,
+          recovery: true,
+        }),
+      ),
+    );
+
+    expect(claims.filter(({ outcome }) => outcome === 'CLAIMED')).toHaveLength(
+      1,
+    );
+    expect(
+      claims.filter(({ outcome }) => outcome === 'IN_PROGRESS'),
+    ).toHaveLength(4);
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'PROVISIONING',
+      schedulingKind: 'INITIAL',
+      schedulingLeaseExpiresAt: new Date('2026-08-22T12:02:00.000Z'),
+    });
   });
 
   it('atomically begins cancellation, cancels only pending work, and audits sanitized metadata', async () => {
@@ -1076,7 +1163,159 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ]);
     expect(
       (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
-    ).toMatchObject({ status: 'PENDING', attemptCount: 2 });
+    ).toMatchObject({
+      status: 'PENDING',
+      attemptCount: 2,
+      schedulingKind: 'RETRY',
+      schedulingLeaseExpiresAt: new Date('2026-08-22T12:01:00.000Z'),
+    });
+  });
+
+  it('reclaims a crashed retry with the same durable attempt and does not duplicate history', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'FAILED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'FAILED',
+            attemptCount: 1,
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+
+    const initial = await repository.reserveRetries({
+      runId: created.run.id,
+      actor,
+    });
+    expect(initial).toMatchObject({
+      outcome: 'RESERVED',
+      steps: [{ stepId: step.id, attemptNumber: 2 }],
+    });
+
+    currentTime = new Date('2026-08-22T12:00:59.999Z');
+    await expect(
+      repository.reserveRetries({ runId: created.run.id, actor }),
+    ).resolves.toMatchObject({ outcome: 'IN_PROGRESS' });
+
+    currentTime = new Date('2026-08-22T12:01:00.000Z');
+    const reclaims = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        repository.reserveRetries({ runId: created.run.id, actor }),
+      ),
+    );
+    expect(
+      reclaims.filter(({ outcome }) => outcome === 'RESERVED'),
+    ).toHaveLength(1);
+    expect(
+      reclaims.find(({ outcome }) => outcome === 'RESERVED'),
+    ).toMatchObject({
+      steps: [{ stepId: step.id, attemptNumber: 2 }],
+    });
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toHaveLength(1);
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toMatchObject([
+      {
+        attemptNumber: 2,
+        requestId: `retry:${created.run.id}:${step.id}:2`,
+      },
+    ]);
+  });
+
+  it('clears retry leases after message persistence and never reserves the published step again', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'FAILED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'FAILED',
+            attemptCount: 1,
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.reserveRetries({ runId: created.run.id, actor });
+
+    await expect(
+      repository.recordStepScheduled({
+        stepId: step.id,
+        messageId: 'msg-retry-persisted',
+      }),
+    ).resolves.toBe(true);
+    currentTime = new Date('2026-08-22T12:02:00.000Z');
+
+    await expect(
+      repository.reserveRetries({ runId: created.run.id, actor }),
+    ).resolves.toMatchObject({ outcome: 'NO_ELIGIBLE' });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({
+      status: 'SCHEDULED',
+      qstashMessageId: 'msg-retry-persisted',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
+    });
+  });
+
+  it('expires an explicit retry scheduling failure and reuses the same attempt immediately', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'FAILED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'FAILED',
+            attemptCount: 1,
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const first = await repository.reserveRetries({
+      runId: created.run.id,
+      actor,
+    });
+    expect(first).toMatchObject({
+      outcome: 'RESERVED',
+      steps: [{ attemptNumber: 2 }],
+    });
+    if (first.outcome !== 'RESERVED') throw new Error('retry was not reserved');
+
+    await repository.releaseRetryReservations({
+      runId: created.run.id,
+      stepIds: first.steps.map(({ stepId }) => stepId),
+      actor,
+      errorCode: 'QSTASH_SCHEDULING_FAILED',
+    });
+
+    await expect(
+      repository.reserveRetries({ runId: created.run.id, actor }),
+    ).resolves.toMatchObject({
+      outcome: 'RESERVED',
+      steps: [{ attemptNumber: 2 }],
+    });
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toHaveLength(1);
   });
 
   it('fills the reserved attempt when a retry dispatch completes', async () => {
@@ -1125,6 +1364,12 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       stepId: step.id,
       attemptNumber: 2,
       claimedAt: new Date('2026-08-22T12:00:02.000Z'),
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
     });
 
     await repository.completeDispatch({
