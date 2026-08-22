@@ -4,10 +4,11 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-A **Fase 0 documental está concluída**. Os três primeiros incrementos da **Fase
-1 — Fundação do projeto** disponibilizam a base API-only em Next.js/TypeScript,
-o health, a validação segura da configuração server-side e o schema PostgreSQL
-inicial com migration versionada. Nenhuma metadata Salesforce foi criada ou
+A **Fase 0 documental está concluída**. A **Fase 1 — Fundação do projeto**
+disponibiliza a base API-only em Next.js/TypeScript, o health, a validação segura
+da configuração server-side e o schema PostgreSQL inicial com migration
+versionada. O incremento **2.1** publica os contratos Zod e o documento OpenAPI
+3.1 antes dos handlers funcionais. Nenhuma metadata Salesforce foi criada ou
 alterada.
 
 ## Quick Start
@@ -22,6 +23,34 @@ npm run dev
 Configure o ambiente conforme a seção abaixo e consulte
 `GET http://localhost:3000/api/v1/health`. O projeto não possui página ou
 interface web.
+
+## API contract-first
+
+| Endpoint                              | Status       | Observação                                                               |
+| ------------------------------------- | ------------ | ------------------------------------------------------------------------ |
+| `GET /api/v1/health`                  | Implementado | Health atual, sem valores de configuração.                               |
+| `GET /api/v1/openapi`                 | Implementado | OpenAPI 3.1 gerado em TypeScript e servido da memória.                   |
+| `GET /api/v1/scenarios`               | Fase 2       | Somente contrato; catálogo será implementado no próximo incremento.      |
+| `GET /api/v1/scenarios/{scenarioKey}` | Fase 2       | Somente contrato de metadados/detalhe.                                   |
+| `/api/v1/runs` e sub-recursos         | Futuro       | Criação, consulta, passos, cancelamento e retry não estão implementados. |
+| `POST /api/ms-clientes/graphql`       | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.      |
+
+Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
+`phase-2` ou `future`. O endpoint interno de dispatch não é incluído no
+documento público.
+
+Os schemas Zod em `src/contracts/` são estritos na borda pública. O envelope
+Event Grid aceita exatamente um dos seis eventos de cliente, contato ou
+endereço e exige `idcliente`. `eventTime` e `dataalteracao`, quando presente,
+aceitam somente UTC no formato comprovadamente compatível com o Apex
+(`yyyy-MM-ddTHH:mm:ss[.000]Z`). O Apex de origem aceita lotes e
+`dataalteracao` ausente, mas o simulador restringe a cardinalidade por decisão
+do MVP. Frações diferentes de `.000` não são prometidas porque
+`EventGrid.parseDateTime` remove explicitamente apenas `.000Z`.
+
+O contrato GraphQL modela o input que o Apex pode emitir, as políticas futuras
+e as respostas JSON de sucesso/erro. Ele não altera o `/Cliente`, o GraphQL
+existente nem implementa parsing textual.
 
 ## Configuração server-side
 
@@ -44,7 +73,7 @@ e responde somente com `dependencies.configuration: "ok"` quando válida, sem
 retornar valores de ambiente. `npm run build` não exige configuração real nem
 acessa as integrações.
 
-## Comandos da Fase 1
+## Comandos de desenvolvimento
 
 ```bash
 npm run dev
@@ -81,6 +110,7 @@ por um fluxo controlado de CI/Neon.
 - [Matriz de contratos](docs/phase-0/contract-matrix.md)
 - [Checkpoint 0](docs/phase-0/checkpoint.md)
 - [Validação de persistência da Fase 1](docs/phase-1/persistence-validation.md)
+- [Validação do incremento 2.1](docs/phase-2/increment-2.1-validation.md)
 - [Escopo de acesso proposto](docs/security/access-scope.md)
 - [ADRs](docs/decisions/)
 
