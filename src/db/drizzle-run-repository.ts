@@ -46,6 +46,8 @@ export class RunRecoveryError extends Error {
   }
 }
 
+const DISPATCH_CLAIM_RECOVERY_MS = 1_000;
+
 function assertLimit(limit: number): void {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new RangeError('limit must be between 1 and 100');
@@ -786,16 +788,89 @@ export class DrizzleRunRepository<
       .from(scenarioRun)
       .where(eq(scenarioRun.id, input.runId))
       .limit(1);
+
+    const [persistedAttempt] = await this.database
+      .select()
+      .from(deliveryAttempt)
+      .where(
+        and(
+          eq(deliveryAttempt.stepId, input.stepId),
+          eq(deliveryAttempt.attemptNumber, input.attemptNumber),
+        ),
+      )
+      .limit(1);
+    if (
+      step.attemptCount === input.attemptNumber &&
+      persistedAttempt !== undefined &&
+      persistedAttempt.httpStatus !== null
+    ) {
+      await this.completeDispatch({
+        runId: input.runId,
+        stepId: input.stepId,
+        attemptNumber: input.attemptNumber,
+        requestId: persistedAttempt.requestId,
+        httpStatus: persistedAttempt.httpStatus,
+        durationMs: persistedAttempt.durationMs ?? 0,
+        responseRedacted: persistedAttempt.responseRedacted,
+        errorCode: persistedAttempt.errorCode,
+        finishedAt: persistedAttempt.createdAt,
+      });
+      return { outcome: 'TERMINAL' };
+    }
+    if (
+      (step.status === 'SUCCEEDED' || step.status === 'FAILED') &&
+      step.attemptCount === input.attemptNumber &&
+      step.httpStatus !== null &&
+      step.durationMs !== null
+    ) {
+      await this.completeDispatch({
+        runId: input.runId,
+        stepId: input.stepId,
+        attemptNumber: input.attemptNumber,
+        requestId: `recovery:${input.stepId}:${input.attemptNumber}`,
+        httpStatus: step.httpStatus,
+        durationMs: step.durationMs,
+        responseRedacted: step.responseRedacted,
+        errorCode: step.errorCode,
+        finishedAt: step.finishedAt ?? input.claimedAt,
+      });
+      return { outcome: 'TERMINAL' };
+    }
     if (run?.status === 'CANCELLING' || run?.status === 'CANCELLED') {
       return { outcome: 'TERMINAL' };
     }
-    if (['SUCCEEDED', 'CANCELLED', 'SKIPPED'].includes(step.status)) {
+    if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(step.status)) {
       return { outcome: 'TERMINAL' };
     }
     if (
       step.status === 'RUNNING' &&
       step.attemptCount === input.attemptNumber
     ) {
+      const claimAge =
+        input.claimedAt.getTime() - (step.startedAt?.getTime() ?? 0);
+      if (claimAge >= DISPATCH_CLAIM_RECOVERY_MS) {
+        const [reclaimed] = await this.database
+          .update(scenarioRunStep)
+          .set({ startedAt: input.claimedAt })
+          .where(
+            and(
+              eq(scenarioRunStep.id, input.stepId),
+              eq(scenarioRunStep.runId, input.runId),
+              eq(scenarioRunStep.status, 'RUNNING'),
+              eq(scenarioRunStep.attemptCount, input.attemptNumber),
+              step.startedAt === null
+                ? isNull(scenarioRunStep.startedAt)
+                : eq(scenarioRunStep.startedAt, step.startedAt),
+              sql`not exists (
+                select 1 from ${deliveryAttempt}
+                where ${deliveryAttempt.stepId} = ${input.stepId}
+                  and ${deliveryAttempt.attemptNumber} = ${input.attemptNumber}
+              )`,
+            ),
+          )
+          .returning({ id: scenarioRunStep.id });
+        if (reclaimed !== undefined) return { outcome: 'CLAIMED' };
+      }
       return { outcome: 'ALREADY_RUNNING' };
     }
 
@@ -826,124 +901,174 @@ export class DrizzleRunRepository<
     errorCode: string | null;
     finishedAt: Date;
   }): Promise<{ runStatus: Run['status'] }> {
-    return this.database.transaction(async (transaction) => {
-      const succeeded =
-        input.errorCode === null &&
-        input.httpStatus >= 200 &&
-        input.httpStatus <= 299;
-      const [updated] = await transaction
-        .update(scenarioRunStep)
-        .set({
-          status: succeeded ? 'SUCCEEDED' : 'FAILED',
-          finishedAt: input.finishedAt,
-          httpStatus: input.httpStatus,
-          durationMs: input.durationMs,
-          responseRedacted: input.responseRedacted,
-          errorCode: input.errorCode,
-        })
-        .where(
-          and(
-            eq(scenarioRunStep.id, input.stepId),
-            eq(scenarioRunStep.runId, input.runId),
-            eq(scenarioRunStep.status, 'RUNNING'),
-            eq(scenarioRunStep.attemptCount, input.attemptNumber),
-          ),
-        )
-        .returning({ id: scenarioRunStep.id });
-      if (updated === undefined) {
-        const [run] = await transaction
-          .select({ status: scenarioRun.status })
-          .from(scenarioRun)
-          .where(eq(scenarioRun.id, input.runId))
-          .limit(1);
-        if (run === undefined) throw new Error('Dispatch run not found');
-        return { runStatus: run.status };
-      }
-
-      await transaction
-        .insert(deliveryAttempt)
-        .values({
-          stepId: input.stepId,
-          attemptNumber: input.attemptNumber,
-          requestId: input.requestId,
-          httpStatus: input.httpStatus,
-          durationMs: input.durationMs,
-          responseRedacted: input.responseRedacted,
-          errorCode: input.errorCode,
-        })
-        .onConflictDoUpdate({
-          target: [deliveryAttempt.stepId, deliveryAttempt.attemptNumber],
-          set: {
-            httpStatus: input.httpStatus,
-            durationMs: input.durationMs,
-            responseRedacted: input.responseRedacted,
-            errorCode: input.errorCode,
-          },
-        });
-
-      const [currentRun] = await transaction
+    const [step] = await this.database
+      .select({
+        status: scenarioRunStep.status,
+        attemptCount: scenarioRunStep.attemptCount,
+      })
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.id, input.stepId),
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, 'DISPATCH'),
+        ),
+      )
+      .limit(1);
+    if (step === undefined) throw new Error('Dispatch step not found');
+    if (
+      step.attemptCount !== input.attemptNumber ||
+      !['RUNNING', 'SUCCEEDED', 'FAILED'].includes(step.status)
+    ) {
+      const [run] = await this.database
         .select({ status: scenarioRun.status })
         .from(scenarioRun)
         .where(eq(scenarioRun.id, input.runId))
         .limit(1);
-      if (
-        currentRun?.status === 'CANCELLING' ||
-        currentRun?.status === 'CANCELLED'
-      ) {
-        return { runStatus: currentRun.status };
-      }
+      if (run === undefined) throw new Error('Dispatch run not found');
+      return { runStatus: run.status };
+    }
 
-      let nextStatus: Run['status'] = 'RUNNING';
-      if (succeeded) {
-        const [remaining] = await transaction
-          .select({ total: count() })
-          .from(scenarioRunStep)
-          .where(
-            and(
-              eq(scenarioRunStep.runId, input.runId),
-              eq(scenarioRunStep.stepKind, 'DISPATCH'),
-              sql`${scenarioRunStep.status} not in ('SUCCEEDED', 'SKIPPED')`,
-            ),
-          );
-        if ((remaining?.total ?? 0) === 0) {
-          const [run] = await transaction
-            .select({ expectedCallbackMax: scenarioRun.expectedCallbackMax })
-            .from(scenarioRun)
-            .where(eq(scenarioRun.id, input.runId))
-            .limit(1);
-          nextStatus =
-            (run?.expectedCallbackMax ?? 0) > 0 ? 'WAITING_ASYNC' : 'VERIFYING';
-        }
-      } else {
-        const [successful] = await transaction
-          .select({ total: count() })
-          .from(scenarioRunStep)
-          .where(
-            and(
-              eq(scenarioRunStep.runId, input.runId),
-              eq(scenarioRunStep.stepKind, 'DISPATCH'),
-              eq(scenarioRunStep.status, 'SUCCEEDED'),
-            ),
-          );
-        nextStatus = (successful?.total ?? 0) > 0 ? 'PARTIAL' : 'FAILED';
-      }
+    await this.database
+      .insert(deliveryAttempt)
+      .values({
+        stepId: input.stepId,
+        attemptNumber: input.attemptNumber,
+        requestId: input.requestId,
+        httpStatus: input.httpStatus,
+        durationMs: input.durationMs,
+        responseRedacted: input.responseRedacted,
+        errorCode: input.errorCode,
+      })
+      .onConflictDoUpdate({
+        target: [deliveryAttempt.stepId, deliveryAttempt.attemptNumber],
+        set: {
+          httpStatus: input.httpStatus,
+          durationMs: input.durationMs,
+          responseRedacted: input.responseRedacted,
+          errorCode: input.errorCode,
+        },
+        setWhere: isNull(deliveryAttempt.httpStatus),
+      });
 
-      await transaction
-        .update(scenarioRun)
-        .set({
-          status: nextStatus,
-          ...(nextStatus === 'FAILED' || nextStatus === 'PARTIAL'
-            ? { finishedAt: input.finishedAt }
-            : {}),
-        })
+    const [attempt] = await this.database
+      .select()
+      .from(deliveryAttempt)
+      .where(
+        and(
+          eq(deliveryAttempt.stepId, input.stepId),
+          eq(deliveryAttempt.attemptNumber, input.attemptNumber),
+        ),
+      )
+      .limit(1);
+    if (attempt === undefined) {
+      throw new Error('Dispatch attempt could not be persisted');
+    }
+
+    const succeeded =
+      attempt.errorCode === null &&
+      attempt.httpStatus !== null &&
+      attempt.httpStatus >= 200 &&
+      attempt.httpStatus <= 299;
+    await this.database
+      .update(scenarioRunStep)
+      .set({
+        status: succeeded ? 'SUCCEEDED' : 'FAILED',
+        finishedAt: input.finishedAt,
+        httpStatus: attempt.httpStatus ?? 500,
+        durationMs: attempt.durationMs ?? 0,
+        responseRedacted: attempt.responseRedacted,
+        errorCode:
+          attempt.httpStatus === null
+            ? 'DISPATCH_PERSISTENCE_FAILED'
+            : attempt.errorCode,
+      })
+      .where(
+        and(
+          eq(scenarioRunStep.id, input.stepId),
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.status, 'RUNNING'),
+          eq(scenarioRunStep.attemptCount, input.attemptNumber),
+        ),
+      );
+
+    const [currentRun] = await this.database
+      .select({
+        status: scenarioRun.status,
+        expectedCallbackMax: scenarioRun.expectedCallbackMax,
+      })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, input.runId))
+      .limit(1);
+    if (currentRun === undefined) throw new Error('Dispatch run not found');
+    if (
+      currentRun.status === 'CANCELLING' ||
+      currentRun.status === 'CANCELLED'
+    ) {
+      return { runStatus: currentRun.status };
+    }
+
+    let nextStatus: Run['status'] = 'RUNNING';
+    if (succeeded) {
+      const [remaining] = await this.database
+        .select({ total: count() })
+        .from(scenarioRunStep)
         .where(
           and(
-            eq(scenarioRun.id, input.runId),
-            sql`${scenarioRun.status} not in ('CANCELLING', 'CANCELLED')`,
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.stepKind, 'DISPATCH'),
+            sql`${scenarioRunStep.status} not in ('SUCCEEDED', 'SKIPPED')`,
           ),
         );
-      return { runStatus: nextStatus };
-    });
+      if ((remaining?.total ?? 0) === 0) {
+        nextStatus =
+          currentRun.expectedCallbackMax > 0 ? 'WAITING_ASYNC' : 'VERIFYING';
+      }
+    } else {
+      const [successful] = await this.database
+        .select({ total: count() })
+        .from(scenarioRunStep)
+        .where(
+          and(
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.stepKind, 'DISPATCH'),
+            eq(scenarioRunStep.status, 'SUCCEEDED'),
+          ),
+        );
+      nextStatus = (successful?.total ?? 0) > 0 ? 'PARTIAL' : 'FAILED';
+    }
+
+    const [updatedRun] = await this.database
+      .update(scenarioRun)
+      .set({
+        status: nextStatus,
+        ...(nextStatus === 'FAILED' || nextStatus === 'PARTIAL'
+          ? { finishedAt: input.finishedAt }
+          : {}),
+      })
+      .where(
+        and(
+          eq(scenarioRun.id, input.runId),
+          eq(scenarioRun.status, currentRun.status),
+          inArray(scenarioRun.status, [
+            'CREATED',
+            'SCHEDULED',
+            'RUNNING',
+            'FAILED',
+            'PARTIAL',
+          ]),
+        ),
+      )
+      .returning({ status: scenarioRun.status });
+    if (updatedRun !== undefined) return { runStatus: updatedRun.status };
+
+    const [reconciledRun] = await this.database
+      .select({ status: scenarioRun.status })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, input.runId))
+      .limit(1);
+    if (reconciledRun === undefined) throw new Error('Dispatch run not found');
+    return { runStatus: reconciledRun.status };
   }
 
   async listDeliveryAttempts(

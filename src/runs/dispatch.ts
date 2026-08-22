@@ -149,10 +149,20 @@ export function createDispatchHandler(
 
     const repository = dependencies.repositoryFactory();
     const claimedAt = now();
-    const claim = await repository.claimDispatch({
-      ...parsed.data,
-      claimedAt,
-    });
+    let claim: Awaited<ReturnType<RunRepository['claimDispatch']>>;
+    try {
+      claim = await repository.claimDispatch({
+        ...parsed.data,
+        claimedAt,
+      });
+    } catch {
+      return errorResponse(
+        503,
+        'DISPATCH_PERSISTENCE_FAILED',
+        'Dispatch state persistence failed',
+        { 'Retry-After': '1' },
+      );
+    }
 
     if (claim.outcome === 'TERMINAL') {
       return Response.json(
@@ -188,34 +198,42 @@ export function createDispatchHandler(
     }
 
     const requestId = requestIdFactory();
+    let targetFailed = false;
+    let result: Awaited<ReturnType<DispatchTarget['dispatch']>>;
     try {
-      const result = await dependencies.target.dispatch(parsed.data);
-      await repository.completeDispatch({
-        ...parsed.data,
-        requestId,
-        httpStatus: result.httpStatus,
-        durationMs: result.durationMs,
-        responseRedacted: result.responseRedacted,
-        errorCode: null,
-        finishedAt: now(),
-      });
-      return Response.json(
-        { accepted: true, noop: false },
-        { headers: { 'Cache-Control': 'no-store' } },
-      );
+      result = await dependencies.target.dispatch(parsed.data);
     } catch {
-      await repository.completeDispatch({
-        ...parsed.data,
-        requestId,
+      targetFailed = true;
+      result = {
         httpStatus: 500,
         durationMs: Math.max(0, now().getTime() - claimedAt.getTime()),
         responseRedacted: {
           transport: 'FAKE_SALESFORCE',
           network: false,
         },
-        errorCode: 'DISPATCH_TARGET_FAILED',
+      };
+    }
+
+    try {
+      await repository.completeDispatch({
+        ...parsed.data,
+        requestId,
+        httpStatus: result.httpStatus,
+        durationMs: result.durationMs,
+        responseRedacted: result.responseRedacted,
+        errorCode: targetFailed ? 'DISPATCH_TARGET_FAILED' : null,
         finishedAt: now(),
       });
+    } catch {
+      return errorResponse(
+        503,
+        'DISPATCH_PERSISTENCE_FAILED',
+        'Dispatch result persistence failed',
+        { 'Retry-After': '1' },
+      );
+    }
+
+    if (targetFailed) {
       return errorResponse(
         503,
         'DISPATCH_TARGET_FAILED',
@@ -223,5 +241,10 @@ export function createDispatchHandler(
         { 'Retry-After': '1' },
       );
     }
+
+    return Response.json(
+      { accepted: true, noop: false },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
   };
 }

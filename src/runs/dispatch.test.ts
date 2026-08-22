@@ -226,4 +226,120 @@ describe('internal QStash dispatch handler', () => {
       'numerocpf',
     );
   });
+
+  it('reports a persistence failure after a successful target without relabeling or repeating the target', async () => {
+    const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'CLAIMED' });
+    const completeDispatch = vi
+      .fn()
+      .mockRejectedValue(new Error('database unavailable'));
+    const target = {
+      dispatch: vi.fn().mockResolvedValue({
+        httpStatus: 200,
+        durationMs: 4,
+        responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      }),
+    };
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({ claimDispatch, completeDispatch }),
+      target,
+    });
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'DISPATCH_PERSISTENCE_FAILED' },
+    });
+    expect(target.dispatch).toHaveBeenCalledTimes(1);
+    expect(completeDispatch).toHaveBeenCalledTimes(1);
+    expect(completeDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: null, httpStatus: 200 }),
+    );
+  });
+
+  it('labels only a target failure as DISPATCH_TARGET_FAILED', async () => {
+    const completeDispatch = vi.fn().mockResolvedValue({
+      runStatus: 'FAILED',
+    });
+    const target = {
+      dispatch: vi.fn().mockRejectedValue(new Error('target unavailable')),
+    };
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({
+        claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
+        completeDispatch,
+      }),
+      target,
+    });
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'DISPATCH_TARGET_FAILED' },
+    });
+    expect(target.dispatch).toHaveBeenCalledTimes(1);
+    expect(completeDispatch).toHaveBeenCalledTimes(1);
+    expect(completeDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'DISPATCH_TARGET_FAILED' }),
+    );
+  });
+
+  it('returns a retriable persistence error when claim recovery fails before target execution', async () => {
+    const target = { dispatch: vi.fn() };
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({
+        claimDispatch: vi
+          .fn()
+          .mockRejectedValue(new Error('reconciliation unavailable')),
+      }),
+      target,
+    });
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('1');
+    expect(await response.json()).toMatchObject({
+      error: { code: 'DISPATCH_PERSISTENCE_FAILED' },
+    });
+    expect(target.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat the target when redelivery finds a reconciled persisted result', async () => {
+    const claimDispatch = vi
+      .fn()
+      .mockResolvedValueOnce({ outcome: 'CLAIMED' })
+      .mockResolvedValueOnce({ outcome: 'TERMINAL' });
+    const completeDispatch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('partial persistence failure'));
+    const target = {
+      dispatch: vi.fn().mockResolvedValue({
+        httpStatus: 200,
+        durationMs: 1,
+        responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      }),
+    };
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({ claimDispatch, completeDispatch }),
+      target,
+    });
+
+    const first = await handler(request(raw, sign(raw)));
+    const redelivery = await handler(request(raw, sign(raw)));
+
+    expect(first.status).toBe(503);
+    expect(redelivery.status).toBe(200);
+    expect(await redelivery.json()).toStrictEqual({
+      accepted: true,
+      noop: true,
+    });
+    expect(target.dispatch).toHaveBeenCalledTimes(1);
+    expect(completeDispatch).toHaveBeenCalledTimes(1);
+  });
 });

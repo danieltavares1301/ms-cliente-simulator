@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DrizzleRunRepository } from './drizzle-run-repository';
 import type { CreateRunInput } from './run-repository';
@@ -363,6 +363,230 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     );
   });
 
+  it('completes a dispatch through a Neon-compatible adapter that rejects transactions', async () => {
+    const created = await repository.createRun(
+      createInput({
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    const database = Reflect.get(repository, 'database') as object;
+    const transaction = vi.fn(() => {
+      throw new Error('No transactions support in neon-http driver');
+    });
+    Reflect.set(
+      repository,
+      'database',
+      new Proxy(database, {
+        get(target, property) {
+          if (property === 'transaction') return transaction;
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }),
+    );
+
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      requestId: 'neon-compatible-completion',
+      httpStatus: 200,
+      durationMs: 1,
+      responseRedacted: { network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+    });
+
+    expect(transaction).not.toHaveBeenCalled();
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({ status: 'SUCCEEDED' });
+  });
+
+  it('recovers an inserted attempt whose running step was not completed without duplicating history', async () => {
+    const created = await repository.createRun(
+      createInput({
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await client.query(
+      `insert into delivery_attempt
+         (id, step_id, attempt_number, request_id, http_status, duration_ms,
+          response_redacted, error_code, created_at)
+       values
+         ('33333333-3333-4333-8333-333333333333', $1, 1,
+          'partial-attempt', 200, 1, '{"network":false}', null,
+          '2026-08-22T12:00:01.000Z')`,
+      [step.id],
+    );
+
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: step.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:02.000Z'),
+      }),
+    ).resolves.toStrictEqual({ outcome: 'TERMINAL' });
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: step.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:03.000Z'),
+      }),
+    ).resolves.toStrictEqual({ outcome: 'TERMINAL' });
+
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({ status: 'SUCCEEDED' });
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toHaveLength(1);
+  });
+
+  it('backfills a missing attempt for an already completed step on redelivery', async () => {
+    const created = await repository.createRun(
+      createInput({
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await client.query(
+      `update scenario_run_step
+          set status = 'SUCCEEDED', finished_at = '2026-08-22T12:00:01.000Z',
+              http_status = 200, duration_ms = 1,
+              response_redacted = '{"network":false}', error_code = null
+        where id = $1`,
+      [step.id],
+    );
+
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: step.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:02.000Z'),
+      }),
+    ).resolves.toStrictEqual({ outcome: 'TERMINAL' });
+
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toMatchObject([
+      {
+        attemptNumber: 1,
+        requestId: `recovery:${step.id}:1`,
+        httpStatus: 200,
+      },
+    ]);
+  });
+
+  it('reconciles a late partial completion without reopening a cancelling run', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await repository.beginCancellation({
+      runId: created.run.id,
+      actor: 'simulator-admin-api',
+    });
+    await client.query(
+      `insert into delivery_attempt
+         (id, step_id, attempt_number, request_id, http_status, duration_ms,
+          response_redacted, error_code, created_at)
+       values
+         ('44444444-4444-4444-8444-444444444444', $1, 1,
+          'late-partial-attempt', 200, 1, '{"network":false}', null,
+          '2026-08-22T12:00:01.000Z')`,
+      [step.id],
+    );
+
+    await expect(
+      repository.claimDispatch({
+        runId: created.run.id,
+        stepId: step.id,
+        attemptNumber: 1,
+        claimedAt: new Date('2026-08-22T12:00:02.000Z'),
+      }),
+    ).resolves.toStrictEqual({ outcome: 'TERMINAL' });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'CANCELLING',
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({ status: 'SUCCEEDED' });
+  });
+
   it('persists QStash message ids and exposes FAILED/PARTIAL scheduling recovery through audit', async () => {
     const failed = await repository.createRun(createInput());
     const failedStep = (
@@ -673,5 +897,74 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(
       (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
     ).toMatchObject({ status: 'PENDING', attemptCount: 2 });
+  });
+
+  it('fills the reserved attempt when a retry dispatch completes', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'SCHEDULED' },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      requestId: 'failed-before-retry',
+      httpStatus: 503,
+      durationMs: 1,
+      responseRedacted: { network: false },
+      errorCode: 'DISPATCH_TARGET_FAILED',
+      finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+    });
+    await repository.reserveRetries({
+      runId: created.run.id,
+      stepKeys: ['dispatch'],
+      actor: 'simulator-admin-api',
+    });
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 2,
+      claimedAt: new Date('2026-08-22T12:00:02.000Z'),
+    });
+
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 2,
+      requestId: 'successful-retry-delivery',
+      httpStatus: 200,
+      durationMs: 1,
+      responseRedacted: { network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:03.000Z'),
+    });
+
+    expect(await repository.listDeliveryAttempts(step.id, 10)).toMatchObject([
+      { attemptNumber: 1, httpStatus: 503 },
+      { attemptNumber: 2, httpStatus: 200, errorCode: null },
+    ]);
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({ status: 'SUCCEEDED', attemptCount: 2 });
   });
 });
