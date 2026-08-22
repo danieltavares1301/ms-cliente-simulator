@@ -198,7 +198,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.2.0',
+    version: '0.2.1',
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },
@@ -262,7 +262,7 @@ export const openApiDocument: OpenApiDocument = {
       get: {
         summary: 'Listar cenários',
         description:
-          'Lista a versão ativa de cada cenário sem payloads renderizados ou dados pessoais.',
+          'Lista a versão ativa de cada cenário sem payloads renderizados ou campos de negócio.',
         operationId: 'listScenarios',
         tags: ['Scenarios'],
         'x-implementation-status': 'implemented',

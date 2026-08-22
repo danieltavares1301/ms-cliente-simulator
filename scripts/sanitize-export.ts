@@ -2,19 +2,16 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import {
-  anonymizeJson,
-  assertNoSensitiveData,
-} from '../src/redaction/index.ts';
+import { assertNoSecrets, sanitizeSecrets } from '../src/redaction/index.ts';
 import { requireExplicitLocalPath } from './local-path.ts';
 
-export interface AnonymizeIo {
+export interface SanitizeExportIo {
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<unknown>;
   mkdir(path: string): Promise<unknown>;
 }
 
-const defaultIo: AnonymizeIo = {
+const defaultIo: SanitizeExportIo = {
   readFile: (filePath) => readFile(filePath, 'utf8'),
   writeFile: (filePath, content) =>
     writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' }),
@@ -24,32 +21,20 @@ const defaultIo: AnonymizeIo = {
 function parseArguments(args: readonly string[]): {
   inputPath: string;
   outputPath: string;
-  seed: string;
 } {
-  const inputPath = requireExplicitLocalPath(
-    args[0],
-    'Entrada: informe um caminho local explicito.',
-  );
-  const outputPath = requireExplicitLocalPath(
-    args[1],
-    'Saida: informe um caminho local explicito.',
-  );
-  let seed = 'offline-redaction-v1';
-
-  for (let index = 2; index < args.length; index += 1) {
-    if (
-      args[index] !== '--seed' ||
-      !args[index + 1] ||
-      index + 2 !== args.length
-    ) {
-      throw new Error(
-        'Uso: anonymize:logs <entrada.json> <saida.json> [--seed <seed>].',
-      );
-    }
-    seed = args[index + 1];
-    index += 1;
+  if (args.length !== 2) {
+    throw new Error('Uso: sanitize:export <entrada.json> <saida.json>.');
   }
-  return { inputPath, outputPath, seed };
+  return {
+    inputPath: requireExplicitLocalPath(
+      args[0],
+      'Entrada: informe um caminho local explicito.',
+    ),
+    outputPath: requireExplicitLocalPath(
+      args[1],
+      'Saida: informe um caminho local explicito.',
+    ),
+  };
 }
 
 function canonical(filePath: string): string {
@@ -63,11 +48,11 @@ function pointsInsideRawFixtures(filePath: string): boolean {
     .includes('/fixtures/raw/');
 }
 
-export async function runAnonymizeCommand(
+export async function runSanitizeExportCommand(
   args: readonly string[],
-  io: AnonymizeIo = defaultIo,
+  io: SanitizeExportIo = defaultIo,
 ): Promise<{ inputPath: string; outputPath: string }> {
-  const { inputPath, outputPath, seed } = parseArguments(args);
+  const { inputPath, outputPath } = parseArguments(args);
   if (canonical(inputPath) === canonical(outputPath)) {
     throw new Error('A saida nao pode sobrescrever o arquivo de entrada.');
   }
@@ -83,8 +68,8 @@ export async function runAnonymizeCommand(
     throw new Error('JSON invalido; o conteudo nao foi exibido.');
   }
 
-  const transformed = anonymizeJson(parsed, { seed });
-  assertNoSensitiveData(transformed);
+  const transformed = sanitizeSecrets(parsed);
+  assertNoSecrets(transformed);
   await io.mkdir(path.dirname(outputPath));
   await io.writeFile(outputPath, `${JSON.stringify(transformed, null, 2)}\n`);
   return { inputPath, outputPath };
@@ -92,13 +77,13 @@ export async function runAnonymizeCommand(
 
 async function main(): Promise<void> {
   try {
-    await runAnonymizeCommand(process.argv.slice(2));
-    console.log('Arquivo anonimizado e validado localmente.');
+    await runSanitizeExportCommand(process.argv.slice(2));
+    console.log('Export sanitizado e validado localmente.');
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
-        : 'Falha offline durante a anonimizacao.';
+        : 'Falha offline durante a sanitizacao.';
     console.error(message);
     process.exitCode = 1;
   }

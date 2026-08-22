@@ -1,6 +1,6 @@
 {
   "name": "ms-clientes-simulator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -20,7 +20,7 @@
     "validate:scenarios": "vitest run src/scenarios/catalog.validation.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
-    "anonymize:logs": "node scripts/anonymize-log-export.ts",
+    "sanitize:export": "node scripts/sanitize-export.ts",
     "validate:fixtures": "node scripts/validate-fixtures.ts"
   },
   "dependencies": {

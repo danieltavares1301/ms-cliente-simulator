@@ -18,7 +18,7 @@ de detalhe estava ausente, os metadados rejeitavam `description` e
 - Definições são validadas no import e no `prebuild`, ordenadas por identidade
   `key@version` e congeladas recursivamente.
 - Listagem não expõe templates; detalhe publica somente variáveis declarativas e
-  passos sanitizados. Não há banco, fixtures renderizadas, anonymizer ou runs.
+  passos sanitizados. Não há banco, fixtures renderizadas, sanitizador ou runs.
 
 ## GREEN e quality gates
 

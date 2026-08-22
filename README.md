@@ -4,9 +4,11 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.2.0**. As Fases 0, 1 e 2 estão funcionalmente concluídas. A Fase 2
+Versão **0.2.1**. As Fases 0, 1 e 2 estão funcionalmente concluídas. A Fase 2
 entrega quatro cenários `CORE` `READY`, fixtures declarativas allowlisted,
-renderer determinístico e validação offline de schemas e PII. Nenhuma metadata
+renderer determinístico e validação offline de contratos, determinismo e
+segredos técnicos. CPF, e-mail, telefone, nome, endereço, CEP e IDs Salesforce
+não são classificados pelo scanner por formato ou chave de negócio. Nenhuma metadata
 Salesforce foi criada ou alterada; runs, CRUD de banco, QStash e handlers
 Salesforce continuam fora deste incremento.
 
@@ -95,6 +97,7 @@ npm test
 npm run test:watch
 npm run validate:scenarios
 npm run validate:fixtures
+npm run sanitize:export -- <entrada.json> <saida.json>
 npm run db:generate
 npm run db:check
 ```
@@ -123,7 +126,13 @@ por um fluxo controlado de CI/Neon.
 - [Validação do incremento 2.1](docs/phase-2/increment-2.1-validation.md)
 - [Validação do incremento 2.4](docs/phase-2/increment-2.4-validation.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
+- [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
+- [Política de validação de dados de negócio](docs/decisions/0005-business-data-validation-policy.md)
 - [Escopo de acesso proposto](docs/security/access-scope.md)
 - [ADRs](docs/decisions/)
 
-As decisões registradas preservam o isolamento entre ambientes, proíbem PII e segredos no repositório e mantêm qualquer alteração Apex ou de metadata condicionada a aprovação explícita.
+As decisões registradas preservam o isolamento entre ambientes e bloqueiam
+segredos técnicos. A API não verifica procedência real/fake de dados de negócio;
+responsabilidade operacional, minimização e LGPD continuam aplicáveis. Arquivos
+brutos permanecem fora do Git, e qualquer alteração Apex ou de metadata depende
+de aprovação explícita.

@@ -1,16 +1,8 @@
-export { anonymizeJson } from './anonymizer.ts';
-export type {
-  AnonymizeOptions,
-  JsonPrimitive,
-  JsonValue,
-} from './anonymizer.ts';
+export { sanitizeSecrets } from './secret-sanitizer.ts';
+export type { JsonPrimitive, JsonValue } from './secret-sanitizer.ts';
 export {
-  assertNoSensitiveData,
-  scanRenderedFixtureSensitiveData,
-  scanSensitiveData,
+  assertNoSecrets,
+  scanRenderedFixtureSecrets,
+  scanSecrets,
 } from './scanner.ts';
-export type {
-  ScanOptions,
-  SensitiveCategory,
-  SensitiveFinding,
-} from './scanner.ts';
+export type { SecretCategory, SecretFinding } from './scanner.ts';

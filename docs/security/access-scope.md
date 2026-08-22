@@ -60,5 +60,7 @@ Até essa aprovação, nenhum FLS é considerado concedido. Não se inferem aqui
 - Staging, pré-produção e produção.
 - `/PAC`, `/MaquinaEstado`, SOQL/SOSL livre, DML genérico e Salesforce CLI no runtime.
 - Leitura de `LogIntegracao__c`, salvo nova justificativa e aprovação.
-- PII real, IDs de usuário, exportação de logs brutos, hosts ou segredos em documentação/configuração versionada.
+- IDs de usuário, exportação de logs brutos, hosts ou segredos em
+  documentação/configuração versionada. Dados de negócio exigem autorização,
+  minimização e revisão LGPD; não são classificados pela API.
 - Qualquer registro sem ownership comprovado e qualquer destino que falhe o Safety Guard.

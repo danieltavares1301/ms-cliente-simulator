@@ -11,7 +11,7 @@ A solucao tera quatro responsabilidades principais:
 3. Preparar e remover dados sinteticos de teste de forma controlada e restrita a cada execucao.
 4. Verificar por assertions consultivas se Account, Lead e Proponente__c ficaram no estado esperado.
 
-O simulador devera reproduzir sequencias realistas, incluindo eventos fora de ordem, duplicados, atrasados, falhas HTTP e respostas GraphQL invalidas. Os payloads usados nos testes serao sinteticos ou anonimizados, seguindo LGPD e a diretriz de nunca transportar PII real da staging para a aplicacao.
+O simulador devera reproduzir sequencias realistas, incluindo eventos fora de ordem, duplicados, atrasados, falhas HTTP e respostas GraphQL invalidas. A API nao classifica dados de negocio como reais ou fake. Autorizacao, minimizacao, retencao e LGPD continuam sob responsabilidade operacional, e arquivos brutos permanecem fora do Git.
 
 A implementacao sera feita em um repositorio separado do Salesforce, em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`, com TypeScript, Vercel Functions, Neon PostgreSQL e Upstash QStash. O callback usara Named Credential e External Credential dedicados ao simulador; `ServicoClientes` permanece restrito ao provedor de identidade do MS Clientes real.
 
@@ -62,11 +62,12 @@ A ordem de chegada nao e garantida. Eventos `contato-*` e `endereco-*` podem che
 
 ### 3.2 Objetivos de qualidade
 
-- Nao armazenar PII real.
+- Nao persistir payload bruto; armazenar somente metadados redigidos e minimizados.
 - Impedir tecnicamente chamadas para staging ou producao.
 - Preservar os contratos Apex existentes no MVP.
 - Oferecer idempotencia para evitar disparos acidentais repetidos.
-- Produzir trilha de auditoria sem tokens, CPF, e-mail, celular ou endereco em texto claro.
+- Produzir trilha de auditoria sem tokens, Authorization ou dados de negocio em
+  texto claro; registrar somente metadados necessarios.
 - Manter todos os contratos descritos em OpenAPI e schemas TypeScript.
 - Nunca reutilizar no simulador bearer token emitido para o MS Clientes real.
 - Isolar os identificadores persistidos por execucao, mesmo quando a mesma seed for reutilizada.
@@ -171,7 +172,7 @@ Rejeitado. A execucao pode ser encerrada pelo runtime, e atrasos longos nao sobr
 
 #### Armazenar todos os logs de staging na aplicacao
 
-Rejeitado por LGPD, risco operacional e acoplamento desnecessario. Sera analisada temporariamente uma amostra estratificada de 5 a 10 exemplos por variacao estrutural relevante; apenas fixtures anonimizadas e revisadas devem entrar no repositorio.
+Rejeitado por LGPD, risco operacional e acoplamento desnecessario. Sera analisada temporariamente uma amostra estratificada de 5 a 10 exemplos por variacao estrutural relevante; arquivos brutos ficam fora do Git e somente fixtures contratualmente validas, sem segredos e operacionalmente revisadas podem ser versionadas.
 
 #### Reutilizar o token obtido pelo Named Credential compartilhado `ServicoClientes`
 
@@ -211,7 +212,8 @@ flowchart LR
 - **Salesforce Client:** autentica por External Client App ou Connected App dedicada e publica no Apex REST/Composite.
 - **GraphQL Simulator:** valida a mutation e retorna comportamento configurado.
 - **Run Repository:** persiste execucoes, passos, tentativas e callbacks.
-- **Redaction Service:** remove ou mascara valores sensiveis antes de persistir logs.
+- **Secret Sanitizer:** remove credenciais e mascara segredos tecnicos antes de
+  persistir metadados de log.
 - **Safety Guard:** confirma host, Organization Id e ambiente permitido antes de qualquer envio.
 - **Audit Service:** registra quem iniciou, repetiu ou cancelou uma execucao.
 - **Test Data Adapter:** prepara e remove por REST/Composite somente pre-condicoes sinteticas permitidas, identificadas pelo `runId`, inclusive Opportunity e PropostaAnaliseCredito__c como scaffolding do Proponente__c.
@@ -274,7 +276,8 @@ Todos os endpoints de gestao usam `/api/v1`. Erros seguem um formato unico:
 }
 ```
 
-`details` nao pode conter payload bruto, token ou PII.
+`details` nao pode conter payload bruto, token, Authorization ou campos de negocio
+diretos; somente metadados minimizados.
 
 ### 8.1 Saude
 
@@ -465,7 +468,10 @@ No MVP, o array deve conter exatamente um item (`minItems: 1`, `maxItems: 1`). C
 - Usar nomes de campos compativeis com o contrato real; o Apex normaliza para minusculas.
 - Gerar valores logicos deterministicamente a partir da seed e adicionar namespace derivado do `runId` aos identificadores persistidos.
 - Gerar `eventTime` e `dataalteracao` separadamente para permitir eventos obsoletos.
-- Nao adicionar PII real.
+- Permitir CPF, e-mail, telefone, nome, endereco, CEP e IDs de negocio exigidos
+  pelo contrato sem classificar procedencia real/fake.
+- Gerar CPF sintetico deterministico com checksum valido para compatibilidade
+  Salesforce.
 - Nao depender do nome, telefone ou e-mail para correlacao tecnica.
 - Preservar a possibilidade de enviar eventos sem CPF, como ocorre em `contato-*` e `endereco-*`.
 - Permitir reenvio do mesmo envelope com o mesmo `id` para testar idempotencia externa.
@@ -671,7 +677,7 @@ Os cenarios desta secao incluem Proponente__c no MVP, porque `NotificacaoCliente
 - Tokens: nunca persistir.
 - Job diario remove registros expirados.
 
-## 13. Extracao e anonimizacao dos logs
+## 13. Extracao e sanitizacao de exports
 
 ### 13.1 Fonte
 
@@ -698,32 +704,32 @@ O codigo Apex, testes existentes e Custom Metadata sao as fontes primarias do co
 3. Exportar para uma area temporaria segura, fora do Git.
 4. Validar JSON e detectar truncamento.
 5. Mapear campos e variacoes de contrato.
-6. Substituir PII por valores sinteticos consistentes.
-7. Remover stack traces, tokens, URLs internas e IDs Salesforce reais.
-8. Executar scanner de PII.
-9. Fazer revisao humana.
-10. Salvar apenas a fixture anonimizada no repositorio do simulador.
+6. Remover credenciais, tokens, Authorization e segredos tecnicos.
+7. Executar opcionalmente `sanitize:export` quando houver export JSON.
+8. Executar secret scanning e validacao de contrato.
+9. Fazer revisao humana, operacional e LGPD.
+10. Salvar apenas a fixture revisada e sem segredos no repositorio do simulador.
 11. Eliminar o arquivo temporario conforme politica corporativa.
 
-### 13.3 Regras de anonimizacao
+### 13.3 Politica de dados de negocio
 
-- CPF: gerar valor sintetico reservado para testes; nunca manter CPF real.
-- Nome: usar nomes claramente sinteticos, como `Cliente Simulado A`.
-- E-mail: usar dominio reservado, como `example.test`.
-- Telefone: usar faixa definida pelo time para dados sinteticos.
-- Endereco: usar texto ficticio sem referencia a pessoa real.
+- A API nao verifica se CPF, e-mail, telefone, nome, endereco, CEP ou ID de
+  negocio e real, fake ou sintetico.
+- O renderer gera CPF sintetico deterministico com checksum valido; nomes
+  simulados e e-mails `example.test` continuam adequados, mas nao sao excecoes do
+  scanner.
 - IDs externos: gerar prefixos `CLI-SIM`, `PRO-SIM`, `EVT-SIM`, combinando seed e namespace curto do `runId`.
-- Salesforce IDs: nunca copiar da staging para fixtures.
 - Datas: deslocar mantendo apenas a relacao temporal entre eventos.
+- A ausencia de classificacao nao torna dados reais seguros ou recomendados;
+  autorizacao, minimizacao, retencao e LGPD continuam obrigatorias.
 
 ### 13.4 Validacoes automatizadas de fixtures
 
 - JSON/schema valido.
-- Nenhum CPF conhecido ou formato nao permitido.
-- Nenhum e-mail fora de dominios de teste aprovados.
-- Nenhum host de staging/producao.
-- Nenhum token JWT, bearer, client secret ou session id.
-- Nenhum ID Salesforce real extraido de logs.
+- Renderizacao deterministica e IDs namespaced por `runId`.
+- Nenhum placeholder nao resolvido.
+- Nenhum token JWT, Bearer, client secret, session id, cookie, chave ou connection string.
+- Nenhuma URL com credenciais embutidas.
 - Tamanho maximo por fixture.
 
 ## 14. Seguranca e LGPD
@@ -807,11 +813,13 @@ Antes de enviar qualquer evento:
 - Validacao Zod em toda entrada e resposta externa.
 - Assinatura QStash validada em cada dispatch.
 
-### 14.7 Dados pessoais
+### 14.7 Dados de negocio e minimizacao
 
-- Nao persistir CPF, nome, telefone, e-mail ou endereco reais.
+- A API nao classifica CPF, nome, telefone, e-mail, endereco, CEP ou IDs como
+  reais ou fake.
 - Nao registrar request completo por padrao.
-- Aplicar redaction antes do logger, nao depois.
+- Persistir somente metadados redigidos/minimizados e nunca payload bruto.
+- Aplicar sanitizacao de segredos antes do logger, nao depois.
 - Normalizar IDs com `trim` e uppercase antes de correlacionar, pois o Apex envia Id Cliente e IdProspect em uppercase no callback.
 - Usar HMAC com chave/pepper para correlacao de IDs quando necessario; hash simples de identificador previsivel nao e suficiente.
 - Revisar base legal e retencao com o responsavel LGPD antes da liberacao.
@@ -886,7 +894,7 @@ ms-clientes-simulator/
     graphql/
     logging/
     qstash/
-    redaction/
+    redaction/ # secret scanner e sanitizador
     safety/
     salesforce/
       provisioning/
@@ -908,7 +916,7 @@ ms-clientes-simulator/
     decisions/
   scripts/
     validate-fixtures.ts
-    anonymize-log-export.ts
+    sanitize-export.ts
   .env.example
   package.json
   README.md
@@ -1015,7 +1023,7 @@ Campos proibidos:
 - Session IDs.
 - CPF, telefone, e-mail, nome ou endereco.
 - Corpo GraphQL integral.
-- Payload Event Grid integral sem redaction.
+- Payload Event Grid integral.
 
 ### 19.2 Metricas
 
@@ -1034,7 +1042,7 @@ Campos proibidos:
 - Taxa de erro acima do limite.
 - Banco ou QStash indisponivel.
 - Callback GraphQL recebeu operacao nao mapeada.
-- Scanner detectou potencial PII.
+- Secret scanner detectou credencial.
 - Crescimento anormal de execucoes ou tentativas.
 
 ## 20. Estrategia de testes
@@ -1044,7 +1052,7 @@ Campos proibidos:
 - Schemas Zod.
 - Renderizacao deterministica de fixtures.
 - Calculo de timestamps e atrasos.
-- Redaction e deteccao de PII.
+- Sanitizacao e deteccao de segredos.
 - Safety Guard.
 - Politicas de resposta GraphQL.
 - Classificacao de erros retryable.
@@ -1054,7 +1062,8 @@ Campos proibidos:
 - Ownership e falha fechada do cleanup.
 - Contagem e timeout de callbacks esperados.
 
-Meta recomendada: 90% de cobertura de branches nos modulos de seguranca, redaction, orquestracao e contratos.
+Meta recomendada: 90% de cobertura de branches nos modulos de seguranca,
+sanitizacao, orquestracao e contratos.
 
 ### 20.2 Testes de contrato
 
@@ -1117,7 +1126,7 @@ A API nao substitui os testes Apex. Permanecem obrigatorios:
 Ordem dos gates:
 
 1. Instalar dependencias com lockfile.
-2. Validar fixtures e scanner de PII.
+2. Validar contratos, determinismo das fixtures e secret scanner.
 3. Lint.
 4. Format check.
 5. Typecheck.
@@ -1156,7 +1165,9 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 
 #### Tarefa 0.1: Validar contratos e fixtures do MVP
 
-**Descricao:** validar tecnicamente requests, responses e dependencias de fixture no codigo, testes e amostras anonimizadas, sem aguardar reuniao e sem mover PII para o repositorio.
+**Descricao:** validar tecnicamente requests, responses e dependencias de fixture
+no codigo, testes e amostras operacionalmente revisadas, sem aguardar reuniao e
+mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
@@ -1294,17 +1305,17 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 
 **Escopo:** medio.
 
-#### Tarefa 2.3: Criar pipeline de anonimizacao
+#### Tarefa 2.3: Criar sanitizacao opcional e secret scanning
 
-**Descricao:** criar script offline de transformacao e scanner de PII.
+**Descricao:** criar sanitizador offline opcional de exports e secret scanner.
 
 **Criterios de aceite:**
 
 - [ ] Script nunca envia dados para servico externo.
-- [ ] Fixtures com PII suspeita falham no CI.
+- [ ] Fixtures com segredos falham no CI; dados de negocio nao sao classificados.
 - [ ] Arquivos brutos estao no `.gitignore`.
 
-**Verificacao:** suite com amostras positivas e negativas de PII.
+**Verificacao:** suite com credenciais positivas e dados de negocio negativos.
 
 **Dependencias:** tarefa 2.2.
 
@@ -1319,7 +1330,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 - [ ] Valores logicos e datas sao deterministicos por seed.
 - [ ] IDs persistidos recebem namespace exclusivo do `runId`.
 - [ ] Envelopes passam nos schemas.
-- [ ] Nenhum dado real esta presente.
+- [ ] Contratos, determinismo e namespace sao validados sem inferir procedencia.
 
 **Verificacao:** snapshots revisados e scanner verde.
 
@@ -1331,7 +1342,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 
 - [ ] OpenAPI validado.
 - [ ] Catalogo e fixtures deterministas.
-- [ ] Scanner de PII bloqueia exemplos inseguros.
+- [ ] Secret scanner bloqueia credenciais e permite dados de negocio.
 
 ### Fase 3: Orquestracao de runs
 
@@ -1453,7 +1464,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 
 - [ ] Content-Type e body sao compativeis.
 - [ ] Retry segue tabela definida.
-- [ ] Response e request persistidos passam por redaction.
+- [ ] Somente metadados sanitizados/minimizados sao persistidos; payload bruto nao.
 
 **Verificacao:** testes E2E com servidor fake e smoke manual em `mrv-devDan`.
 
@@ -1468,7 +1479,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 - [ ] Opportunity e PropostaAnaliseCredito__c existem somente como scaffolding owned pelo run.
 - [ ] Cleanup negativo prova que registro sem ownership nao e removido.
 - [ ] Safety Guard foi testado negativamente.
-- [ ] Nenhum token ou PII aparece nos logs.
+- [ ] Nenhum token, Authorization, payload bruto ou campo de negocio direto aparece nos logs.
 
 ### Fase 5: GraphQL simulado
 
@@ -1502,7 +1513,8 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 - [ ] Operacao desconhecida e rejeitada.
 - [ ] Corpo malformado nao gera stack trace publico.
 
-**Verificacao:** testes com requests reais anonimizados e fixtures Apex equivalentes.
+**Verificacao:** testes com requests revisados e fixtures Apex equivalentes, sem
+segredos ou payload bruto persistido.
 
 **Dependencias:** tarefa 5.0.
 
@@ -1617,7 +1629,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 
 **Criterios de aceite:**
 
-- [ ] Fixtures anonimizadas validadas.
+- [ ] Fixtures validadas por contrato, determinismo e ausencia de segredos.
 - [ ] Ordem relativa a cliente e configuravel.
 - [ ] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
 
@@ -1663,7 +1675,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 
 - [ ] Dashboards basicos disponiveis.
 - [ ] Alertas criticos testados.
-- [ ] Logs passam por revisao de PII.
+- [ ] Logs passam por revisao de minimizacao, payload bruto e segredos.
 
 **Dependencias:** checkpoint 6.
 
@@ -1698,7 +1710,7 @@ Cada tarefa deve terminar com testes e manter a aplicacao executavel.
 Depois do Checkpoint 1, podem ocorrer em paralelo:
 
 - Contratos OpenAPI e catalogo de cenarios.
-- Pipeline de anonimizacao.
+- Sanitizacao opcional de exports e secret scanning.
 - Modelo de persistencia.
 - Desenho de autenticacao Salesforce, desde que nao altere a org.
 
@@ -1760,14 +1772,14 @@ A quantidade esperada de testes e pequena; o custo tende a ser baixo, mas quotas
 | Risco | Impacto | Mitigacao |
 |---|---|---|
 | Envio acidental para staging/producao | Critico | Allowlist fixa, Organization Id, `IsSandbox`, sem target na request e credencial exclusiva de dev. |
-| Vazamento de PII dos logs | Critico | Pipeline offline, anonimizacao, scanner no CI, revisao humana e nenhuma persistencia bruta. |
+| Uso indevido de dados de negocio de exports | Critico | Autorizacao, minimizacao, revisao LGPD, arquivos brutos fora do Git e nenhuma persistencia bruta. |
 | Named Credential compartilhado afetar outros fluxos | Alto | Nao redirecionar `VFlexMsClientes` globalmente; usar destino dedicado ao callback pos-PAC. |
 | Autenticacao do provedor real ser reutilizada no simulador | Critico | `VFlexMsClientesPosPac` e External Credential injetam autenticacao/audience exclusivas; `ServicoClientes` nao participa desse callout. |
 | Configuracao do novo Named Credential divergir entre orgs | Alto | Manter o mesmo DeveloperName e validar por org: simulador apenas em `mrv-devDan`, MS Clientes real em staging/producao. |
 | Alteracao Apex afetar consumidores de `VFlexMsClientes` | Alto | Alterar somente `MSClienteService`, exigir aprovacao explicita e testar que os demais consumidores permanecem inalterados. |
 | Ordem dos eventos nao ser reproduzida | Alto | QStash e agenda persistida por passo. |
 | Vercel encerrar simulacao de timeout | Medio | Validar limite do plano; usar endpoint dedicado que reproduza timeout de conexao, sem tratar outro HTTP como equivalente. |
-| Fixture divergir do contrato real | Alto | Contract tests com payloads anonimizados e revisao conjunta. |
+| Fixture divergir do contrato real | Alto | Contract tests com payloads revisados e validacao Zod. |
 | Duplicacao involuntaria por retry interno | Alto | Idempotencia separada da duplicacao intencional de cenario. |
 | Queueable Salesforce terminar depois do HTTP 200 | Alto | Estado `WAITING_ASYNC`, callbacks esperados, janela configuravel e assertions somente em `VERIFYING`. |
 | Mesma seed encontrar residuos de run anterior | Alto | Seed define valores logicos; `runId` cria namespace exclusivo dos IDs persistidos. |
@@ -1795,7 +1807,8 @@ A quantidade esperada de testes e pequena; o custo tende a ser baixo, mas quotas
 - [ ] Opportunity e PropostaAnaliseCredito__c sao tratados apenas como scaffolding com ownership pelo `runId`.
 - [ ] O MVP nao valida funcionalmente `/PAC` nem `/MaquinaEstado`.
 - [ ] Mesma seed em runs diferentes nao compartilha IDs persistidos.
-- [ ] Nenhum token ou PII real aparece em banco, logs, fixtures ou respostas.
+- [ ] Nenhum token, Authorization ou payload bruto aparece em banco, logs,
+  fixtures ou respostas; dados de negocio seguem revisao operacional/LGPD.
 - [ ] OpenAPI esta publicado e validado no CI.
 - [ ] Lint, typecheck, testes, build, audit e secret scan estao verdes.
 - [ ] Ao menos um cenario MATCH e um CPF divergente passam end-to-end na `mrv-devDan`.
@@ -1812,7 +1825,8 @@ Uma tarefa so esta concluida quando:
 - Codigo e contratos foram revisados.
 - Testes unitarios e de integracao aplicaveis passam.
 - Typecheck, lint e build passam.
-- Nenhum segredo ou PII foi adicionado.
+- Nenhum segredo ou payload bruto foi adicionado; dados de negocio tiveram uso
+  operacionalmente revisado.
 - OpenAPI e documentacao foram atualizados quando necessario.
 - Observabilidade do novo fluxo existe.
 - Criterios de aceite especificos foram demonstrados.

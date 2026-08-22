@@ -33,5 +33,7 @@ O E2E exige precondições Salesforce reais, mas endpoints genéricos de DML/SOQ
 
 - A allowlist e a FLS campo-a-campo devem ser aprovadas antes do E2E.
 - Assertions funcionais ficam em Account, Lead e Proponente__c; scaffolding só prova existência, ownership e remoção.
-- Fixtures usam dados sintéticos/anonimizados e não carregam PII ou IDs Salesforce reais.
+- Fixtures podem conter dados de negócio necessários ao contrato. A aplicação não
+  classifica sua procedência como real ou fake; seleção, minimização e LGPD são
+  responsabilidades operacionais. IDs gerados pelo renderer seguem namespaced.
 - Mesma seed em runs diferentes não reutiliza identificadores persistidos.

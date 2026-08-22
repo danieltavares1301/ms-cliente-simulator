@@ -90,7 +90,7 @@ describe('persistence schema contract', () => {
     ]);
   });
 
-  it('does not define columns that could persist raw payloads, secrets, or direct PII', () => {
+  it('does not define columns that could persist raw payloads, secrets, or direct business data', () => {
     const sqlColumnNames = tables.flatMap((table) =>
       Object.values(tableColumns(table)),
     );

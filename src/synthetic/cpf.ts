@@ -11,30 +11,13 @@ function checkDigit(digits: string, factor: number): number {
   return remainder === 10 ? 0 : remainder;
 }
 
-function cpfChecksumIsValid(candidate: string): boolean {
-  if (!/^\d{11}$/.test(candidate) || /^(\d)\1{10}$/.test(candidate))
-    return false;
-  const first = checkDigit(candidate.slice(0, 9), 10);
-  return (
-    first === Number(candidate[9]) &&
-    checkDigit(`${candidate.slice(0, 9)}${first}`, 11) === Number(candidate[10])
-  );
-}
-
-export function isNonRealCpfForContractFixture(value: string): boolean {
-  return /^000\d{8}$/.test(value) && !cpfChecksumIsValid(value);
-}
-
-export function generateNonRealCpfForContractFixture(
-  seed: string,
-  runId: string,
-): string {
-  const source = digest(`contract-document-v2|${seed}|${runId}`);
-  const namespaceDigits = [...source.slice(0, 6)]
+export function generateSyntheticCpf(seed: string, runId: string): string {
+  const source = digest(`synthetic-cpf-v1|${seed}|${runId}`);
+  let base = [...source.slice(0, 9)]
     .map((character) => Number.parseInt(character, 16) % 10)
     .join('');
-  const base = `000${namespaceDigits}`;
+  if (/^(\d)\1{8}$/.test(base))
+    base = `${base.slice(0, 8)}${(Number(base[8]) + 1) % 10}`;
   const first = checkDigit(base, 10);
-  const deliberatelyWrongSecond = (checkDigit(`${base}${first}`, 11) + 1) % 10;
-  return `${base}${first}${deliberatelyWrongSecond}`;
+  return `${base}${first}${checkDigit(`${base}${first}`, 11)}`;
 }

@@ -90,7 +90,9 @@ Resposta de sucesso aceita pelo Apex: HTTP `200` ou `201` e JSON com `data.atual
 
 ## Segurança
 
-- Não usar PII real, IDs de usuários, hosts, tokens ou payloads de logs reais.
+- Não versionar exports brutos, IDs de usuários, hosts, tokens ou payloads de
+  logs. Dados de negócio seguem autorização, minimização e LGPD; a API não
+  classifica procedência real/fake.
 - Vercel → Salesforce usa identidade exclusiva e acesso apenas a `/Cliente` e REST/Composite allowlisted.
 - Salesforce → Vercel usa Named Credential/External Credential dedicados; não repassa token do serviço real.
 - Correlacionar por IDs sintéticos namespaced por `runId`; redigir payloads antes do logging.

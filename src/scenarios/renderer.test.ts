@@ -4,10 +4,7 @@ import {
   eventGridEnvelopeSchema,
   renderedScenarioFixtureSchema,
 } from '../contracts';
-import {
-  scanRenderedFixtureSensitiveData,
-  scanSensitiveData,
-} from '../redaction/scanner';
+import { scanRenderedFixtureSecrets, scanSecrets } from '../redaction/scanner';
 import { scenarioCatalog } from './catalog';
 import { renderScenarioFixture } from './renderer';
 
@@ -179,8 +176,8 @@ describe('renderScenarioFixture', () => {
     (scenarioKey) => {
       const fixture = renderScenarioFixture({ ...input, scenarioKey });
 
-      expect(scanRenderedFixtureSensitiveData(fixture)).toEqual([]);
-      expect(scanSensitiveData(fixture)).toEqual([]);
+      expect(scanRenderedFixtureSecrets(fixture)).toEqual([]);
+      expect(scanSecrets(fixture)).toEqual([]);
       expect(fixture).not.toHaveProperty('syntheticOrigins');
     },
   );

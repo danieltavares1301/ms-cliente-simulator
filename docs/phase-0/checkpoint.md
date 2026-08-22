@@ -36,7 +36,7 @@
 |---|---|---|
 | Time GIA/Salesforce Security | Aprovar a matriz campo-a-campo de FLS, o Permission Set proposto e a escolha entre External Client App/Connected App e Client Credentials/JWT. | Antes de qualquer integração real da Fase 4. |
 | Time GIA/Salesforce Platform | Aprovar criação/configuração de `VFlexMsClientesPosPac`, External Credential e troca do endpoint somente em `MSClienteService`. | Antes do callback E2E; não bloqueia a Fase 1. |
-| QA + responsável LGPD | Fornecer/revisar amostra anonimizada estratificada de 5–10 mensagens por variação estrutural relevante, sem transportar logs brutos. | Antes de congelar fixtures e schemas na Fase 2. |
+| QA + responsável LGPD | Fornecer/revisar amostra estratificada de 5–10 mensagens por variação estrutural relevante, com minimização e sem versionar logs brutos. | Antes de congelar fixtures e schemas na Fase 2. |
 | Engenharia do simulador | Executar testes negativos do Safety Guard, audience, corpo truncado e cardinalidade do envelope após criar o runtime. | Durante Fases 1–2. |
 | Dono da plataforma Vercel | Confirmar limites de duração necessários para `DELAYED_RESPONSE` acima de 12 segundos. | Antes do cenário de timeout; não bloqueia fundação. |
 | Time GIA + QA | Confirmar campos obrigatórios/valores de picklist da org para criar fixtures mínimas e aprovar a matriz FLS. | Antes do Test Data Adapter E2E. |

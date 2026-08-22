@@ -49,9 +49,7 @@ evento por envelope.
 
 ## Endurecimento final
 
-Sobre `bd832f6`, o renderer deixou de gerar CPF com checksum válido. A chave
-contratual `numerocpf` continua presente, mas recebe um documento determinístico
-de 11 dígitos, gerado em runtime e deliberadamente inválido segundo o checksum de
-CPF. O scanner comum o aceita pelo formato de fixture não real, sem metadado de
-origem ou bypass contextual. Se a org exigir checksum no E2E Salesforce da Fase
-4, será necessário mapping de CPF de teste válido formalmente aprovado.
+Este endurecimento descreve o comportamento histórico de `0.2.0`. A política
+aprovada no ADR-0005 e implementada em `0.2.1` o substitui: `numerocpf` é
+sintético, determinístico e possui checksum válido para compatibilidade
+Salesforce. Dados de negócio não são analisados pelo secret scanner.

@@ -3,9 +3,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
-  scanRenderedFixtureSensitiveData,
-  scanSensitiveData,
-  type SensitiveCategory,
+  scanRenderedFixtureSecrets,
+  scanSecrets,
+  type SecretCategory,
 } from '../src/redaction/index.ts';
 import { scenarioCatalog } from '../src/scenarios/catalog.ts';
 import { renderScenarioFixture } from '../src/scenarios/renderer.ts';
@@ -15,7 +15,7 @@ import { requireExplicitLocalPath, resolvesInsidePath } from './local-path.ts';
 export interface FixtureValidationFinding {
   file: string;
   path: string;
-  category: SensitiveCategory | 'INVALID_JSON' | 'INVALID_FIXTURE';
+  category: SecretCategory | 'INVALID_JSON' | 'INVALID_FIXTURE';
   message: string;
 }
 
@@ -87,9 +87,17 @@ export async function validateFixtureDirectory(
       continue;
     }
     const renderedFixture = renderedScenarioFixtureSchema.safeParse(parsed);
+    if (!renderedFixture.success) {
+      findings.push({
+        file: path.relative(explicitDirectory, file),
+        path: '$',
+        category: 'INVALID_FIXTURE',
+        message: 'Fixture nao atende ao contrato.',
+      });
+    }
     const fixtureFindings = renderedFixture.success
-      ? scanRenderedFixtureSensitiveData(renderedFixture.data)
-      : scanSensitiveData(parsed);
+      ? scanRenderedFixtureSecrets(renderedFixture.data)
+      : scanSecrets(parsed);
     for (const finding of fixtureFindings) {
       findings.push({
         file: path.relative(explicitDirectory, file),
@@ -160,7 +168,7 @@ export function validateRenderedFixtures(): {
           message: 'Fixture contem placeholder nao resolvido.',
         });
       }
-      for (const finding of scanRenderedFixtureSensitiveData(first)) {
+      for (const finding of scanRenderedFixtureSecrets(first)) {
         findings.push({ file, ...finding });
       }
     } catch {

@@ -27,5 +27,6 @@ Usar Neon PostgreSQL como fonte durável de runs, passos, tentativas e callbacks
 
 - Dispatch interno exige assinatura QStash válida e deduplicação.
 - HTTP `200` do Apex não conclui necessariamente o run; o estado pode aguardar assíncronos/callback.
-- Banco e fila não armazenam PII real nem payload bruto; retenção e redaction serão aplicadas.
+- Banco e fila não armazenam payload bruto. Somente metadados minimizados e
+  redigidos são persistidos; responsabilidade operacional e LGPD permanecem.
 - Indisponibilidade parcial deve produzir estado auditável, sem duplicar efeitos.

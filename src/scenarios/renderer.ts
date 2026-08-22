@@ -7,7 +7,7 @@ import {
   renderedScenarioFixtureSchema,
   type RenderedScenarioFixture,
 } from '../contracts/fixtures.ts';
-import { generateNonRealCpfForContractFixture } from '../synthetic/cpf.ts';
+import { generateSyntheticCpf } from '../synthetic/cpf.ts';
 import { scenarioCatalog } from './catalog.ts';
 
 const renderInputSchema = z
@@ -87,10 +87,7 @@ export function renderScenarioFixture(
   const namespaceToken = digest(`run|${input.runId}`).slice(0, 10);
   const accountIdCliente = `CLI-SIM-${namespaceToken}-${seedToken}`;
   const accountIdProspect = `PRO-SIM-${namespaceToken}-${seedToken}`;
-  const nonRealContractDocument = generateNonRealCpfForContractFixture(
-    input.seed,
-    input.runId,
-  );
+  const syntheticCpf = generateSyntheticCpf(input.seed, input.runId);
   const baseContext = {
     RUN_ID: input.runId,
     STEP_ID: '',
@@ -99,7 +96,7 @@ export function renderScenarioFixture(
     BASELINE_TIME: new Date(Date.parse(eventStartAt) - 1_000).toISOString(),
     CLIENT_ID: accountIdCliente,
     PROSPECT_ID: accountIdProspect,
-    CPF: nonRealContractDocument,
+    CPF: syntheticCpf,
     PERSON_NAME: `Cliente Simulado ${seedToken}`,
     BASE_PERSON_NAME: `Cliente Simulado Base ${seedToken}`,
   } satisfies RenderContext;

@@ -53,7 +53,7 @@ describe('GET /api/v1/scenarios', () => {
     expect(JSON.stringify(body)).not.toContain('cpf<script>');
   });
 
-  it('returns metadata without payload templates or unexpected PII', async () => {
+  it('returns minimized metadata without payload templates or business fields', async () => {
     const response = listScenarios(
       new Request('http://localhost/api/v1/scenarios'),
     );
