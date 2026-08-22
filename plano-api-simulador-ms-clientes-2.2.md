@@ -1,0 +1,1878 @@
+# Plano de Desenvolvimento: API Simuladora do MS Clientes para Unificacao 2.2
+
+## 1. Resumo executivo
+
+Este documento define o plano completo para construir uma API independente, hospedada no Vercel, que simule os contratos do MS Clientes necessarios para testar a Unificacao 2.2 na org `mrv-devDan`, sem depender da `mrv-staging`.
+
+A solucao tera quatro responsabilidades principais:
+
+1. Publicar no Salesforce os eventos do Azure Event Grid consumidos pelo endpoint Apex `/Cliente`.
+2. Responder ao callback GraphQL `atualizarCliente` feito pelo Salesforce durante a vinculacao do IdProspect.
+3. Preparar e remover dados sinteticos de teste de forma controlada e restrita a cada execucao.
+4. Verificar por assertions consultivas se Account, Lead e Proponente__c ficaram no estado esperado.
+
+O simulador devera reproduzir sequencias realistas, incluindo eventos fora de ordem, duplicados, atrasados, falhas HTTP e respostas GraphQL invalidas. Os payloads usados nos testes serao sinteticos ou anonimizados, seguindo LGPD e a diretriz de nunca transportar PII real da staging para a aplicacao.
+
+A implementacao sera feita em um repositorio separado do Salesforce, em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`, com TypeScript, Vercel Functions, Neon PostgreSQL e Upstash QStash. O callback usara Named Credential e External Credential dedicados ao simulador; `ServicoClientes` permanece restrito ao provedor de identidade do MS Clientes real.
+
+### 1.1 Decisoes confirmadas em 2026-08-22
+
+- Nao ha dependencia de reuniao ou alinhamento previo para iniciar; a Fase 0 valida e configura tecnicamente as decisoes ja aprovadas.
+- Vercel, Neon e Upstash QStash estao permitidos.
+- O projeto independente sera criado em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`.
+- O alvo Salesforce e `mrv-devDan`, Organization Id `00DHZ000006mzDp2AI`, sandbox na instancia `BRA6S`.
+- O MVP funcional cobre Account, Lead e Proponente__c.
+- Opportunity e PropostaAnaliseCredito__c fazem parte do scaffolding obrigatorio de fixture, sem validar ainda os fluxos funcionais `/PAC` e `/MaquinaEstado`.
+- Setup, assertions e cleanup usam Salesforce REST/Composite, com operacoes allowlisted, credencial propria e Permission Set de minimo privilegio.
+- O callback pos-PAC usara o Named Credential dedicado `VFlexMsClientesPosPac`, com o mesmo DeveloperName em todos os ambientes e configuracao por org.
+- Em `mrv-devDan`, `VFlexMsClientesPosPac` aponta para o simulador; em staging e producao, aponta para o MS Clientes real.
+- Somente `MSClienteService` sera proposto para migrar ao novo Named Credential. Essa alteracao Apex exige aprovacao explicita antes da implementacao.
+
+## 2. Contexto e motivacao
+
+A Unificacao 2.2 e executada depois da aprovacao da PAC. O Salesforce recebe eventos assincronos do MS Clientes e decide se deve atualizar uma Account existente, criar uma nova estrutura ou descartar um evento defensivamente.
+
+Os principais pontos de integracao atuais sao:
+
+- Entrada: `NotificacaoCliente`, exposta em `/services/apexrest/Cliente`.
+- Saida atual: `MSClienteService.atualizarCliente`, que envia a mutation GraphQL `atualizarCliente` por `VFlexMsClientes`.
+- Estado alvo do simulador: destino e autenticacao dedicados ao callback pos-PAC; `ServicoClientes` permanece restrito ao MS Clientes real.
+- Logs: `IntegrationLog__e`, persistido como `LogIntegracao__c`.
+
+A ordem de chegada nao e garantida. Eventos `contato-*` e `endereco-*` podem chegar antes de `cliente-*`. Portanto, um mock que apenas retorna HTTP 200 nao cobre os riscos reais da Unificacao 2.2.
+
+## 3. Objetivos
+
+### 3.1 Objetivos funcionais
+
+- Disponibilizar catalogo versionado de cenarios da Unificacao 2.2.
+- Executar cenarios sob demanda contra a `mrv-devDan`.
+- Publicar envelopes compativeis com Azure Event Grid.
+- Controlar ordem, intervalo, duplicidade e reentrega dos eventos.
+- Simular sucesso, erro, timeout e resposta invalida do GraphQL `atualizarCliente`.
+- Registrar cada passo e sua resposta HTTP.
+- Permitir consulta do andamento e do resultado de uma execucao.
+- Permitir repeticao deterministica com os mesmos dados sinteticos.
+- Correlacionar requests GraphQL recebidos com a execucao que os originou.
+- Preparar pre-condicoes sinteticas com escopo minimo e ownership por `runId`.
+- Provisionar Proponente__c com celular e e-mail efetivos para `NotificacaoCliente.insertLeadQueueable`.
+- Provisionar Opportunity e PropostaAnaliseCredito__c apenas como dependencias tecnicas do Proponente__c.
+- Executar assertions Salesforce depois da conclusao assincrona.
+- Remover apenas os dados comprovadamente criados pela propria execucao.
+
+### 3.2 Objetivos de qualidade
+
+- Nao armazenar PII real.
+- Impedir tecnicamente chamadas para staging ou producao.
+- Preservar os contratos Apex existentes no MVP.
+- Oferecer idempotencia para evitar disparos acidentais repetidos.
+- Produzir trilha de auditoria sem tokens, CPF, e-mail, celular ou endereco em texto claro.
+- Manter todos os contratos descritos em OpenAPI e schemas TypeScript.
+- Nunca reutilizar no simulador bearer token emitido para o MS Clientes real.
+- Isolar os identificadores persistidos por execucao, mesmo quando a mesma seed for reutilizada.
+
+### 3.3 Fora de escopo inicial
+
+- Substituir o Azure Event Grid corporativo.
+- Simular todo o dominio do MS Clientes.
+- Corrigir ou remediar dados existentes em qualquer org.
+- Alterar regras de unificacao em Apex.
+- Executar contra `mrv-staging`, pre-producao ou producao.
+- Importar logs brutos por endpoint publico.
+- Fornecer ambiente de teste de carga do Salesforce.
+- Disponibilizar endpoint Apex de DML generico ou aceitar SOQL/DML arbitrario enviado pelo usuario.
+- Validar funcionalmente os endpoints `/PAC` e `/MaquinaEstado` no primeiro MVP.
+
+## 4. Escopo por entregas
+
+### 4.1 MVP: Account, Lead e Proponente__c
+
+O MVP cobre o fluxo essencial da Unificacao 2.2:
+
+- `cliente-insert` e `cliente-update`.
+- `contato-insert` e `contato-update`.
+- `endereco-insert` e `endereco-update`.
+- Callback GraphQL `atualizarCliente`.
+- Ordem normal e invertida.
+- Eventos duplicados e obsoletos.
+- Falhas configuraveis do callback.
+- Consulta de execucao e auditoria.
+- Provisionamento controlado de pre-condicoes sinteticas.
+- Verificacao automatizada de Account, Lead e Proponente__c.
+- Validacao de que `NotificacaoCliente.insertLeadQueueable` usa celular/e-mail efetivos do Proponente__c.
+- Validacao de que `Proponente__c.IdProponente__c` fica sincronizado com o Lead final.
+- Provisionamento de Opportunity e PropostaAnaliseCredito__c como scaffolding tecnico exigido pelo master-detail de Proponente__c.
+- Cleanup restrito aos registros criados pela execucao.
+
+O scaffolding de Opportunity e PropostaAnaliseCredito__c existe apenas para setup e cleanup do MVP. Ele nao inclui assertions funcionais de `/PAC`, `/MaquinaEstado` ou associacao final da Opportunity.
+
+### 4.2 Extensao: PAC, Maquina de Estado e Opportunity
+
+A segunda entrega cobre o fluxo completo pos-PAC:
+
+- Eventos consumidos por `/PAC`.
+- Eventos `jornadausuario-*` consumidos por `/MaquinaEstado`.
+- Validacoes adicionais de Proponente__c nos eventos PAC.
+- Associacao defensiva da Opportunity a Account aprovada.
+- Corridas entre `cliente-*`, PAC e maquina de estado.
+
+### 4.3 Interface administrativa opcional
+
+Uma interface web pode ser adicionada depois da estabilizacao da API para selecionar cenarios, informar variaveis sinteticas e acompanhar execucoes. Ela nao faz parte do MVP e nao deve atrasar os contratos ou os testes automatizados.
+
+### 4.4 Sequenciamento do MVP
+
+Para desbloquear testes rapidamente sem perder os controles essenciais, a primeira entrega executavel deve conter:
+
+- endpoint GraphQL dedicado e autenticado;
+- publicacao de um evento por request no `/Cliente`;
+- Safety Guard;
+- catalogo estatico dos cenarios prioritarios;
+- persistencia minima de runs, passos e callbacks;
+- setup, assertions e cleanup allowlisted;
+- execucao por API, sem interface web.
+
+Cancelamento administrativo avancado, dashboards, alertas completos, catalogo editavel e a extensao PAC/Opportunity ficam para entregas posteriores. QStash e obrigatorio quando o cenario precisar de agendamento duravel; sequencias imediatas podem usar o mesmo orquestrador sem atrasos artificiais.
+
+## 5. Decisoes de arquitetura
+
+As decisoes de plataforma e isolamento abaixo estao confirmadas. Somente mudancas em Apex ou metadados Salesforce continuam sujeitas a aprovacao explicita antes da implementacao.
+
+| Decisao | Definicao | Justificativa |
+|---|---|---|
+| Hospedagem | Vercel Functions | Plataforma permitida e com baixa operacao de infraestrutura. |
+| Runtime | Node.js LTS com TypeScript | Tipagem, ecossistema de validacao e suporte nativo no Vercel. |
+| Framework | Next.js Route Handlers | Integra facilmente API, observabilidade e eventual interface administrativa. |
+| Validacao | Zod | Validacao de entrada, configuracao e payloads externos na borda. |
+| GraphQL | Pacote `graphql` ou GraphQL Yoga | Evita parser textual ad hoc e aceita `application/graphql`. |
+| Persistencia | Neon PostgreSQL | Estado duravel, consultas de auditoria e boa integracao com Vercel. |
+| ORM | Drizzle ORM | Tipagem, migrations pequenas e baixo overhead para serverless. |
+| Agendamento | Upstash QStash | Entrega duravel de passos atrasados, reentregas e verificacao de assinatura. |
+| Testes | Vitest e testes HTTP de contrato | Execucao rapida e adequada a TypeScript. |
+| Especificacao | OpenAPI 3.1 | Contrato REST versionado e testavel. |
+| Fixtures | Arquivos JSON/TypeScript versionados | Revisao em PR e execucao deterministica. |
+| Repositorio | Projeto separado em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente` | Isola deploy, segredos, dependencias e ciclo de vida do simulador. |
+| Entrada Vercel -> Salesforce | External Client App ou Connected App dedicada, OAuth Client Credentials ou JWT e usuario de integracao exclusivo | Separa a identidade do simulador e limita o acesso ao `/Cliente` e ao REST/Composite allowlisted. |
+| Callback Salesforce -> Vercel | `VFlexMsClientesPosPac` + External Credential dedicados, com autenticacao e audience exclusivas | Injeta autenticacao no Salesforce sem depender de `ServicoClientes`; External Client App Salesforce nao autentica esta direcao. |
+| Configuracao do callback | Mesmo DeveloperName em todas as orgs; destino configurado por org | `mrv-devDan` usa simulador; staging e producao usam o MS Clientes real com o mesmo codigo Apex. |
+| Ciclo de dados de teste | Salesforce REST/Composite com operacoes allowlisted | Permite E2E real sem expor DML ou SOQL arbitrario. |
+| Isolamento | Seed define o caso; `runId` cria namespace persistido | Mantem repetibilidade sem transformar NO-MATCH em MATCH por residuos de execucoes anteriores. |
+| Envelope no MVP | Exatamente um evento por request | Evita interferencia de estado entre eventos processados pela mesma instancia Apex. |
+
+### 5.1 Alternativas consideradas
+
+#### API sem banco
+
+Rejeitada para o fluxo completo. Memoria de Vercel Functions nao e persistente e nao permite acompanhar passos assincronos de forma confiavel.
+
+#### `setTimeout` dentro da Function
+
+Rejeitado. A execucao pode ser encerrada pelo runtime, e atrasos longos nao sobrevivem a reinicios.
+
+#### Armazenar todos os logs de staging na aplicacao
+
+Rejeitado por LGPD, risco operacional e acoplamento desnecessario. Sera analisada temporariamente uma amostra estratificada de 5 a 10 exemplos por variacao estrutural relevante; apenas fixtures anonimizadas e revisadas devem entrar no repositorio.
+
+#### Reutilizar o token obtido pelo Named Credential compartilhado `ServicoClientes`
+
+Rejeitado. O token atual e emitido para o MS Clientes real e nao deve ser transmitido ao Vercel, ainda que o simulador consiga validar sua assinatura. O callback deve usar credencial, audience e segredo exclusivos do simulador.
+
+#### Redirecionar globalmente o Named Credential `VFlexMsClientes`
+
+Rejeitado. O Named Credential tambem e usado por classes alem de `MSClienteService`, incluindo fluxos pre-PAC e de Venda Generica. O isolamento confirmado cria `VFlexMsClientesPosPac` e altera somente `MSClienteService`, apos aprovacao explicita da proposta Apex.
+
+#### Implementar parser GraphQL com expressoes regulares
+
+Rejeitado. O corpo pode variar em espacos, ordem e campos; deve ser processado por uma biblioteca GraphQL.
+
+## 6. Arquitetura logica
+
+```mermaid
+flowchart LR
+    QA[QA ou desenvolvedor] -->|API autenticada| SIM[Vercel Simulator API]
+    SIM --> DB[(PostgreSQL)]
+    SIM --> Q[Upstash QStash]
+    Q -->|assinatura QStash| DISPATCH[Dispatch Function]
+    DISPATCH -->|External/Connected App + Event Grid JSON| SF[Salesforce mrv-devDan]
+    SF -->|VFlexMsClientesPosPac + GraphQL atualizarCliente| GQL[GraphQL Simulator]
+    SIM -->|REST/Composite allowlisted| TESTDATA[Test Data Adapter]
+    TESTDATA --> SF
+    SIM -->|consultas allowlisted| VERIFY[Outcome Verifier]
+    VERIFY --> SF
+    GQL --> DB
+    SF --> LOG[LogIntegracao__c]
+```
+
+### 6.1 Componentes
+
+- **Scenario Catalog:** carrega e valida cenarios versionados.
+- **Run Orchestrator:** cria execucoes e calcula a agenda de passos.
+- **QStash Publisher:** agenda cada passo de forma duravel.
+- **Salesforce Client:** autentica por External Client App ou Connected App dedicada e publica no Apex REST/Composite.
+- **GraphQL Simulator:** valida a mutation e retorna comportamento configurado.
+- **Run Repository:** persiste execucoes, passos, tentativas e callbacks.
+- **Redaction Service:** remove ou mascara valores sensiveis antes de persistir logs.
+- **Safety Guard:** confirma host, Organization Id e ambiente permitido antes de qualquer envio.
+- **Audit Service:** registra quem iniciou, repetiu ou cancelou uma execucao.
+- **Test Data Adapter:** prepara e remove por REST/Composite somente pre-condicoes sinteticas permitidas, identificadas pelo `runId`, inclusive Opportunity e PropostaAnaliseCredito__c como scaffolding do Proponente__c.
+- **Outcome Verifier:** executa consultas predefinidas e avalia assertions do cenario sem aceitar SOQL arbitrario.
+
+## 7. Fluxos principais
+
+### 7.1 Criacao de uma execucao
+
+1. Cliente chama `POST /api/v1/runs` com um `scenarioKey` e variaveis sinteticas.
+2. API autentica e autoriza o solicitante.
+3. Zod valida a requisicao.
+4. Catalogo carrega a versao do cenario.
+5. Safety Guard valida que o alvo e exclusivamente `mrv-devDan`.
+6. API gera `runId`, IDs externos sinteticos e timestamps deterministas.
+7. A seed determina os valores logicos; o `runId` compoe o namespace dos IDs persistidos.
+8. API persiste a execucao e seus passos.
+9. API cria o setup allowlisted como primeiros passos da execucao.
+10. API agenda setup e dispatches dependentes de forma duravel.
+11. API retorna `202 Accepted` com o `runId`; provisionamento e envio continuam assincronamente.
+
+### 7.2 Publicacao de um evento
+
+1. QStash chama o endpoint interno de dispatch.
+2. API valida a assinatura QStash e rejeita chamadas diretas.
+3. API bloqueia o passo se a execucao estiver cancelada.
+4. Salesforce Client obtem ou reutiliza token de curta duracao.
+5. Safety Guard valida novamente host, Organization Id e sandbox.
+6. Cliente envia o envelope ao `/services/apexrest/Cliente`.
+7. Request sanitizado, status HTTP, duracao e response sanitizado sao persistidos.
+8. Politica do cenario decide sucesso, retry ou falha final.
+
+Depois do ultimo dispatch, a execucao entra em `WAITING_ASYNC` quando houver Queueable ou callback esperado. Receber HTTP 200 do Apex REST nao significa que o cenario terminou.
+
+### 7.3 Callback GraphQL
+
+1. `MSClienteService` chama `callout:VFlexMsClientesPosPac` com destino configurado por org.
+2. O Named Credential e a External Credential injetam a autenticacao dedicada; a API valida HTTPS, audience, identidade e limite de tamanho.
+3. Parser GraphQL valida que a operacao e `atualizarCliente`.
+4. API extrai apenas IDs tecnicos necessarios para correlacao.
+5. Politica associada a execucao escolhe sucesso, erro, atraso ou payload invalido.
+6. API persiste request e response sanitizados.
+7. API devolve resposta compativel com o contrato atual.
+8. Quando todos os callbacks esperados forem recebidos, ou quando a janela assincrona terminar, a execucao entra em `VERIFYING`.
+9. Outcome Verifier consulta os registros permitidos e avalia as assertions.
+10. Cleanup remove somente os registros pertencentes ao `runId`, quando habilitado e seguro.
+
+## 8. Contratos REST propostos
+
+Todos os endpoints de gestao usam `/api/v1`. Erros seguem um formato unico:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid request",
+    "requestId": "req_01J...",
+    "details": {}
+  }
+}
+```
+
+`details` nao pode conter payload bruto, token ou PII.
+
+### 8.1 Saude
+
+#### `GET /api/v1/health`
+
+Verifica aplicacao, banco e configuracao. Nao realiza DML nem dispara eventos.
+
+Resposta `200`:
+
+```json
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "dependencies": {
+    "database": "ok",
+    "qstash": "ok"
+  }
+}
+```
+
+### 8.2 Catalogo de cenarios
+
+#### `GET /api/v1/scenarios`
+
+Lista cenarios ativos com paginacao e filtros por tag.
+
+Parametros:
+
+- `page`
+- `pageSize`
+- `tag`
+- `scope`: `CORE` ou `EXTENDED`
+
+#### `GET /api/v1/scenarios/{scenarioKey}`
+
+Retorna metadados, versao, variaveis aceitas e passos, sem revelar segredos.
+
+### 8.3 Execucoes
+
+#### `POST /api/v1/runs`
+
+Cria uma execucao.
+
+Headers:
+
+- `Authorization: Bearer <token>`
+- `Idempotency-Key: <uuid>` obrigatorio
+
+Request:
+
+```json
+{
+  "scenarioKey": "cpf-divergente-nova-estrutura",
+  "scenarioVersion": 1,
+  "variables": {
+    "seed": "TC001-A",
+    "eventStartAt": "2026-08-21T10:00:00Z"
+  },
+  "execution": {
+    "dryRun": false,
+    "speed": 1,
+    "stopOnFailure": true
+  }
+}
+```
+
+Resposta `202`:
+
+```json
+{
+  "data": {
+    "runId": "run_01J...",
+    "status": "SCHEDULED",
+    "scenarioKey": "cpf-divergente-nova-estrutura",
+    "scenarioVersion": 1,
+    "createdAt": "2026-08-21T10:00:00Z"
+  }
+}
+```
+
+`dryRun=true` valida e renderiza setup, eventos, assertions e cleanup, mas nao chama Salesforce.
+
+O estado consolidado pode assumir `CREATED`, `PROVISIONING`, `SCHEDULED`, `RUNNING`, `WAITING_ASYNC`, `VERIFYING`, `SUCCEEDED`, `FAILED`, `PARTIAL`, `CANCELLING` ou `CANCELLED`.
+
+#### `GET /api/v1/runs`
+
+Lista execucoes com paginacao e filtros por status, cenario e intervalo de data.
+
+#### `GET /api/v1/runs/{runId}`
+
+Retorna estado consolidado e links para os passos.
+
+#### `GET /api/v1/runs/{runId}/steps`
+
+Lista passos, tentativas e respostas sanitizadas.
+
+#### `POST /api/v1/runs/{runId}/cancellations`
+
+Solicita cancelamento dos passos ainda nao enviados. Passos em processamento podem concluir.
+
+#### `POST /api/v1/runs/{runId}/retries`
+
+Cria uma nova tentativa apenas para passos elegiveis, mantendo a trilha original.
+
+### 8.4 Endpoint interno de dispatch
+
+#### `POST /api/v1/internal/dispatches`
+
+Uso exclusivo do QStash. Requer assinatura valida, timestamp dentro da tolerancia e identificador de mensagem nao processado.
+
+Nao deve ser exposto na documentacao publica de consumidores.
+
+### 8.5 Endpoint GraphQL simulado
+
+#### `POST /api/ms-clientes/graphql`
+
+Aceita `Content-Type: application/graphql` e, opcionalmente, `application/json` conforme o cliente.
+
+Mutation esperada:
+
+```graphql
+mutation {
+  atualizarCliente(
+    cliente: {
+      id: "ID-CLIENTE-SINTETICO"
+      idProspectSalesforce: "ID-PROSPECT-SINTETICO"
+    }
+  ) {
+    id
+  }
+}
+```
+
+Resposta de sucesso:
+
+```json
+{
+  "data": {
+    "atualizarCliente": {
+      "id": "ID-CLIENTE-SINTETICO"
+    }
+  }
+}
+```
+
+Politicas de resposta suportadas:
+
+- `SUCCESS_200`
+- `SUCCESS_201`
+- `GRAPHQL_ERROR_200`
+- `HTTP_400`
+- `HTTP_401`
+- `HTTP_429`
+- `HTTP_500`
+- `INVALID_JSON_200`
+- `EMPTY_BODY_200`
+- `DELAYED_RESPONSE`
+
+O atraso deve respeitar o limite de execucao do Vercel. Para simular timeout do Salesforce, a Function pode aguardar acima de 12 segundos somente se o plano Vercel suportar a duracao configurada. Caso contrario, deve-se usar um endpoint dedicado que encerre ou mantenha a conexao conforme a capacidade aprovada. Retornar imediatamente outro erro HTTP nao e evidencia equivalente de timeout.
+
+## 9. Envelope Event Grid
+
+Formato base:
+
+```json
+[
+  {
+    "id": "sim-run_01J-step_001",
+    "subject": "MS_Clientes",
+    "data": {
+      "idcliente": "CLI-SIM-TC001-A",
+      "idprospectsalesforce": "PRO-SIM-TC001-A",
+      "dataalteracao": "2026-08-21T10:00:00Z"
+    },
+    "eventType": "cliente-insert",
+    "eventTime": "2026-08-21T10:00:00Z",
+    "dataVersion": "1.0",
+    "metadataVersion": "1",
+    "topic": "/simulator/ms-clientes"
+  }
+]
+```
+
+No MVP, o array deve conter exatamente um item (`minItems: 1`, `maxItems: 1`). Cada passo do cenario gera uma requisicao HTTP independente. O suporte a lotes fica reservado a um cenario especifico posterior.
+
+### 9.1 Regras do gerador
+
+- Usar nomes de campos compativeis com o contrato real; o Apex normaliza para minusculas.
+- Gerar valores logicos deterministicamente a partir da seed e adicionar namespace derivado do `runId` aos identificadores persistidos.
+- Gerar `eventTime` e `dataalteracao` separadamente para permitir eventos obsoletos.
+- Nao adicionar PII real.
+- Nao depender do nome, telefone ou e-mail para correlacao tecnica.
+- Preservar a possibilidade de enviar eventos sem CPF, como ocorre em `contato-*` e `endereco-*`.
+- Permitir reenvio do mesmo envelope com o mesmo `id` para testar idempotencia externa.
+
+## 10. Modelo de cenarios
+
+Exemplo de definicao:
+
+```typescript
+interface ScenarioDefinition {
+  key: string;
+  version: number;
+  name: string;
+  scope: 'CORE' | 'EXTENDED';
+  tags: string[];
+  variablesSchema: unknown;
+  setup?: AllowlistedSetupInstruction[];
+  steps: ScenarioStep[];
+  expectedOutcomes: ExpectedOutcome[];
+  asyncPolicy: {
+    expectedCallbacks: { min: number; max: number };
+    waitTimeoutMs: number;
+    missingCallbackResult: 'SUCCESS' | 'PARTIAL' | 'FAILED';
+  };
+  cleanup?: AllowlistedCleanupInstruction[];
+}
+
+interface ScenarioStep {
+  key: string;
+  target: 'CLIENTE' | 'PAC' | 'MAQUINA_ESTADO';
+  eventType: string;
+  delayMs: number;
+  payloadTemplate: unknown;
+  deliveryPolicy: {
+    duplicateCount: number;
+    retryOn: number[];
+    maxAttempts: number;
+  };
+}
+```
+
+`setup`, `expectedOutcomes` e `cleanup` devem usar operacoes tipadas e allowlisted. Nenhum deles pode receber SOQL, SOSL, nomes livres de objetos/campos ou DML arbitrario pela API.
+
+No MVP, o mecanismo definido e Salesforce REST/Composite com credencial propria, Permission Set minimo e operacoes allowlisted. Salesforce CLI, endpoint Apex de test data, SOQL livre e DML arbitrario nao fazem parte deste fluxo.
+
+Cada registro criado no setup deve carregar ou ser correlacionavel por um identificador tecnico derivado do `runId`. O cleanup deve falhar fechado quando nao conseguir comprovar ownership.
+
+Para criar Proponente__c, o setup cria primeiro Opportunity e PropostaAnaliseCredito__c, pois os relacionamentos master-detail tornam essa cadeia obrigatoria. O Proponente__c fornece celular/e-mail efetivos e seu `IdProponente__c` deve ser comparado ao Guid do Lead final. Opportunity e PropostaAnaliseCredito__c nao recebem assertions funcionais no MVP, exceto existencia, ownership e remocao segura do scaffolding.
+
+## 11. Catalogo minimo de cenarios
+
+### 11.1 Basicos
+
+| Chave | Cenario | Resultado principal esperado |
+|---|---|---|
+| `match-id-cliente` | Account encontrada por `Id__c` | Atualiza somente a Account correta. |
+| `match-cpf-sem-id-cliente` | Account encontrada por CPF | Carimba Id Cliente sem criar duplicidade. |
+| `no-match-cliente-insert` | Nenhuma Account encontrada | Cria nova Person Account. |
+| `cliente-update-nova-estrutura` | Evento update sem estrutura previa | Cria ou completa a estrutura esperada. |
+
+### 11.2 CPF divergente e protecoes
+
+| Chave | Cenario | Resultado principal esperado |
+|---|---|---|
+| `cpf-divergente-nova-estrutura` | Jornada X, PAC Y, Account Y inexistente | Preserva X e cria Account/Lead Y. |
+| `cpf-divergente-contato-primeiro` | `contato-*` de Y chega antes de `cliente-*` | Evento parcial e descartado; X permanece intacto. |
+| `cpf-divergente-endereco-primeiro` | `endereco-*` chega antes de `cliente-*` | Evento parcial e descartado; X permanece intacto. |
+| `cliente-update-divergente-conta-y-existente` | Account Y ja existe | Atualiza Y sem mover prospect de X. |
+| `cliente-update-divergente-conta-y-inexistente` | Y ainda nao existe | Cria estrutura Y e preserva X. |
+
+### 11.3 Arvore de decisao de Lead
+
+| Chave | Cenario | Resultado principal esperado |
+|---|---|---|
+| `lead-mesmo-cpf-livre` | Lead Y do mesmo CPF sem Account | Reutiliza Lead Y. |
+| `lead-mesmo-cpf-propria-conta` | Account Y ja aponta para Lead Y | Mantem e reutiliza Lead Y. |
+| `lead-mesmo-cpf-outra-conta-caso-c` | Lead do CPF preso a outra Account | Nao reusa nem cria; Account fica sem IdProspect. |
+| `fallback-lead-sem-cpf-por-email` | Lead livre sem CPF casa por e-mail | Reutiliza Lead e preenche CPF sintetico. |
+| `fallback-lead-sem-cpf-por-celular` | Lead livre sem CPF casa por celular | Reutiliza Lead e preenche CPF sintetico. |
+| `fallback-lead-sem-guid` | Lead reutilizado nao possui `Id__c` | Gera Guid antes de vincular. |
+
+### 11.4 Regra 6.6
+
+Os cenarios desta secao incluem Proponente__c no MVP, porque `NotificacaoCliente.insertLeadQueueable` usa seus valores efetivos de celular/e-mail e sincroniza `IdProponente__c` com o Lead final.
+
+| Chave | Cenario | Resultado principal esperado |
+|---|---|---|
+| `novo-lead-colisao-celular` | Celular pertence a outro CPF | Cria Lead sem celular. |
+| `novo-lead-colisao-email` | E-mail pertence a outro CPF | Cria Lead sem e-mail. |
+| `novo-lead-colisao-ambos` | E-mail e celular pertencem a terceiros | Cria Lead somente com CPF e `InsertClientePAC`. |
+| `novo-lead-sem-colisao` | Contatos nao colidem | Copia contatos efetivos do Proponente/Account. |
+| `contatos-distribuidos-terceiros` | E-mail e celular pertencem a Leads diferentes | Nao contamina o Lead novo. |
+
+### 11.5 Concorrencia e resiliencia
+
+| Chave | Cenario | Resultado principal esperado |
+|---|---|---|
+| `evento-duplicado` | Mesmo evento enviado duas vezes | Segunda entrega nao corrompe dados. |
+| `evento-obsoleto` | `dataalteracao` anterior ao persistido | Evento nao atualiza registro. |
+| `ordem-invertida-completa` | Contato, endereco e cliente em ordem invertida | Resultado final preserva isolamento. |
+| `graphql-erro-500` | Callback retorna 500 | Vinculo local permanece; falha de sincronizacao remota fica observavel e o run termina `PARTIAL`. |
+| `graphql-resposta-invalida` | Callback retorna JSON inesperado | Vinculo local permanece; erro de parsing fica registrado, correlacionavel e classificado como falha remota. |
+| `graphql-timeout` | Callback excede os 12 segundos do Apex | Vinculo local permanece; timeout e log sao validados e o run termina `PARTIAL`. |
+| `id-prospect-igual-id-cliente` | MS devolve echo incorreto | Salesforce nao grava IdProspect igual ao Id Cliente. |
+
+### 11.6 Extensao PAC e Opportunity
+
+| Chave | Cenario | Resultado principal esperado |
+|---|---|---|
+| `proponente-sincroniza-lead-final` | Lead final muda | Proponente principal recebe o mesmo Guid. |
+| `pac-atrasada-nao-restaura-prospect` | Evento PAC antigo chega depois | Prospect obsoleto nao e restaurado. |
+| `maquina-estado-sem-id-cliente` | Evento chega so com prospect da jornada | Opportunity permanece na Account aprovada. |
+| `maquina-estado-obsoleto-sem-cliente` | Evento antigo nao resolve cliente | Responde sucesso sem fila manual. |
+| `maquina-estado-atual-corrida` | Evento atual chega antes do cliente | Falha para permitir reentrega legitima. |
+
+## 12. Modelo de dados
+
+### 12.1 `scenario_run`
+
+- `id`
+- `scenario_key`
+- `scenario_version`
+- `status`: `CREATED`, `PROVISIONING`, `SCHEDULED`, `RUNNING`, `WAITING_ASYNC`, `VERIFYING`, `SUCCEEDED`, `FAILED`, `PARTIAL`, `CANCELLING`, `CANCELLED`
+- `idempotency_key_hash`
+- `requested_by`
+- `seed`
+- `variables_redacted` JSONB
+- `dry_run`
+- `stop_on_failure`
+- `expected_callback_min`
+- `expected_callback_max`
+- `async_wait_deadline`
+- `cleanup_policy`
+- `created_at`
+- `started_at`
+- `finished_at`
+- `retention_expires_at`
+
+### 12.2 `scenario_run_step`
+
+- `id`
+- `run_id`
+- `step_key`
+- `ordinal`
+- `target`
+- `event_type`
+- `status`
+- `scheduled_at`
+- `started_at`
+- `finished_at`
+- `request_redacted` JSONB
+- `response_redacted` JSONB
+- `http_status`
+- `duration_ms`
+- `attempt_count`
+- `qstash_message_id`
+- `error_code`
+- `step_kind`: `SETUP`, `DISPATCH`, `VERIFY`, `CLEANUP`
+
+### 12.3 `delivery_attempt`
+
+- `id`
+- `step_id`
+- `attempt_number`
+- `request_id`
+- `http_status`
+- `duration_ms`
+- `response_redacted`
+- `error_code`
+- `created_at`
+
+### 12.4 `graphql_callback`
+
+- `id`
+- `run_id` nullable
+- `request_id`
+- `operation_name`
+- `id_cliente_hash`
+- `id_prospect_hash`
+- `normalized_correlation_key_hash`
+- `policy`
+- `http_status`
+- `request_redacted`
+- `response_redacted`
+- `duration_ms`
+- `created_at`
+
+### 12.5 `audit_event`
+
+- `id`
+- `actor`
+- `action`
+- `resource_type`
+- `resource_id`
+- `metadata_redacted`
+- `created_at`
+
+### 12.6 Retencao
+
+- Execucoes e passos: 30 dias por padrao.
+- Auditoria: 90 dias, sujeito a politica corporativa.
+- Payload bruto: nao persistir.
+- Tokens: nunca persistir.
+- Job diario remove registros expirados.
+
+## 13. Extracao e anonimizacao dos logs
+
+### 13.1 Fonte
+
+Os logs de entrada podem ser consultados em `LogIntegracao__c.BodyRequest__c`. Callouts podem usar `BodyRequest__c` e `Response__c`. Ambos suportam ate 131.072 caracteres, mas toda extracao deve validar se o JSON esta completo.
+
+A amostra inicial deve ser estratificada por variacao estrutural e comportamento, priorizando minimizacao de dados:
+
+| Contrato | Quantidade planejada |
+|---|---:|
+| `cliente-insert` | 5 a 10 exemplos por variacao relevante |
+| `cliente-update` | 5 a 10 exemplos por variacao relevante |
+| `contato-insert` | 5 a 10 exemplos por variacao relevante |
+| `contato-update` | 5 a 10 exemplos por variacao relevante |
+| `endereco-insert` | 5 a 10 exemplos por variacao relevante |
+| `endereco-update` | 5 a 10 exemplos por variacao relevante |
+| GraphQL `atualizarCliente` | 5 a 10 exemplos de sucesso/erro por formato identificado |
+
+O codigo Apex, testes existentes e Custom Metadata sao as fontes primarias do contrato. Logs complementam apenas variacoes nao demonstradas por essas fontes. A selecao deve incluir sucessos, erros, reprocessamentos, eventos obsoletos e ordens diferentes. A amostra so deve ser ampliada quando aparecer uma nova estrutura ou divergencia ainda nao explicada. Para `/PAC` e `/MaquinaEstado`, aplicar a mesma estrategia estratificada.
+
+### 13.2 Processo controlado
+
+1. Executar SOQL somente leitura na `mrv-staging`.
+2. Restringir por `EventType__c`, periodo e IDs tecnicos previamente autorizados.
+3. Exportar para uma area temporaria segura, fora do Git.
+4. Validar JSON e detectar truncamento.
+5. Mapear campos e variacoes de contrato.
+6. Substituir PII por valores sinteticos consistentes.
+7. Remover stack traces, tokens, URLs internas e IDs Salesforce reais.
+8. Executar scanner de PII.
+9. Fazer revisao humana.
+10. Salvar apenas a fixture anonimizada no repositorio do simulador.
+11. Eliminar o arquivo temporario conforme politica corporativa.
+
+### 13.3 Regras de anonimizacao
+
+- CPF: gerar valor sintetico reservado para testes; nunca manter CPF real.
+- Nome: usar nomes claramente sinteticos, como `Cliente Simulado A`.
+- E-mail: usar dominio reservado, como `example.test`.
+- Telefone: usar faixa definida pelo time para dados sinteticos.
+- Endereco: usar texto ficticio sem referencia a pessoa real.
+- IDs externos: gerar prefixos `CLI-SIM`, `PRO-SIM`, `EVT-SIM`, combinando seed e namespace curto do `runId`.
+- Salesforce IDs: nunca copiar da staging para fixtures.
+- Datas: deslocar mantendo apenas a relacao temporal entre eventos.
+
+### 13.4 Validacoes automatizadas de fixtures
+
+- JSON/schema valido.
+- Nenhum CPF conhecido ou formato nao permitido.
+- Nenhum e-mail fora de dominios de teste aprovados.
+- Nenhum host de staging/producao.
+- Nenhum token JWT, bearer, client secret ou session id.
+- Nenhum ID Salesforce real extraido de logs.
+- Tamanho maximo por fixture.
+
+## 14. Seguranca e LGPD
+
+### 14.1 Autenticacao da API de gestao
+
+Opcoes, em ordem de preferencia:
+
+1. SSO corporativo no Vercel com grupos autorizados.
+2. JWT emitido por provedor corporativo e validado por issuer, audience e JWKS.
+3. API key apenas para automacao temporaria, armazenada como segredo, rotacionada e limitada por ambiente.
+
+O provedor administrativo final permanece pendente. Ate sua definicao, nenhuma opcao de fallback pode ampliar acesso ou expor segredos.
+
+### 14.2 Autorizacao
+
+Papeis sugeridos:
+
+- `VIEWER`: consulta catalogo e execucoes.
+- `OPERATOR`: cria, cancela e repete execucoes.
+- `ADMIN`: gerencia politicas e configuracoes nao secretas.
+
+Toda autorizacao deve ocorrer no servidor. Nenhuma decisao pode depender apenas da interface web.
+
+### 14.3 Autenticacao Vercel para Salesforce
+
+Esta e a direcao Vercel -> Salesforce. Usar uma External Client App ou Connected App dedicada, conforme padrao vigente da org, com OAuth Client Credentials ou fluxo JWT assinado e usuario de integracao exclusivo.
+
+Controles obrigatorios:
+
+- Segredo ou chave privada somente no cofre de segredos do Vercel.
+- Rotacao documentada.
+- Usuario de integracao exclusivo.
+- Acesso minimo ao Apex REST `/Cliente` e as operacoes REST/Composite allowlisted de dados de teste.
+- Sem acesso a staging ou producao.
+- Org Id permitido em allowlist.
+
+Proposta de Permission Set, sujeita a confirmacao do time GIA:
+
+- Label: `ps GIA ExecutarSimuladorUnificacaoClientesGv`
+- API: `PsGiaExecutarSimuladorUnificacaoClientesGv`
+
+Nenhum Permission Set ou artefato de acesso deve ser criado ou alterado sem validacao do escopo pelo time responsavel.
+
+### 14.4 Autenticacao Salesforce para o GraphQL simulado
+
+Esta e a direcao Salesforce -> Vercel. O callback deve usar o Named Credential `VFlexMsClientesPosPac` e uma External Credential dedicada, com audience, segredo/chave e ciclo de rotacao exclusivos. O Named Credential injeta a autenticacao; External Client App ou Connected App Salesforce nao e o mecanismo desta direcao. `ServicoClientes` continua apontando para o provedor de identidade do MS Clientes real e nao participa do callback ao simulador.
+
+O simulador deve validar:
+
+- Assinatura do JWT pelo JWKS esperado, ou autenticacao equivalente formalmente aprovada.
+- Issuer dedicado e autorizado.
+- Audience exclusiva do simulador.
+- Expiracao e `not-before`.
+- Identidade tecnica esperada da `mrv-devDan`.
+
+Nao se deve aceitar bearer arbitrario, registrar o token recebido nem usar credencial que tambem conceda acesso ao MS Clientes real.
+
+### 14.5 Safety Guard de ambiente
+
+Antes de enviar qualquer evento:
+
+- Host Salesforce deve estar em allowlist.
+- `Organization.Id` deve ser exatamente `00DHZ000006mzDp2AI`.
+- `Organization.IsSandbox` deve ser verdadeiro.
+- A instancia esperada deve ser `BRA6S`, sem transformar seu hostname em configuracao aceita pela request.
+- Configuracao deve declarar `TARGET_ENV=mrv-devDan`.
+- Qualquer divergencia bloqueia o envio.
+- Nao aceitar host, org ou endpoint enviados pelo usuario na request.
+
+### 14.6 Protecoes HTTP
+
+- HTTPS obrigatorio.
+- Limite de corpo por endpoint.
+- Rate limiting por identidade.
+- Timeout explicito.
+- CORS fechado; liberar somente origens administrativas aprovadas.
+- CSP e demais headers na eventual interface web.
+- Erros sem stack trace.
+- Dependencias auditadas em CI.
+- Validacao Zod em toda entrada e resposta externa.
+- Assinatura QStash validada em cada dispatch.
+
+### 14.7 Dados pessoais
+
+- Nao persistir CPF, nome, telefone, e-mail ou endereco reais.
+- Nao registrar request completo por padrao.
+- Aplicar redaction antes do logger, nao depois.
+- Normalizar IDs com `trim` e uppercase antes de correlacionar, pois o Apex envia Id Cliente e IdProspect em uppercase no callback.
+- Usar HMAC com chave/pepper para correlacao de IDs quando necessario; hash simples de identificador previsivel nao e suficiente.
+- Revisar base legal e retencao com o responsavel LGPD antes da liberacao.
+
+## 15. Configuracao Salesforce proposta
+
+As alteracoes abaixo sao propostas e nao fazem parte deste documento de planejamento.
+
+### 15.1 Destino dedicado do callback
+
+Criar o Named Credential `VFlexMsClientesPosPac` e uma External Credential dedicada. Usar o mesmo DeveloperName em todos os ambientes, com configuracao por org:
+
+- `mrv-devDan`: destino do simulador GraphQL no Vercel.
+- staging e producao: destino do MS Clientes real.
+
+Nenhuma URL completa ou host real deve ser registrado neste documento. O `VFlexMsClientes` atual aponta para o MS Clientes real e e compartilhado por `MSClienteService` e outras classes, inclusive invocables de Venda Generica/Pre-PAC. Ele nao deve ser redirecionado globalmente.
+
+A proposta Apex e alterar somente `MSClienteService` para usar `callout:VFlexMsClientesPosPac`. O codigo sera identico em todas as orgs, enquanto destino e autenticacao variam por configuracao. Essa mudanca nao deve ser implementada sem aprovacao explicita, testes unitarios e regressao dos consumidores que continuam em `VFlexMsClientes`.
+
+### 15.2 `ServicoClientes`
+
+Nao redirecionar nem reutilizar no simulador. O token obtido por esse Named Credential deve continuar restrito ao MS Clientes real. O callback do simulador usa a credencial dedicada da secao 15.1.
+
+### 15.3 Acesso ao Apex REST
+
+O usuario de integracao do simulador precisa somente do necessario para invocar os endpoints aprovados e executar o REST/Composite allowlisted. Nao conceder `Modify All Data`, `View All Data` ou acesso por Profile.
+
+O escopo final do Permission Set deve ser enumerado e aprovado pelo time GIA, incluindo apenas:
+
+- `API Enabled`;
+- acesso a classe Apex REST `NotificacaoCliente`;
+- acesso a `/PAC` e `/MaquinaEstado` somente quando a extensao funcional for habilitada;
+- CRUD e FLS estritamente necessarios para as operacoes allowlisted de setup, assertions e cleanup;
+- leitura de `LogIntegracao__c` somente se o diagnostico automatizado realmente exigir;
+- acesso ao principal da External Credential dedicada, quando aplicavel.
+
+Qualquer objeto, campo ou classe fora dessa lista deve permanecer sem acesso por padrao.
+
+### 15.4 Contrato Apex
+
+O MVP preserva:
+
+- `@RestResource(urlMapping='/Cliente')`.
+- Estrutura do envelope Event Grid.
+- Assinaturas publicas de classes Apex.
+- Mutation `atualizarCliente`.
+
+A proposta requer uma alteracao Apex pequena e isolada em `MSClienteService`: substituir sua referencia ao callback por `callout:VFlexMsClientesPosPac`. Nenhuma outra classe deve ser alterada e os invocables permanecem em `VFlexMsClientes`. A mudanca exige aprovacao explicita antes da implementacao, cobertura de testes e nao pode mudar o contrato GraphQL.
+
+## 16. Estrutura sugerida do repositorio da API
+
+```text
+ms-clientes-simulator/
+  app/
+    api/
+      v1/
+        health/route.ts
+        scenarios/route.ts
+        scenarios/[scenarioKey]/route.ts
+        runs/route.ts
+        runs/[runId]/route.ts
+        runs/[runId]/steps/route.ts
+        runs/[runId]/cancellations/route.ts
+        runs/[runId]/retries/route.ts
+        internal/dispatches/route.ts
+      ms-clientes/graphql/route.ts
+  src/
+    auth/
+    config/
+    contracts/
+    db/
+    graphql/
+    logging/
+    qstash/
+    redaction/
+    safety/
+    salesforce/
+      provisioning/
+      verification/
+      cleanup/
+    scenarios/
+    services/
+  fixtures/
+    core/
+    extended/
+  drizzle/
+  tests/
+    unit/
+    contract/
+    integration/
+    e2e/
+  docs/
+    openapi.yaml
+    decisions/
+  scripts/
+    validate-fixtures.ts
+    anonymize-log-export.ts
+  .env.example
+  package.json
+  README.md
+```
+
+## 17. Variaveis de ambiente
+
+Exemplo sem valores reais:
+
+```dotenv
+APP_ENV=development
+TARGET_ENV=mrv-devDan
+TARGET_SALESFORCE_BASE_URL=
+TARGET_SALESFORCE_ORG_ID=
+SALESFORCE_CLIENT_ID=
+SALESFORCE_CLIENT_SECRET=
+SALESFORCE_TOKEN_URL=
+SIMULATOR_CALLBACK_ISSUER=
+SIMULATOR_CALLBACK_AUDIENCE=
+SIMULATOR_CALLBACK_JWKS_URL=
+DATABASE_URL=
+QSTASH_URL=
+QSTASH_TOKEN=
+QSTASH_CURRENT_SIGNING_KEY=
+QSTASH_NEXT_SIGNING_KEY=
+CORPORATE_JWT_ISSUER=
+CORPORATE_JWT_AUDIENCE=
+CORPORATE_JWKS_URL=
+LOG_HASH_PEPPER=
+RUN_RETENTION_DAYS=30
+AUDIT_RETENTION_DAYS=90
+```
+
+Regras:
+
+- Validar todas no startup com Zod.
+- Nao disponibilizar segredos ao browser.
+- Separar Preview, Development e Production no Vercel.
+- Preview deployments devem usar somente banco isolado e `dryRun=true` por padrao.
+- Nunca incluir segredos em `.env.example`.
+
+## 18. Estrategia de erros e retries
+
+### 18.1 Erros da API
+
+| HTTP | Codigo | Uso |
+|---|---|---|
+| 400 | `BAD_REQUEST` | JSON malformado. |
+| 401 | `UNAUTHENTICATED` | Credencial ausente ou invalida. |
+| 403 | `FORBIDDEN` | Identidade sem permissao. |
+| 404 | `NOT_FOUND` | Cenario ou execucao inexistente. |
+| 409 | `IDEMPOTENCY_CONFLICT` | Mesma chave com request diferente. |
+| 422 | `VALIDATION_ERROR` | Dados semanticamente invalidos. |
+| 429 | `RATE_LIMITED` | Limite excedido. |
+| 500 | `INTERNAL_ERROR` | Erro interno sanitizado. |
+| 503 | `DEPENDENCY_UNAVAILABLE` | Banco, fila ou Salesforce indisponivel. |
+
+### 18.2 Retry de publicacao Salesforce
+
+Retry apenas para:
+
+- Timeout e falha de rede.
+- HTTP 408.
+- HTTP 429, respeitando `Retry-After`.
+- HTTP 5xx configurados.
+
+Nao repetir automaticamente:
+
+- HTTP 400, 401, 403, 404 ou 422.
+- Erro de Safety Guard.
+- Payload invalido.
+
+Usar backoff exponencial com jitter e limite por cenario. Cada tentativa deve ser auditavel.
+
+### 18.3 Idempotencia
+
+- `POST /runs` exige `Idempotency-Key`.
+- Mesmo usuario, chave e body retornam a execucao original.
+- Mesma chave com body diferente retorna `409`.
+- Dispatch usa `qstash_message_id` e `step_id` para evitar processamento duplicado acidental.
+- Cenarios que testam duplicidade fazem duplicacao explicita no catalogo, nao por falha interna.
+
+## 19. Observabilidade
+
+### 19.1 Logs estruturados
+
+Campos permitidos:
+
+- `requestId`
+- `runId`
+- `stepId`
+- `scenarioKey`
+- `eventType`
+- `status`
+- `httpStatus`
+- `durationMs`
+- `attempt`
+- `errorCode`
+
+Campos proibidos:
+
+- Authorization headers.
+- Client secrets.
+- Session IDs.
+- CPF, telefone, e-mail, nome ou endereco.
+- Corpo GraphQL integral.
+- Payload Event Grid integral sem redaction.
+
+### 19.2 Metricas
+
+- Execucoes por cenario e status.
+- Duracao total por execucao.
+- Passos enviados e falhos.
+- Retries por dependencia.
+- Callbacks GraphQL por politica.
+- Falhas de autenticacao.
+- Bloqueios do Safety Guard.
+- Jobs QStash atrasados.
+
+### 19.3 Alertas
+
+- Safety Guard bloqueou tentativa para ambiente nao permitido.
+- Taxa de erro acima do limite.
+- Banco ou QStash indisponivel.
+- Callback GraphQL recebeu operacao nao mapeada.
+- Scanner detectou potencial PII.
+- Crescimento anormal de execucoes ou tentativas.
+
+## 20. Estrategia de testes
+
+### 20.1 Testes unitarios
+
+- Schemas Zod.
+- Renderizacao deterministica de fixtures.
+- Calculo de timestamps e atrasos.
+- Redaction e deteccao de PII.
+- Safety Guard.
+- Politicas de resposta GraphQL.
+- Classificacao de erros retryable.
+- Idempotencia.
+- Transicoes de status.
+- Namespace de identificadores por `runId`.
+- Ownership e falha fechada do cleanup.
+- Contagem e timeout de callbacks esperados.
+
+Meta recomendada: 90% de cobertura de branches nos modulos de seguranca, redaction, orquestracao e contratos.
+
+### 20.2 Testes de contrato
+
+- OpenAPI valida requests e responses.
+- Envelope produzido e aceito pelo parser equivalente ao Apex.
+- Envelope do MVP rejeita zero ou mais de um evento.
+- GraphQL aceita o corpo gerado atualmente por `GraphQLCreator`.
+- Resposta de sucesso contem `data.atualizarCliente.id`.
+- Todos os erros REST usam o formato padrao.
+
+### 20.3 Testes de integracao
+
+- API com PostgreSQL real em container/servico CI.
+- Criacao de run persiste passos.
+- QStash mock recebe agenda correta.
+- Dispatch atualiza estados e tentativas.
+- Callback GraphQL correlaciona run.
+- IDs do callback sao normalizados com `trim` e uppercase antes do HMAC.
+- Setup, verificacao e cleanup aceitam apenas operacoes allowlisted.
+- Cleanup nao remove registro sem ownership comprovado.
+- Job de retencao remove somente dados expirados.
+
+### 20.4 Testes end-to-end locais
+
+Usar um servidor HTTP fake para Salesforce:
+
+- Validar headers e body.
+- Simular 200, 429, 500 e timeout.
+- Verificar retries e idempotencia.
+- Nao depender de nenhuma org Salesforce no CI comum.
+
+### 20.5 Testes end-to-end na `mrv-devDan`
+
+Executados por workflow manual e protegido:
+
+1. Confirmar Organization Id da allowlist.
+2. Executar setup allowlisted e confirmar o namespace do `runId`.
+3. Iniciar run.
+4. Aguardar o estado `WAITING_ASYNC` concluir pela politica do cenario.
+5. Executar assertions allowlisted sobre Account, Lead e Proponente__c; verificar Opportunity e PropostaAnaliseCredito__c apenas como scaffolding owned pelo `runId`.
+6. Consultar `LogIntegracao__c` apenas para diagnostico.
+7. Confirmar o resultado `SUCCEEDED`, `PARTIAL` ou `FAILED` conforme as assertions e o callback.
+8. Executar cleanup somente quando o ownership dos registros estiver comprovado.
+
+Nunca executar esse workflow automaticamente em pull request.
+
+### 20.6 Testes Salesforce existentes
+
+A API nao substitui os testes Apex. Permanecem obrigatorios:
+
+- `NotificacaoClienteTest`.
+- Testes de `ClienteService`.
+- Testes de `AccountRepository` e `LeadSelector` relacionados.
+- Testes de `NotificacaoPAC` e `NotificacaoMaquinaEstado` no escopo estendido.
+
+## 21. CI/CD
+
+### 21.1 Pipeline de pull request
+
+Ordem dos gates:
+
+1. Instalar dependencias com lockfile.
+2. Validar fixtures e scanner de PII.
+3. Lint.
+4. Format check.
+5. Typecheck.
+6. Testes unitarios com cobertura.
+7. Testes de contrato.
+8. Testes de integracao.
+9. Build Vercel/Next.js.
+10. `npm audit --audit-level=high` com triagem documentada.
+11. Scan de segredos.
+12. Gerar Preview Deployment em modo seguro.
+
+### 21.2 Preview Deployment
+
+- Banco isolado.
+- Nenhuma credencial Salesforce real.
+- `dryRun=true` forcado.
+- QStash separado ou mock.
+- Banner/configuracao indicando preview.
+
+### 21.3 Deploy do ambiente de desenvolvimento
+
+- Merge aprovado em `main`.
+- Deploy automatico no Vercel Development.
+- Smoke tests de health, banco e GraphQL local.
+- Teste contra Salesforce somente por aprovacao manual.
+
+### 21.4 Promocao
+
+Apesar de hospedado como aplicacao de producao no Vercel, o alvo funcional continua sendo apenas `mrv-devDan`. Nao configurar credenciais para outras orgs.
+
+## 22. Plano de implementacao detalhado
+
+Cada tarefa deve terminar com testes e manter a aplicacao executavel.
+
+### Fase 0: Validacao e configuracao tecnica
+
+#### Tarefa 0.1: Validar contratos e fixtures do MVP
+
+**Descricao:** validar tecnicamente requests, responses e dependencias de fixture no codigo, testes e amostras anonimizadas, sem aguardar reuniao e sem mover PII para o repositorio.
+
+**Criterios de aceite:**
+
+- [ ] Contratos dos seis eventTypes documentados.
+- [ ] Mutation `atualizarCliente` confirmada.
+- [ ] Amostra estratificada de 5 a 10 exemplos por variacao relevante analisada, ampliada apenas quando houver divergencia nao explicada.
+- [ ] Variacoes de sucesso e erro identificadas.
+- [ ] Payloads truncados sao detectados e descartados.
+- [ ] Cadeia Opportunity -> PropostaAnaliseCredito__c -> Proponente__c validada para setup e cleanup.
+- [ ] Campos efetivos de celular/e-mail e sincronizacao de `Proponente__c.IdProponente__c` mapeados.
+
+**Verificacao:** testes de contrato, schemas e evidencia tecnica versionada.
+
+**Dependencias:** nenhuma.
+
+**Escopo:** medio.
+
+#### Tarefa 0.2: Configurar identidades, guardas e isolamento
+
+**Descricao:** materializar a configuracao tecnica aprovada para Vercel, Neon, QStash, Salesforce e callback, sem criar segredos no repositorio. A alteracao Apex permanece bloqueada ate aprovacao explicita.
+
+**Criterios de aceite:**
+
+- [ ] Projeto inicializado em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`.
+- [ ] Variaveis e bindings de Vercel, Neon e QStash definidos sem valores secretos no Git.
+- [ ] External Client App ou Connected App, fluxo OAuth e usuario de integracao detalhados.
+- [ ] Safety Guard fixa Organization Id `00DHZ000006mzDp2AI`, `IsSandbox=true`, instancia `BRA6S` e alvo `mrv-devDan`.
+- [ ] Responsaveis por segredos e rotacao definidos.
+- [ ] `VFlexMsClientesPosPac` e External Credential desenhados com o mesmo DeveloperName e configuracao por org.
+- [ ] Audience e autenticacao do callback sao exclusivas do simulador em `mrv-devDan`.
+- [ ] Proposta de alteracao somente em `MSClienteService` registrada para aprovacao explicita.
+- [ ] Operacoes REST/Composite allowlisted e Permission Set minimo enumerados.
+
+**Verificacao:** testes negativos de configuracao, audience e Safety Guard, sem callout real nesta fase.
+
+**Dependencias:** nenhuma; pode executar em paralelo com a tarefa 0.1.
+
+**Escopo:** medio.
+
+### Checkpoint 0
+
+- [ ] Contratos e dependencias de fixture validados tecnicamente.
+- [ ] Guardas e configuracoes falham fechado.
+- [ ] Nenhuma mudanca Apex ou de metadado Salesforce aplicada sem aprovacao explicita.
+- [ ] Proposta de `VFlexMsClientesPosPac` e alteracao exclusiva de `MSClienteService` pronta para aprovacao.
+- [ ] Projeto liberado tecnicamente para a Fase 1.
+
+### Fase 1: Fundacao do projeto
+
+#### Tarefa 1.1: Criar projeto e quality gates
+
+**Descricao:** criar repositorio TypeScript/Next.js, scripts de lint, format, typecheck, test e build.
+
+**Criterios de aceite:**
+
+- [ ] Aplicacao sobe localmente.
+- [ ] Health endpoint responde.
+- [ ] CI executa todos os comandos basicos.
+
+**Verificacao:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
+
+**Dependencias:** checkpoint 0.
+
+**Escopo:** medio.
+
+#### Tarefa 1.2: Implementar configuracao segura
+
+**Descricao:** validar variaveis de ambiente, separar server/client e bloquear configuracoes perigosas.
+
+**Criterios de aceite:**
+
+- [ ] Startup falha para variavel ausente.
+- [ ] Host fora da allowlist e rejeitado.
+- [ ] Segredos nao entram no bundle cliente.
+
+**Verificacao:** testes unitarios de configuracao.
+
+**Dependencias:** tarefa 1.1.
+
+**Escopo:** pequeno.
+
+#### Tarefa 1.3: Criar modelo de dados e migrations
+
+**Descricao:** implementar tabelas de run, step, attempts, callbacks e auditoria.
+
+**Criterios de aceite:**
+
+- [ ] Migration sobe em banco vazio.
+- [ ] Migration pode ser aplicada no CI.
+- [ ] Constraints de status, unicidade e relacionamento existem.
+
+**Verificacao:** teste de integracao com PostgreSQL.
+
+**Dependencias:** tarefa 1.1.
+
+**Escopo:** medio.
+
+### Checkpoint 1
+
+- [ ] Build e migrations verdes.
+- [ ] Configuracao insegura falha fechada.
+- [ ] Preview nao possui acesso ao Salesforce.
+
+### Fase 2: Contratos e fixtures
+
+#### Tarefa 2.1: Publicar OpenAPI e schemas Zod
+
+**Descricao:** definir os contratos antes dos handlers.
+
+**Criterios de aceite:**
+
+- [ ] Todos os endpoints publicos documentados.
+- [ ] Inputs e outputs possuem schemas.
+- [ ] Formato de erro e uniforme.
+
+**Verificacao:** testes de contrato gerados a partir do OpenAPI.
+
+**Dependencias:** checkpoint 1.
+
+**Escopo:** medio.
+
+#### Tarefa 2.2: Implementar catalogo de cenarios
+
+**Descricao:** carregar cenarios versionados e validar estrutura no startup/CI.
+
+**Criterios de aceite:**
+
+- [ ] Cenarios invalidos quebram o build.
+- [ ] `GET /scenarios` pagina resultados.
+- [ ] Versao do cenario e imutavel depois de usada.
+
+**Verificacao:** testes unitarios e de API.
+
+**Dependencias:** tarefa 2.1.
+
+**Escopo:** medio.
+
+#### Tarefa 2.3: Criar pipeline de anonimizacao
+
+**Descricao:** criar script offline de transformacao e scanner de PII.
+
+**Criterios de aceite:**
+
+- [ ] Script nunca envia dados para servico externo.
+- [ ] Fixtures com PII suspeita falham no CI.
+- [ ] Arquivos brutos estao no `.gitignore`.
+
+**Verificacao:** suite com amostras positivas e negativas de PII.
+
+**Dependencias:** tarefa 2.2.
+
+**Escopo:** medio.
+
+#### Tarefa 2.4: Implementar fixtures basicas
+
+**Descricao:** criar os quatro cenarios basicos com dados sinteticos.
+
+**Criterios de aceite:**
+
+- [ ] Valores logicos e datas sao deterministicos por seed.
+- [ ] IDs persistidos recebem namespace exclusivo do `runId`.
+- [ ] Envelopes passam nos schemas.
+- [ ] Nenhum dado real esta presente.
+
+**Verificacao:** snapshots revisados e scanner verde.
+
+**Dependencias:** tarefas 2.2 e 2.3.
+
+**Escopo:** medio.
+
+### Checkpoint 2
+
+- [ ] OpenAPI validado.
+- [ ] Catalogo e fixtures deterministas.
+- [ ] Scanner de PII bloqueia exemplos inseguros.
+
+### Fase 3: Orquestracao de runs
+
+#### Tarefa 3.1: Criar e consultar runs
+
+**Descricao:** implementar `POST /runs`, listagem e detalhe com idempotencia.
+
+**Criterios de aceite:**
+
+- [ ] Chave identica e body identico retornam o mesmo run.
+- [ ] Chave identica e body diferente retornam 409.
+- [ ] `dryRun` nao provisiona, agenda, envia, consulta nem remove registros.
+- [ ] Maquina de estados inclui `PROVISIONING`, `WAITING_ASYNC` e `VERIFYING`.
+- [ ] Cada cenario declara callbacks esperados e timeout.
+
+**Verificacao:** testes de integracao da API.
+
+**Dependencias:** checkpoint 2.
+
+**Escopo:** medio.
+
+#### Tarefa 3.2: Integrar QStash
+
+**Descricao:** agendar passos e validar assinatura no dispatch.
+
+**Criterios de aceite:**
+
+- [ ] Ordem e `delayMs` sao preservados.
+- [ ] Assinatura ausente/invalida retorna 401.
+- [ ] Mensagem repetida nao executa passo duas vezes acidentalmente.
+
+**Verificacao:** testes com QStash mock e assinatura de teste.
+
+**Dependencias:** tarefa 3.1.
+
+**Escopo:** medio.
+
+#### Tarefa 3.3: Implementar cancelamento e retry
+
+**Descricao:** cancelar passos pendentes e repetir apenas falhas elegiveis.
+
+**Criterios de aceite:**
+
+- [ ] Cancelamento e auditado.
+- [ ] Passo concluido nao volta a pendente.
+- [ ] Retry preserva tentativas anteriores.
+
+**Verificacao:** testes de maquina de estados.
+
+**Dependencias:** tarefa 3.2.
+
+**Escopo:** medio.
+
+### Checkpoint 3
+
+- [ ] Run completo funciona contra servidor Salesforce fake.
+- [ ] Atraso e duplicidade sao deterministicos.
+- [ ] Cancelamento e retry preservam auditoria.
+
+### Fase 4: Integracao Salesforce
+
+#### Tarefa 4.1: Implementar cliente OAuth Salesforce
+
+**Descricao:** na direcao Vercel -> Salesforce, autenticar com External Client App ou Connected App dedicada, OAuth Client Credentials ou JWT e usuario de integracao exclusivo; cachear token apenas em memoria/servico seguro pelo tempo permitido.
+
+**Criterios de aceite:**
+
+- [ ] Token nunca e logado ou persistido.
+- [ ] Falha de auth nao gera retry infinito.
+- [ ] Rotacao nao exige alteracao de codigo.
+
+**Verificacao:** testes com token endpoint fake.
+
+**Dependencias:** checkpoint 0 e checkpoint 3.
+
+**Escopo:** medio.
+
+#### Tarefa 4.2: Implementar Safety Guard
+
+**Descricao:** validar hostname, Organization Id e sandbox antes de publicacao.
+
+**Criterios de aceite:**
+
+- [ ] Staging e producao sao bloqueadas mesmo com token valido.
+- [ ] Target nao pode vir da request.
+- [ ] Bloqueio gera alerta sem expor credencial.
+
+**Verificacao:** testes unitarios e integracao com respostas fake de org.
+
+**Dependencias:** tarefa 4.1.
+
+**Escopo:** pequeno.
+
+#### Tarefa 4.3: Implementar provisionamento, verificacao e cleanup
+
+**Descricao:** executar setup, assertions e cleanup por Salesforce REST/Composite com operacoes tipadas e allowlisted, sem aceitar SOQL ou DML arbitrario.
+
+**Criterios de aceite:**
+
+- [ ] Setup cria Account, Lead e Proponente__c conforme o cenario.
+- [ ] Setup cria Opportunity e PropostaAnaliseCredito__c somente como scaffolding master-detail do Proponente__c.
+- [ ] Assertions consultam somente campos predefinidos de Account, Lead e Proponente__c.
+- [ ] Scaffolding recebe apenas verificacoes de existencia, ownership e cleanup, sem validar `/PAC` ou `/MaquinaEstado`.
+- [ ] Cleanup remove somente registros com ownership comprovado pelo `runId`.
+- [ ] Cleanup respeita a ordem Proponente__c -> PropostaAnaliseCredito__c -> Opportunity.
+- [ ] Falha de ownership bloqueia a remocao e gera auditoria.
+
+**Verificacao:** testes com Salesforce fake e execucao manual protegida na `mrv-devDan`.
+
+**Dependencias:** tarefa 4.2.
+
+**Escopo:** medio.
+
+#### Tarefa 4.4: Publicar eventos no `/Cliente`
+
+**Descricao:** enviar os envelopes e persistir tentativas sanitizadas.
+
+**Criterios de aceite:**
+
+- [ ] Content-Type e body sao compativeis.
+- [ ] Retry segue tabela definida.
+- [ ] Response e request persistidos passam por redaction.
+
+**Verificacao:** testes E2E com servidor fake e smoke manual em `mrv-devDan`.
+
+**Dependencias:** tarefa 4.3.
+
+**Escopo:** medio.
+
+### Checkpoint 4
+
+- [ ] Um `cliente-insert` sintetico chega a `mrv-devDan`.
+- [ ] Setup e assertions allowlisted funcionam na `mrv-devDan`.
+- [ ] Opportunity e PropostaAnaliseCredito__c existem somente como scaffolding owned pelo run.
+- [ ] Cleanup negativo prova que registro sem ownership nao e removido.
+- [ ] Safety Guard foi testado negativamente.
+- [ ] Nenhum token ou PII aparece nos logs.
+
+### Fase 5: GraphQL simulado
+
+#### Tarefa 5.0: Isolar destino e autenticacao do callback
+
+**Descricao:** configurar `VFlexMsClientesPosPac` e External Credential dedicados, com autenticacao/audience exclusivas do simulador em `mrv-devDan` e destinos reais nas demais orgs. Preparar a alteracao exclusiva de `MSClienteService`, sem implementa-la antes da aprovacao Apex explicita.
+
+**Criterios de aceite:**
+
+- [ ] `ServicoClientes` nao e usado para autenticar requests ao Vercel.
+- [ ] `VFlexMsClientes` compartilhado nao e redirecionado globalmente.
+- [ ] `VFlexMsClientesPosPac` possui o mesmo DeveloperName em todos os ambientes.
+- [ ] Em `mrv-devDan`, o novo Named Credential aponta para o simulador; em staging/producao, aponta para o MS Clientes real.
+- [ ] Named Credential/External Credential injetam autenticacao dedicada, sem repasse de credenciais do provedor real.
+- [ ] External Client App Salesforce nao e tratada como autenticacao da direcao Salesforce -> Vercel.
+- [ ] Alteracao somente em `MSClienteService` possui aprovacao explicita e testes de regressao antes da implementacao.
+
+**Verificacao:** teste negativo de audience/token e revisao conjunta Salesforce/seguranca.
+
+**Dependencias:** checkpoint 0 e checkpoint 2.
+
+**Escopo:** medio.
+
+#### Tarefa 5.1: Implementar parser e contrato GraphQL
+
+**Descricao:** aceitar o corpo real gerado pelo Apex e validar a operacao.
+
+**Criterios de aceite:**
+
+- [ ] `atualizarCliente` retorna o shape esperado.
+- [ ] Operacao desconhecida e rejeitada.
+- [ ] Corpo malformado nao gera stack trace publico.
+
+**Verificacao:** testes com requests reais anonimizados e fixtures Apex equivalentes.
+
+**Dependencias:** tarefa 5.0.
+
+**Escopo:** medio.
+
+#### Tarefa 5.2: Implementar politicas de resposta
+
+**Descricao:** selecionar comportamento por cenario/run sem aceitar controle arbitrario no payload Salesforce.
+
+**Criterios de aceite:**
+
+- [ ] Sucesso, 4xx, 5xx e resposta invalida funcionam.
+- [ ] Politica default e segura e deterministica.
+- [ ] Politica usada fica auditada.
+- [ ] Falha remota ocorre depois do vinculo local e classifica o run como `PARTIAL`.
+
+**Verificacao:** testes de contrato por politica.
+
+**Dependencias:** tarefa 5.1.
+
+**Escopo:** medio.
+
+#### Tarefa 5.3: Correlacionar callbacks
+
+**Descricao:** associar request GraphQL ao run por IDs sinteticos gerados.
+
+**Criterios de aceite:**
+
+- [ ] Callback esperado aparece no detalhe do run.
+- [ ] Callback nao correlacionado e armazenado de forma sanitizada e sinalizado.
+- [ ] IDs sao normalizados com `trim` e uppercase antes da correlacao.
+- [ ] IDs correlacionaveis sao persistidos com HMAC quando necessario.
+- [ ] Contagem e janela de callbacks seguem a `asyncPolicy` do cenario.
+
+**Verificacao:** teste E2E local do ciclo evento-callback.
+
+**Dependencias:** tarefas 5.2 e 4.4.
+
+**Escopo:** medio.
+
+### Checkpoint 5
+
+- [ ] Ciclo `/Cliente` -> queueable -> `atualizarCliente` funciona em `mrv-devDan`.
+- [ ] Politicas negativas sao observaveis.
+- [ ] Callback esta correlacionado ao run.
+- [ ] HTTP 200 do `/Cliente` nao conclui prematuramente o run.
+- [ ] Falha GraphQL preserva o vinculo Salesforce e resulta em `PARTIAL`.
+- [ ] `MSClienteService` usa `VFlexMsClientesPosPac`; demais consumidores continuam em `VFlexMsClientes`.
+
+### Fase 6: Cenarios de regressao 2.2
+
+#### Tarefa 6.1: Implementar cenarios de CPF divergente
+
+**Criterios de aceite:**
+
+- [ ] Cenarios dos ramos A e B disponiveis.
+- [ ] Contato/endereco primeiro disponiveis.
+- [ ] Outcomes esperados implementados como assertions allowlisted.
+
+**Verificacao:** testes de fixtures e execucao controlada com assertions na `mrv-devDan`.
+
+**Dependencias:** checkpoint 5.
+
+**Escopo:** medio.
+
+#### Tarefa 6.2: Implementar arvore de Lead e Regra 6.6
+
+**Criterios de aceite:**
+
+- [ ] CPF forte, Caso C e fallback cobertos.
+- [ ] Colisoes de contato cobertas.
+- [ ] Lead sem Guid coberto.
+- [ ] Celular/e-mail efetivos do Proponente__c e sincronizacao do `IdProponente__c` cobertos.
+
+**Verificacao:** testes parametrizados, assertions Salesforce e comparacao com asserts Apex existentes.
+
+**Dependencias:** tarefa 6.1.
+
+**Escopo:** medio.
+
+#### Tarefa 6.3: Implementar concorrencia e falhas
+
+**Criterios de aceite:**
+
+- [ ] Ordem invertida, duplicidade e obsolescencia cobertas.
+- [ ] Falhas GraphQL cobertas.
+- [ ] Echo IdProspect igual IdCliente coberto.
+- [ ] Mesma seed em runs diferentes mantem valores logicos repetiveis e IDs persistidos isolados.
+
+**Verificacao:** execucoes repetidas com mesma seed produzem a mesma agenda sem reutilizar registros persistidos de outro `runId`.
+
+**Dependencias:** tarefa 6.2.
+
+**Escopo:** medio.
+
+### Checkpoint 6: MVP
+
+- [ ] Catalogo core completo.
+- [ ] Account, Lead e Proponente__c validados sem dependencia de staging.
+- [ ] Celular/e-mail efetivos do Proponente__c alimentam a criacao do Lead quando esperado.
+- [ ] `Proponente__c.IdProponente__c` corresponde ao Guid do Lead final.
+- [ ] Opportunity e PropostaAnaliseCredito__c sao provisionados e removidos apenas como scaffolding.
+- [ ] Setup, verificacao e cleanup automatizados por REST/Composite allowlisted.
+- [ ] Runs aguardam Queueable/callback antes das assertions finais.
+- [ ] Testes automatizados, build e auditoria verdes.
+- [ ] Runbook operacional revisado.
+- [ ] Aprovacao do QA para uso controlado.
+
+### Fase 7: Extensao PAC, Maquina de Estado e Opportunity
+
+#### Tarefa 7.1: Adicionar contratos `/PAC`
+
+**Criterios de aceite:**
+
+- [ ] Fixtures anonimizadas validadas.
+- [ ] Ordem relativa a cliente e configuravel.
+- [ ] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
+
+**Dependencias:** MVP.
+
+**Escopo:** medio.
+
+#### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
+
+**Criterios de aceite:**
+
+- [ ] Eventos atuais e obsoletos suportados.
+- [ ] Casos com e sem Id Cliente cobertos.
+- [ ] Reentrega pode ser simulada.
+
+**Dependencias:** tarefa 7.1.
+
+**Escopo:** medio.
+
+#### Tarefa 7.3: Validar corridas end-to-end
+
+**Criterios de aceite:**
+
+- [ ] Opportunity permanece na Account aprovada.
+- [ ] Evento obsoleto nao vai para fila manual.
+- [ ] Evento atual pode ser reentregue apos `cliente-insert`.
+
+**Dependencias:** tarefa 7.2.
+
+**Escopo:** medio.
+
+### Checkpoint 7: Fluxo estendido
+
+- [ ] `/PAC`, `/MaquinaEstado` e comportamento funcional da Opportunity cobertos.
+- [ ] Corridas criticas reproduziveis.
+- [ ] Evidencias de teste anexadas a release.
+
+### Fase 8: Operacao e entrega
+
+#### Tarefa 8.1: Observabilidade e alertas
+
+**Criterios de aceite:**
+
+- [ ] Dashboards basicos disponiveis.
+- [ ] Alertas criticos testados.
+- [ ] Logs passam por revisao de PII.
+
+**Dependencias:** checkpoint 6.
+
+**Escopo:** medio.
+
+#### Tarefa 8.2: Runbook e onboarding
+
+**Criterios de aceite:**
+
+- [ ] Como executar, cancelar e diagnosticar documentado.
+- [ ] Rotacao de segredo documentada.
+- [ ] Procedimento de incidente e contatos definidos.
+
+**Dependencias:** tarefa 8.1.
+
+**Escopo:** pequeno.
+
+#### Tarefa 8.3: Release controlada
+
+**Criterios de aceite:**
+
+- [ ] Piloto com desenvolvedor e QA concluido.
+- [ ] Retencao e custos monitorados.
+- [ ] Go-live aprovado.
+
+**Dependencias:** tarefa 8.2.
+
+**Escopo:** pequeno.
+
+## 23. Paralelizacao sugerida
+
+Depois do Checkpoint 1, podem ocorrer em paralelo:
+
+- Contratos OpenAPI e catalogo de cenarios.
+- Pipeline de anonimizacao.
+- Modelo de persistencia.
+- Desenho de autenticacao Salesforce, desde que nao altere a org.
+
+Depois do Checkpoint 3, podem ocorrer em paralelo:
+
+- Cliente OAuth/Safety Guard.
+- Endpoint GraphQL.
+- Implementacao das fixtures core.
+- Observabilidade.
+- Implementacao do Test Data Adapter e Outcome Verifier REST/Composite.
+
+Devem permanecer sequenciais:
+
+- Configuracao tecnica e guardas antes de credenciais reais.
+- Safety Guard antes de qualquer envio a Salesforce.
+- Credencial dedicada antes de redirecionar qualquer callback ao simulador.
+- Provisionamento antes do dispatch e verificacao depois da janela assincrona.
+- MVP `/Cliente` antes da extensao `/PAC` e `/MaquinaEstado`.
+- Contratos antes dos handlers.
+
+## 24. Estimativa inicial
+
+Estimativa para uma equipe com um desenvolvedor backend, apoio Salesforce e QA parcial:
+
+| Fase | Esforco estimado |
+|---|---:|
+| Validacao e configuracao tecnica | 3 a 5 dias uteis |
+| Fundacao e contratos | 4 a 6 dias uteis |
+| Orquestracao e persistencia | 5 a 7 dias uteis |
+| Integracao Salesforce, setup/verificacao e GraphQL | 7 a 11 dias uteis |
+| Cenarios core e validacao | 5 a 8 dias uteis |
+| Observabilidade e release | 3 a 5 dias uteis |
+| Extensao PAC/Opportunity | 5 a 8 dias uteis |
+
+MVP de plataforma estimado: 27 a 42 dias uteis de trabalho, podendo cair para 17 a 28 dias corridos com duas frentes coordenadas. A primeira entrega executavel da secao 4.4 deve ser estimada separadamente depois das tarefas 0.1 e 0.2 e priorizada para desbloquear os testes.
+
+## 25. Custos e capacidade
+
+Itens de custo:
+
+- Plano Vercel e duracao de Functions.
+- PostgreSQL gerenciado.
+- Mensagens QStash.
+- Retencao de logs/observabilidade.
+- Dominio customizado, se necessario.
+
+Controles:
+
+- Limitar execucoes simultaneas por usuario e ambiente.
+- Limitar numero de passos por run.
+- Definir budget alerts.
+- Expirar dados automaticamente.
+- Desabilitar cenarios de timeout prolongado se o custo for desproporcional.
+
+A quantidade esperada de testes e pequena; o custo tende a ser baixo, mas quotas, limites e budget ainda precisam ser definidos.
+
+## 26. Riscos e mitigacoes
+
+| Risco | Impacto | Mitigacao |
+|---|---|---|
+| Envio acidental para staging/producao | Critico | Allowlist fixa, Organization Id, `IsSandbox`, sem target na request e credencial exclusiva de dev. |
+| Vazamento de PII dos logs | Critico | Pipeline offline, anonimizacao, scanner no CI, revisao humana e nenhuma persistencia bruta. |
+| Named Credential compartilhado afetar outros fluxos | Alto | Nao redirecionar `VFlexMsClientes` globalmente; usar destino dedicado ao callback pos-PAC. |
+| Autenticacao do provedor real ser reutilizada no simulador | Critico | `VFlexMsClientesPosPac` e External Credential injetam autenticacao/audience exclusivas; `ServicoClientes` nao participa desse callout. |
+| Configuracao do novo Named Credential divergir entre orgs | Alto | Manter o mesmo DeveloperName e validar por org: simulador apenas em `mrv-devDan`, MS Clientes real em staging/producao. |
+| Alteracao Apex afetar consumidores de `VFlexMsClientes` | Alto | Alterar somente `MSClienteService`, exigir aprovacao explicita e testar que os demais consumidores permanecem inalterados. |
+| Ordem dos eventos nao ser reproduzida | Alto | QStash e agenda persistida por passo. |
+| Vercel encerrar simulacao de timeout | Medio | Validar limite do plano; usar endpoint dedicado que reproduza timeout de conexao, sem tratar outro HTTP como equivalente. |
+| Fixture divergir do contrato real | Alto | Contract tests com payloads anonimizados e revisao conjunta. |
+| Duplicacao involuntaria por retry interno | Alto | Idempotencia separada da duplicacao intencional de cenario. |
+| Queueable Salesforce terminar depois do HTTP 200 | Alto | Estado `WAITING_ASYNC`, callbacks esperados, janela configuravel e assertions somente em `VERIFYING`. |
+| Mesma seed encontrar residuos de run anterior | Alto | Seed define valores logicos; `runId` cria namespace exclusivo dos IDs persistidos. |
+| Cleanup remover registro de outra origem | Critico | Operacoes allowlisted e remocao apenas com ownership comprovado; na duvida, falhar fechado. |
+| Scaffolding master-detail ficar orfao ou ser validado como funcional | Alto | Criar e remover Opportunity, PropostaAnaliseCredito__c e Proponente__c em ordem segura; limitar assertions funcionais do MVP a Account, Lead e Proponente__c. |
+| Cleanup apagar evidencia cedo demais | Medio | Executar depois das assertions, com politica por cenario, retencao configuravel e auditoria separada. |
+| Custo crescer por runs abusivos | Medio | Rate limit, quotas, concorrencia limitada e alertas de budget. |
+| Endpoint administrativo ser usado fora do QA | Alto | SSO, RBAC, auditoria e sem credenciais de outras orgs. |
+
+## 27. Criterios de aceite do MVP
+
+- [ ] API hospedada no Vercel e acessivel apenas a identidades autorizadas.
+- [ ] Safety Guard exige Organization Id `00DHZ000006mzDp2AI`, sandbox, instancia `BRA6S` e impede qualquer org diferente de `mrv-devDan`.
+- [ ] Catalogo oferece todos os cenarios core definidos neste plano.
+- [ ] Ordem, atraso, duplicidade e obsolescencia sao configuraveis por cenario.
+- [ ] GraphQL `atualizarCliente` suporta sucesso e falhas controladas.
+- [ ] Callback usa `VFlexMsClientesPosPac` e External Credential com autenticacao/audience exclusivas do simulador em `mrv-devDan`.
+- [ ] External Client App ou Connected App e usada somente na direcao Vercel -> Salesforce.
+- [ ] `VFlexMsClientes` compartilhado nao e redirecionado globalmente.
+- [ ] Somente `MSClienteService` usa `VFlexMsClientesPosPac`, apos aprovacao explicita da mudanca Apex.
+- [ ] Runs sao idempotentes, auditaveis e consultaveis.
+- [ ] Runs passam por `PROVISIONING`, `WAITING_ASYNC` e `VERIFYING` quando aplicavel.
+- [ ] Setup, assertions e cleanup usam REST/Composite allowlisted e nao aceitam SOQL/DML arbitrario.
+- [ ] Proponente__c fornece celular/e-mail efetivos e seu `IdProponente__c` e sincronizado com o Lead final.
+- [ ] Opportunity e PropostaAnaliseCredito__c sao tratados apenas como scaffolding com ownership pelo `runId`.
+- [ ] O MVP nao valida funcionalmente `/PAC` nem `/MaquinaEstado`.
+- [ ] Mesma seed em runs diferentes nao compartilha IDs persistidos.
+- [ ] Nenhum token ou PII real aparece em banco, logs, fixtures ou respostas.
+- [ ] OpenAPI esta publicado e validado no CI.
+- [ ] Lint, typecheck, testes, build, audit e secret scan estao verdes.
+- [ ] Ao menos um cenario MATCH e um CPF divergente passam end-to-end na `mrv-devDan`.
+- [ ] Account, Lead e Proponente__c ficam no estado esperado e os registros originais permanecem intactos no teste divergente.
+- [ ] Callback GraphQL e correlacionado ao run.
+- [ ] Falha GraphQL preserva o vinculo local e classifica a execucao como `PARTIAL`.
+- [ ] Cleanup nunca remove registro sem ownership comprovado.
+- [ ] Runbook operacional e procedimento de incidente estao aprovados.
+
+## 28. Definition of Done por tarefa
+
+Uma tarefa so esta concluida quando:
+
+- Codigo e contratos foram revisados.
+- Testes unitarios e de integracao aplicaveis passam.
+- Typecheck, lint e build passam.
+- Nenhum segredo ou PII foi adicionado.
+- OpenAPI e documentacao foram atualizados quando necessario.
+- Observabilidade do novo fluxo existe.
+- Criterios de aceite especificos foram demonstrados.
+- Mudancas de seguranca ou Salesforce receberam aprovacao explicita.
+
+## 29. Runbook operacional resumido
+
+### Executar um cenario
+
+1. Confirmar que os dados necessarios na `mrv-devDan` sao sinteticos.
+2. Executar `dryRun` e revisar passos.
+3. Criar run real com `Idempotency-Key` novo.
+4. Acompanhar `PROVISIONING`, dispatches e `WAITING_ASYNC`.
+5. Confirmar as assertions executadas em `VERIFYING`.
+6. Revisar o resultado consolidado e o cleanup.
+7. Registrar evidencia no item de trabalho.
+
+### Diagnosticar falha
+
+1. Consultar `runId` e passo falho.
+2. Verificar `errorCode`, status HTTP e tentativa.
+3. Confirmar Safety Guard e autenticacao.
+4. Consultar `LogIntegracao__c` pelo Id Cliente sintetico e janela de tempo.
+5. Verificar callback GraphQL correlacionado.
+6. Repetir apenas se o erro for elegivel e os dados estiverem em estado conhecido.
+
+### Incidente de seguranca
+
+1. Desabilitar credencial/segredo do Vercel.
+2. Pausar QStash e novos runs.
+3. Preservar auditoria sanitizada.
+4. Acionar seguranca e responsavel LGPD.
+5. Rotacionar credenciais antes de reativar.
+
+## 30. Questoes abertas
+
+1. Qual provedor de identidade deve proteger a API administrativa?
+2. Quais detalhes finais da External Client App ou Connected App, fluxo OAuth e usuario de integracao exclusivo serao adotados?
+3. Quais principals, claims, audience e politica de rotacao finais serao usados pela External Credential do callback?
+4. Qual periodo de retencao e exigido para runs, callbacks e auditoria?
+5. Quais limites de runs simultaneos, passos por run, rate limit e budget devem ser configurados?
+6. Quais cenarios do catalogo core devem ser bloqueadores no pipeline de release Salesforce?
+
+## 31. Proximos passos
+
+1. Executar em paralelo as tarefas tecnicas 0.1 e 0.2, sem aguardar reuniao.
+2. Inicializar o projeto independente em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`.
+3. Registrar os detalhes pendentes da secao 30 sem reabrir as decisoes confirmadas.
+4. Submeter para aprovacao explicita a proposta Apex que altera somente `MSClienteService` para `VFlexMsClientesPosPac`.
+5. Configurar Named Credential e External Credential por org, sem registrar hosts ou segredos no documento.
+6. Enumerar as operacoes REST/Composite e o Permission Set de minimo privilegio.
+7. Implementar primeiro a entrega executavel da secao 4.4 e depois evoluir para o MVP funcional de Account, Lead e Proponente__c.
+
+## 32. Referencias no repositorio Salesforce
+
+- `force-app/main/default/classes/NotificacaoCliente.cls`
+- `force-app/main/default/classes/MSClienteService.cls`
+- `force-app/main/default/classes/EventGrid.cls`
+- `force-app/main/default/classes/Logging.cls`
+- `force-app/main/default/classes/IntegrationLogTriggerHandler.cls`
+- `force-app/main/default/classes/NotificacaoClienteTest.cls`
+- `.github/skills/salesforce-unificacao-clientes/SKILL.md`
+- `.github/skills/salesforce-unificacao-clientes/references/unificacao-2.2-pos-pac.md`
