@@ -38,7 +38,11 @@ import type {
   StepStatus,
 } from './run-repository';
 import * as schema from './schema';
-import { canTransitionRun, canTransitionStep } from '../runs/state-machine';
+import {
+  canTransitionRun,
+  canTransitionStep,
+  deriveDispatchRunStatus,
+} from '../runs/state-machine';
 
 export class RunRecoveryError extends Error {
   constructor() {
@@ -913,25 +917,79 @@ export class DrizzleRunRepository<
   }
 
   async markRunScheduled(runId: string): Promise<void> {
-    await this.database
-      .update(scenarioRun)
-      .set({
-        status: 'SCHEDULED',
-        finishedAt: null,
-        schedulingKind: null,
-        schedulingLeaseExpiresAt: null,
+    const [currentRun] = await this.database
+      .select({
+        status: scenarioRun.status,
+        expectedCallbackMax: scenarioRun.expectedCallbackMax,
       })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, runId))
+      .limit(1);
+    if (currentRun === undefined) return;
+
+    const dispatchSteps = await this.database
+      .select({ status: scenarioRunStep.status })
+      .from(scenarioRunStep)
       .where(
         and(
-          eq(scenarioRun.id, runId),
-          inArray(scenarioRun.status, [
-            'CREATED',
-            'PROVISIONING',
-            'FAILED',
-            'PARTIAL',
-          ]),
+          eq(scenarioRunStep.runId, runId),
+          eq(scenarioRunStep.stepKind, 'DISPATCH'),
         ),
       );
+    const nextStatus = deriveDispatchRunStatus({
+      currentStatus: currentRun.status,
+      dispatchStepStatuses: dispatchSteps.map(({ status }) => status),
+      expectedCallbackMax: currentRun.expectedCallbackMax,
+    });
+    if (
+      nextStatus !== currentRun.status &&
+      canTransitionRun(currentRun.status, nextStatus)
+    ) {
+      await this.database
+        .update(scenarioRun)
+        .set({
+          status: nextStatus,
+          finishedAt: null,
+          schedulingKind: null,
+          schedulingLeaseExpiresAt: null,
+        })
+        .where(
+          and(
+            eq(scenarioRun.id, runId),
+            eq(scenarioRun.status, currentRun.status),
+            inArray(scenarioRun.status, [
+              'CREATED',
+              'PROVISIONING',
+              'SCHEDULED',
+              'RUNNING',
+              'FAILED',
+              'PARTIAL',
+            ]),
+          ),
+        );
+    } else if (
+      [
+        'CREATED',
+        'PROVISIONING',
+        'SCHEDULED',
+        'RUNNING',
+        'FAILED',
+        'PARTIAL',
+      ].includes(currentRun.status)
+    ) {
+      await this.database
+        .update(scenarioRun)
+        .set({
+          schedulingKind: null,
+          schedulingLeaseExpiresAt: null,
+        })
+        .where(
+          and(
+            eq(scenarioRun.id, runId),
+            eq(scenarioRun.status, currentRun.status),
+          ),
+        );
+    }
     await this.appendAuditEvent({
       actor: 'qstash-scheduler',
       action: 'RUN_SCHEDULED',
@@ -968,7 +1026,12 @@ export class DrizzleRunRepository<
       .where(
         and(
           eq(scenarioRun.id, input.runId),
-          inArray(scenarioRun.status, ['CREATED', 'PROVISIONING', 'SCHEDULED']),
+          inArray(scenarioRun.status, [
+            'CREATED',
+            'PROVISIONING',
+            'SCHEDULED',
+            'RUNNING',
+          ]),
         ),
       );
     await this.appendAuditEvent({
@@ -1283,35 +1346,24 @@ export class DrizzleRunRepository<
       return { runStatus: currentRun.status };
     }
 
-    let nextStatus: Run['status'] = 'RUNNING';
-    if (succeeded) {
-      const [remaining] = await this.database
-        .select({ total: count() })
-        .from(scenarioRunStep)
-        .where(
-          and(
-            eq(scenarioRunStep.runId, input.runId),
-            eq(scenarioRunStep.stepKind, 'DISPATCH'),
-            sql`${scenarioRunStep.status} not in ('SUCCEEDED', 'SKIPPED')`,
-          ),
-        );
-      if ((remaining?.total ?? 0) === 0) {
-        nextStatus =
-          currentRun.expectedCallbackMax > 0 ? 'WAITING_ASYNC' : 'VERIFYING';
-      }
-    } else {
-      const [successful] = await this.database
-        .select({ total: count() })
-        .from(scenarioRunStep)
-        .where(
-          and(
-            eq(scenarioRunStep.runId, input.runId),
-            eq(scenarioRunStep.stepKind, 'DISPATCH'),
-            eq(scenarioRunStep.status, 'SUCCEEDED'),
-          ),
-        );
-      nextStatus = (successful?.total ?? 0) > 0 ? 'PARTIAL' : 'FAILED';
-    }
+    const dispatchSteps = await this.database
+      .select({ status: scenarioRunStep.status })
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, 'DISPATCH'),
+        ),
+      );
+    const derivedStatus = deriveDispatchRunStatus({
+      currentStatus: currentRun.status,
+      dispatchStepStatuses: dispatchSteps.map(({ status }) => status),
+      expectedCallbackMax: currentRun.expectedCallbackMax,
+    });
+    const nextStatus =
+      currentRun.status === 'PROVISIONING' && derivedStatus === 'RUNNING'
+        ? 'PROVISIONING'
+        : derivedStatus;
 
     const [updatedRun] = await this.database
       .update(scenarioRun)
@@ -1320,6 +1372,9 @@ export class DrizzleRunRepository<
         ...(nextStatus === 'FAILED' || nextStatus === 'PARTIAL'
           ? { finishedAt: input.finishedAt }
           : {}),
+        ...(nextStatus === 'PROVISIONING'
+          ? {}
+          : { schedulingKind: null, schedulingLeaseExpiresAt: null }),
       })
       .where(
         and(
@@ -1327,6 +1382,7 @@ export class DrizzleRunRepository<
           eq(scenarioRun.status, currentRun.status),
           inArray(scenarioRun.status, [
             'CREATED',
+            'PROVISIONING',
             'SCHEDULED',
             'RUNNING',
             'FAILED',

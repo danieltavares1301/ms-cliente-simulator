@@ -42,17 +42,25 @@ message ID ou estejam `SCHEDULED`, `RUNNING` ou em estado terminal nunca são
 republicados. IDs persistidos antes de uma falha parcial são preservados.
 
 O recovery grava `RUN_SCHEDULING_RECOVERY_STARTED` apenas com status anterior e
-quantidade pendente, sem payload. Após a última publicação, o run volta a
-`SCHEDULED`; uma entrega que já tenha avançado o run para `RUNNING` não é
-rebaixada.
+quantidade pendente, sem payload. Após a última publicação, o estado do run é
+reconciliado a partir dos steps de dispatch persistidos. Se nenhum dispatch foi
+processado, o run pode voltar a `SCHEDULED`; se uma entrega QStash de delay zero
+chegou durante `PROVISIONING`, o run permanece `RUNNING` enquanto ainda houver
+dispatch pendente/agendado ou avança diretamente para `WAITING_ASYNC`/`VERIFYING`
+quando todos os dispatches já estiverem terminais. Estados de cancelamento,
+verificação e terminal não são rebaixados.
 
 Existe uma janela entre o aceite de `publishJSON` e a persistência do message
 ID. Nessa janela, a falha deixa o run recuperável e o replay usa o mesmo
 `deduplicationId` (`runId:stepId:attemptNumber`). A deduplicação do QStash dura
 10 minutos: o procedimento de resolução é repetir imediatamente a mesma POST.
-Se a indisponibilidade ultrapassar essa janela, deve-se reconciliar a mensagem
-no QStash antes do replay; sem essa reconciliação permanece o risco residual de
-uma segunda entrega, que continua protegida pela idempotência do dispatch.
+Se uma falha de agendamento acontece após uma entrega rápida já ter concluído, o
+erro passa a registrar `PARTIAL`/`FAILED` também a partir de `RUNNING`, sem
+limpar o sucesso do step ou o histórico de tentativa já persistido. Se a
+indisponibilidade ultrapassar a janela de deduplicação, deve-se reconciliar a
+mensagem no QStash antes do replay; sem essa reconciliação permanece o risco
+residual de uma segunda entrega, que continua protegida pela idempotência do
+dispatch.
 
 ## Recovery de cancelamento
 
@@ -76,5 +84,9 @@ step ainda `RUNNING`, step concluído sem attempt, retry reservado, run em
 cancelamento, late dispatch, falha de persistência após target, reentrega sem
 repetição do target e preservação de um único attempt lógico. Também cobrem
 falha/replay do agendamento inicial, publicação parcial, claim concorrente sem
-duplicação, cancelamento parcial, dois replays concorrentes, auditoria sanitizada
-e convergência de run/steps para `CANCELLED`.
+duplicação, cancelamento parcial, dois replays concorrentes, auditoria sanitizada,
+convergência de run/steps para `CANCELLED` e a corrida QStash em que um scheduler
+fake entrega mensagens antes de `publishJSON` retornar (um step, múltiplos
+steps, todos concluídos antes do `markRunScheduled`, um concluído e outro
+pendente, cancelamento concorrente e falha de agendamento pós-entrega rápida),
+garantindo que nenhum run fique preso em `SCHEDULED`.

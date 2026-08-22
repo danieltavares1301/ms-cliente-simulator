@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DrizzleRunRepository } from './drizzle-run-repository';
 import type { CreateRunInput } from './run-repository';
 import * as schema from './schema';
+import { QStashRunScheduler } from '../runs/qstash-scheduler';
 
 const actor = 'integration-test';
 const idempotencyKeyHash = 'a'.repeat(64);
@@ -747,6 +748,397 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       schedulingKind: null,
       schedulingLeaseExpiresAt: null,
     });
+  });
+
+  it('reconciles a single zero-delay dispatch that completes before QStash publish returns', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'PROVISIONING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    const scheduler = new QStashRunScheduler({
+      repository,
+      clientFactory: () => ({
+        publishJSON: vi.fn(async ({ body }) => {
+          await expect(
+            repository.claimDispatch({
+              runId: body.runId,
+              stepId: body.stepId,
+              attemptNumber: body.attemptNumber,
+              claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+            }),
+          ).resolves.toStrictEqual({ outcome: 'CLAIMED' });
+          await repository.completeDispatch({
+            runId: body.runId,
+            stepId: body.stepId,
+            attemptNumber: body.attemptNumber,
+            requestId: 'instant-delivery',
+            httpStatus: 200,
+            durationMs: 1,
+            responseRedacted: { network: false },
+            errorCode: null,
+            finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+          });
+          return { messageId: `msg-${body.stepId}` };
+        }),
+        messages: { cancel: vi.fn() },
+      }),
+      publicAppBaseUrl: 'https://simulator.example.com',
+      retries: 1,
+    });
+
+    await scheduler.schedule({
+      runId: created.run.id,
+      steps: [
+        {
+          stepId: step.id,
+          stepKey: step.stepKey,
+          ordinal: step.ordinal,
+          delayMs: 0,
+          attemptNumber: 1,
+        },
+      ],
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'VERIFYING',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({ status: 'SUCCEEDED', qstashMessageId: `msg-${step.id}` });
+  });
+
+  it('does not leave a run scheduled when all zero-delay dispatches finish before markRunScheduled', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'PROVISIONING', expectedCallbackMax: 1 },
+        steps: [
+          {
+            stepKey: 'first',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'second',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const dispatchSteps = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items;
+    const scheduler = new QStashRunScheduler({
+      repository,
+      clientFactory: () => ({
+        publishJSON: vi.fn(async ({ body }) => {
+          await repository.claimDispatch({
+            runId: body.runId,
+            stepId: body.stepId,
+            attemptNumber: body.attemptNumber,
+            claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+          });
+          await repository.completeDispatch({
+            runId: body.runId,
+            stepId: body.stepId,
+            attemptNumber: body.attemptNumber,
+            requestId: `instant-${body.stepId}`,
+            httpStatus: 200,
+            durationMs: 1,
+            responseRedacted: { network: false },
+            errorCode: null,
+            finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+          });
+          return { messageId: `msg-${body.stepId}` };
+        }),
+        messages: { cancel: vi.fn() },
+      }),
+      publicAppBaseUrl: 'https://simulator.example.com',
+      retries: 1,
+    });
+
+    await scheduler.schedule({
+      runId: created.run.id,
+      steps: dispatchSteps.map((step) => ({
+        stepId: step.id,
+        stepKey: step.stepKey,
+        ordinal: step.ordinal,
+        delayMs: 0,
+        attemptNumber: 1,
+      })),
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'WAITING_ASYNC',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.map(
+        ({ status }) => status,
+      ),
+    ).toStrictEqual(['SUCCEEDED', 'SUCCEEDED']);
+  });
+
+  it('keeps an in-progress run running when one fast dispatch completes and another remains scheduled', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'PROVISIONING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'first',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'second',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const dispatchSteps = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items;
+    const scheduler = new QStashRunScheduler({
+      repository,
+      clientFactory: () => ({
+        publishJSON: vi.fn(async ({ body }) => {
+          if (body.stepId === dispatchSteps[0].id) {
+            await repository.claimDispatch({
+              runId: body.runId,
+              stepId: body.stepId,
+              attemptNumber: body.attemptNumber,
+              claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+            });
+            await repository.completeDispatch({
+              runId: body.runId,
+              stepId: body.stepId,
+              attemptNumber: body.attemptNumber,
+              requestId: 'instant-first',
+              httpStatus: 200,
+              durationMs: 1,
+              responseRedacted: { network: false },
+              errorCode: null,
+              finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+            });
+          }
+          return { messageId: `msg-${body.stepId}` };
+        }),
+        messages: { cancel: vi.fn() },
+      }),
+      publicAppBaseUrl: 'https://simulator.example.com',
+      retries: 1,
+    });
+
+    await scheduler.schedule({
+      runId: created.run.id,
+      steps: dispatchSteps.map((step) => ({
+        stepId: step.id,
+        stepKey: step.stepKey,
+        ordinal: step.ordinal,
+        delayMs: 0,
+        attemptNumber: 1,
+      })),
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'RUNNING',
+      schedulingKind: null,
+      schedulingLeaseExpiresAt: null,
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.map(
+        ({ status }) => status,
+      ),
+    ).toStrictEqual(['SUCCEEDED', 'SCHEDULED']);
+  });
+
+  it('preserves cancellation when a zero-delay delivery races with final scheduling reconciliation', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'PROVISIONING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0];
+    const scheduler = new QStashRunScheduler({
+      repository,
+      clientFactory: () => ({
+        publishJSON: vi.fn(async ({ body }) => {
+          await repository.claimDispatch({
+            runId: body.runId,
+            stepId: body.stepId,
+            attemptNumber: body.attemptNumber,
+            claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+          });
+          await repository.beginCancellation({
+            runId: body.runId,
+            actor: 'simulator-admin-api',
+          });
+          await repository.completeDispatch({
+            runId: body.runId,
+            stepId: body.stepId,
+            attemptNumber: body.attemptNumber,
+            requestId: 'cancel-race-delivery',
+            httpStatus: 200,
+            durationMs: 1,
+            responseRedacted: { network: false },
+            errorCode: null,
+            finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+          });
+          return { messageId: `msg-${body.stepId}` };
+        }),
+        messages: { cancel: vi.fn() },
+      }),
+      publicAppBaseUrl: 'https://simulator.example.com',
+      retries: 1,
+    });
+
+    await scheduler.schedule({
+      runId: created.run.id,
+      steps: [
+        {
+          stepId: step.id,
+          stepKey: step.stepKey,
+          ordinal: step.ordinal,
+          delayMs: 0,
+          attemptNumber: 1,
+        },
+      ],
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'CANCELLING',
+    });
+  });
+
+  it('records a partial scheduling failure without erasing a fast dispatch success', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'PROVISIONING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'first',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'second',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const dispatchSteps = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items;
+    const scheduler = new QStashRunScheduler({
+      repository,
+      clientFactory: () => ({
+        publishJSON: vi
+          .fn()
+          .mockImplementationOnce(async ({ body }) => {
+            await repository.claimDispatch({
+              runId: body.runId,
+              stepId: body.stepId,
+              attemptNumber: body.attemptNumber,
+              claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+            });
+            await repository.completeDispatch({
+              runId: body.runId,
+              stepId: body.stepId,
+              attemptNumber: body.attemptNumber,
+              requestId: 'instant-before-failure',
+              httpStatus: 200,
+              durationMs: 1,
+              responseRedacted: { network: false },
+              errorCode: null,
+              finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+            });
+            return { messageId: `msg-${body.stepId}` };
+          })
+          .mockRejectedValueOnce(new Error('provider unavailable')),
+        messages: { cancel: vi.fn() },
+      }),
+      publicAppBaseUrl: 'https://simulator.example.com',
+      retries: 1,
+    });
+
+    await expect(
+      scheduler.schedule({
+        runId: created.run.id,
+        steps: dispatchSteps.map((step) => ({
+          stepId: step.id,
+          stepKey: step.stepKey,
+          ordinal: step.ordinal,
+          delayMs: 0,
+          attemptNumber: 1,
+        })),
+      }),
+    ).rejects.toThrow('QStash scheduling failed');
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'PARTIAL',
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.map(
+        ({ status }) => status,
+      ),
+    ).toStrictEqual(['SUCCEEDED', 'PENDING']);
   });
 
   it('reclaims an expired initial scheduling lease but not a valid lease', async () => {

@@ -4,6 +4,7 @@ import { runStatuses, stepStatuses } from '../db/run-repository';
 import {
   canTransitionRun,
   canTransitionStep,
+  deriveDispatchRunStatus,
   runTransitions,
   stepTransitions,
 } from './state-machine';
@@ -12,8 +13,23 @@ describe('run state machine', () => {
   it('defines every allowed and rejected transition explicitly', () => {
     expect(runTransitions).toStrictEqual({
       CREATED: ['PROVISIONING', 'SCHEDULED', 'CANCELLING', 'FAILED'],
-      PROVISIONING: ['SCHEDULED', 'RUNNING', 'CANCELLING', 'FAILED', 'PARTIAL'],
-      SCHEDULED: ['RUNNING', 'CANCELLING', 'FAILED', 'PARTIAL'],
+      PROVISIONING: [
+        'SCHEDULED',
+        'RUNNING',
+        'WAITING_ASYNC',
+        'VERIFYING',
+        'CANCELLING',
+        'FAILED',
+        'PARTIAL',
+      ],
+      SCHEDULED: [
+        'RUNNING',
+        'WAITING_ASYNC',
+        'VERIFYING',
+        'CANCELLING',
+        'FAILED',
+        'PARTIAL',
+      ],
       RUNNING: [
         'WAITING_ASYNC',
         'VERIFYING',
@@ -31,8 +47,8 @@ describe('run state machine', () => {
       ],
       VERIFYING: ['SUCCEEDED', 'FAILED', 'PARTIAL', 'CANCELLING'],
       SUCCEEDED: [],
-      FAILED: ['SCHEDULED', 'RUNNING'],
-      PARTIAL: ['SCHEDULED', 'RUNNING'],
+      FAILED: ['SCHEDULED', 'RUNNING', 'WAITING_ASYNC', 'VERIFYING'],
+      PARTIAL: ['SCHEDULED', 'RUNNING', 'WAITING_ASYNC', 'VERIFYING'],
       CANCELLING: ['CANCELLED', 'PARTIAL'],
       CANCELLED: [],
     });
@@ -50,6 +66,51 @@ describe('run state machine', () => {
     expect(canTransitionRun('PARTIAL', 'SCHEDULED')).toBe(true);
     expect(runTransitions.CANCELLED).toStrictEqual([]);
     expect(runTransitions.SUCCEEDED).toStrictEqual([]);
+  });
+
+  it('derives QStash scheduling reconciliation from dispatch step progress', () => {
+    expect(
+      deriveDispatchRunStatus({
+        currentStatus: 'PROVISIONING',
+        dispatchStepStatuses: ['SUCCEEDED'],
+        expectedCallbackMax: 0,
+      }),
+    ).toBe('VERIFYING');
+    expect(
+      deriveDispatchRunStatus({
+        currentStatus: 'PROVISIONING',
+        dispatchStepStatuses: ['SUCCEEDED'],
+        expectedCallbackMax: 1,
+      }),
+    ).toBe('WAITING_ASYNC');
+    expect(
+      deriveDispatchRunStatus({
+        currentStatus: 'PROVISIONING',
+        dispatchStepStatuses: ['SUCCEEDED', 'PENDING'],
+        expectedCallbackMax: 0,
+      }),
+    ).toBe('RUNNING');
+    expect(
+      deriveDispatchRunStatus({
+        currentStatus: 'PROVISIONING',
+        dispatchStepStatuses: ['PENDING', 'SCHEDULED'],
+        expectedCallbackMax: 0,
+      }),
+    ).toBe('SCHEDULED');
+    expect(
+      deriveDispatchRunStatus({
+        currentStatus: 'RUNNING',
+        dispatchStepStatuses: ['PENDING'],
+        expectedCallbackMax: 0,
+      }),
+    ).toBe('RUNNING');
+    expect(
+      deriveDispatchRunStatus({
+        currentStatus: 'VERIFYING',
+        dispatchStepStatuses: ['PENDING', 'SCHEDULED'],
+        expectedCallbackMax: 0,
+      }),
+    ).toBe('VERIFYING');
   });
 });
 
