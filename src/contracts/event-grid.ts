@@ -119,6 +119,15 @@ function eventVariant<T extends string, D extends z.ZodType>(
     .strict();
 }
 
+export const eventTypeSchema = z.enum([
+  'cliente-insert',
+  'cliente-update',
+  'contato-insert',
+  'contato-update',
+  'endereco-insert',
+  'endereco-update',
+]);
+
 export const clienteInsertEventSchema = eventVariant(
   'cliente-insert',
   clienteDataSchema,

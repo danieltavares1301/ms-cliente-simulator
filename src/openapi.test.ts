@@ -55,7 +55,12 @@ describe('OpenAPI document', () => {
       openApiDocument.paths['/api/v1/scenarios']?.get?.[
         'x-implementation-status'
       ],
-    ).toBe('phase-2');
+    ).toBe('implemented');
+    expect(
+      openApiDocument.paths['/api/v1/scenarios/{scenarioKey}']?.get?.[
+        'x-implementation-status'
+      ],
+    ).toBe('implemented');
     expect(
       openApiDocument.paths['/api/v1/runs']?.post?.['x-implementation-status'],
     ).toBe('future');
@@ -77,6 +82,11 @@ describe('OpenAPI document', () => {
     expect(JSON.stringify(envelopeSchema)).toContain('idcliente');
     expect(JSON.stringify(envelopeSchema)).toContain('cliente-insert');
     expect(JSON.stringify(envelopeSchema)).toContain('endereco-update');
+    expect(schemas.ScenarioMetadata.additionalProperties).toBe(false);
+    expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('CONTRACT_ONLY');
+    expect(JSON.stringify(schemas.ScenarioDetail)).not.toContain(
+      'payloadTemplate',
+    );
   });
 });
 

@@ -9,6 +9,7 @@ import {
   paginationQuerySchema,
   restErrorResponseSchema,
   scenarioMetadataSchema,
+  scenarioDetailSchema,
 } from './index';
 
 const commonEvent = {
@@ -83,7 +84,7 @@ describe('public REST contracts', () => {
     ).toThrow();
   });
 
-  it('defines pagination and scenario metadata for the next increment', () => {
+  it('defines pagination and scenario metadata for the catalog', () => {
     expect(
       paginationQuerySchema.parse({ page: '2', pageSize: '25', tag: 'core' }),
     ).toStrictEqual({ page: 2, pageSize: 25, tag: 'core' });
@@ -93,10 +94,45 @@ describe('public REST contracts', () => {
         key: 'match-id-cliente',
         version: 1,
         name: 'Match por Id Cliente',
+        description: 'Atualiza somente a Account correta.',
         scope: 'CORE',
         tags: ['core'],
+        availability: 'CONTRACT_ONLY',
       }),
     ).toMatchObject({ key: 'match-id-cliente', scope: 'CORE' });
+  });
+
+  it('keeps the public scenario detail declarative and sanitized', () => {
+    expect(
+      scenarioDetailSchema.parse({
+        key: 'match-id-cliente',
+        version: 1,
+        name: 'Match por Id Cliente',
+        description: 'Atualiza somente a Account correta.',
+        scope: 'CORE',
+        tags: ['core'],
+        availability: 'CONTRACT_ONLY',
+        variablesSchema: {
+          type: 'object',
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+        steps: [
+          {
+            key: 'cliente-update',
+            target: 'CLIENTE',
+            eventType: 'cliente-update',
+            delayMs: 0,
+            deliveryPolicy: {
+              duplicateCount: 0,
+              retryOn: [],
+              maxAttempts: 1,
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({ key: 'match-id-cliente', version: 1 });
   });
 });
 

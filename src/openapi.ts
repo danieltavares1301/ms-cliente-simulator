@@ -8,6 +8,7 @@ import {
   graphqlSuccessResponseSchema,
   healthResponseSchema,
   paginationMetadataSchema,
+  scenarioDetailSchema,
   scenarioListResponseSchema,
   scenarioMetadataSchema,
 } from './contracts';
@@ -110,6 +111,10 @@ const errorResponses = {
   '400': response('Requisição inválida e sanitizada.', 'RestErrorResponse'),
   '401': response('Autenticação ausente ou inválida.', 'RestErrorResponse'),
   '403': response('Operação não autorizada.', 'RestErrorResponse'),
+  '422': response(
+    'Parâmetros de consulta inválidos e sanitizados.',
+    'RestErrorResponse',
+  ),
   '500': response(
     'Falha interna sem diagnóstico sensível.',
     'RestErrorResponse',
@@ -123,7 +128,10 @@ const scenarioKeyParameter = {
   in: 'path',
   required: true,
   description: 'Chave estável do cenário versionado.',
-  schema: { type: 'string', minLength: 1 },
+  schema: {
+    type: 'string',
+    pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$',
+  },
 };
 
 const runIdParameter = {
@@ -184,7 +192,7 @@ export const openApiDocument: OpenApiDocument = {
     { name: 'System', description: 'Saúde e documentação da API.' },
     {
       name: 'Scenarios',
-      description: 'Catálogo versionado; implementação prevista na Fase 2.',
+      description: 'Catálogo versionado de cenários.',
     },
     {
       name: 'Runs',
@@ -234,11 +242,11 @@ export const openApiDocument: OpenApiDocument = {
       get: {
         summary: 'Listar cenários',
         description:
-          'Contrato da próxima etapa; nenhum catálogo ou fixture é publicado neste incremento.',
+          'Lista a versão ativa de cada cenário. CONTRACT_ONLY indica que os templates completos serão publicados no incremento 2.4.',
         operationId: 'listScenarios',
         tags: ['Scenarios'],
         security: bearerSecurity,
-        'x-implementation-status': 'phase-2',
+        'x-implementation-status': 'implemented',
         parameters: [
           ...paginationParameters,
           {
@@ -265,11 +273,11 @@ export const openApiDocument: OpenApiDocument = {
       get: {
         summary: 'Consultar cenário',
         description:
-          'Contrato da próxima etapa para metadados, variáveis aceitas e passos sem segredos.',
+          'Retorna a versão ativa, variáveis declarativas e passos sanitizados sem payload templates.',
         operationId: 'getScenario',
         tags: ['Scenarios'],
         security: bearerSecurity,
-        'x-implementation-status': 'phase-2',
+        'x-implementation-status': 'implemented',
         parameters: [scenarioKeyParameter],
         responses: {
           '200': response('Detalhe público do cenário.', 'ScenarioDetail'),
@@ -531,6 +539,7 @@ export const openApiDocument: OpenApiDocument = {
         'ScenarioListResponse',
         scenarioListResponseSchema,
       ),
+      ScenarioDetail: toComponentSchema('ScenarioDetail', scenarioDetailSchema),
       PaginationMetadata: toComponentSchema(
         'PaginationMetadata',
         paginationMetadataSchema,
@@ -545,53 +554,6 @@ export const openApiDocument: OpenApiDocument = {
           components: { type: 'object' },
         },
         additionalProperties: true,
-      },
-      ScenarioStep: {
-        type: 'object',
-        required: ['key', 'target', 'eventType', 'delayMs', 'deliveryPolicy'],
-        properties: {
-          key: { type: 'string', minLength: 1 },
-          target: {
-            type: 'string',
-            enum: ['CLIENTE', 'PAC', 'MAQUINA_ESTADO'],
-          },
-          eventType: { type: 'string', minLength: 1 },
-          delayMs: { type: 'integer', minimum: 0 },
-          deliveryPolicy: {
-            type: 'object',
-            required: ['duplicateCount', 'retryOn', 'maxAttempts'],
-            properties: {
-              duplicateCount: { type: 'integer', minimum: 0 },
-              retryOn: {
-                type: 'array',
-                items: { type: 'integer', minimum: 100, maximum: 599 },
-              },
-              maxAttempts: { type: 'integer', minimum: 1 },
-            },
-            additionalProperties: false,
-          },
-        },
-        additionalProperties: false,
-      },
-      ScenarioDetail: {
-        allOf: [
-          { $ref: '#/components/schemas/ScenarioMetadata' },
-          {
-            type: 'object',
-            required: ['variablesSchema', 'steps'],
-            properties: {
-              variablesSchema: {
-                type: 'object',
-                description:
-                  'Descrição pública das variáveis sintéticas aceitas.',
-              },
-              steps: {
-                type: 'array',
-                items: { $ref: '#/components/schemas/ScenarioStep' },
-              },
-            },
-          },
-        ],
       },
       CreateRunRequest: {
         type: 'object',
