@@ -2,12 +2,13 @@
   "name": "ms-clientes-simulator",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "next dev",
-    "prebuild": "npm run validate:scenarios",
+    "prebuild": "npm run validate:scenarios && npm run validate:fixtures",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -18,7 +19,9 @@
     "test:watch": "vitest",
     "validate:scenarios": "vitest run src/scenarios/catalog.validation.test.ts",
     "db:generate": "drizzle-kit generate",
-    "db:check": "drizzle-kit check"
+    "db:check": "drizzle-kit check",
+    "anonymize:logs": "node scripts/anonymize-log-export.ts",
+    "validate:fixtures": "node scripts/validate-fixtures.ts fixtures"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
