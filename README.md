@@ -4,10 +4,11 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-A **Fase 0 documental está concluída**. Os dois primeiros incrementos da **Fase
+A **Fase 0 documental está concluída**. Os três primeiros incrementos da **Fase
 1 — Fundação do projeto** disponibilizam a base API-only em Next.js/TypeScript,
-o health e a validação segura da configuração server-side. Nenhuma metadata
-Salesforce foi criada ou alterada.
+o health, a validação segura da configuração server-side e o schema PostgreSQL
+inicial com migration versionada. Nenhuma metadata Salesforce foi criada ou
+alterada.
 
 ## Quick Start
 
@@ -55,13 +56,31 @@ npm run format:check
 npm run typecheck
 npm test
 npm run test:watch
+npm run db:generate
+npm run db:check
 ```
+
+## Schema e migrations
+
+O schema tipado está em `src/db/schema.ts` e as migrations geradas ficam em
+`drizzle/`. Os comandos de geração e validação são offline: não carregam a
+configuração server-side, não abrem conexão e não aplicam alterações em banco.
+
+```bash
+npm run db:generate
+npm run db:check
+```
+
+`db:generate` deve ser idempotente quando o schema não muda. O projeto não
+oferece `db:push` intencionalmente: migrations devem ser revisadas e aplicadas
+por um fluxo controlado de CI/Neon.
 
 ## Documentação
 
 - [Plano técnico](plano-api-simulador-ms-clientes-2.2.md)
 - [Matriz de contratos](docs/phase-0/contract-matrix.md)
 - [Checkpoint 0](docs/phase-0/checkpoint.md)
+- [Validação de persistência da Fase 1](docs/phase-1/persistence-validation.md)
 - [Escopo de acesso proposto](docs/security/access-scope.md)
 - [ADRs](docs/decisions/)
 
