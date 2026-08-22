@@ -4,13 +4,11 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.2.1**. As Fases 0, 1 e 2 estão funcionalmente concluídas. A Fase 2
-entrega quatro cenários `CORE` `READY`, fixtures declarativas allowlisted,
-renderer determinístico e validação offline de contratos, determinismo e
-segredos técnicos. CPF, e-mail, telefone, nome, endereço, CEP e IDs Salesforce
-não são classificados pelo scanner por formato ou chave de negócio. Nenhuma metadata
-Salesforce foi criada ou alterada; runs, CRUD de banco, QStash e handlers
-Salesforce continuam fora deste incremento.
+Versão **0.3.1**. O incremento 3.1 entrega a API administrativa protegida de
+runs, criação idempotente, `dryRun` determinístico e consultas paginadas. Os
+quatro cenários `CORE` permanecem `READY`. QStash, dispatch, cancelamento,
+retry e qualquer chamada ou alteração Salesforce continuam fora deste
+incremento.
 
 ## Quick Start
 
@@ -34,18 +32,49 @@ curl http://localhost:3000/api/v1/scenarios/match-id-cliente
 
 ## API contract-first
 
-| Endpoint                              | Status       | Observação                                                               |
-| ------------------------------------- | ------------ | ------------------------------------------------------------------------ |
-| `GET /api/v1/health`                  | Implementado | Health atual, sem valores de configuração.                               |
-| `GET /api/v1/openapi`                 | Implementado | OpenAPI 3.1 gerado em TypeScript e servido da memória.                   |
-| `GET /api/v1/scenarios`               | Implementado | Lista metadados sanitizados dos quatro cenários `CORE` `READY`.          |
-| `GET /api/v1/scenarios/{scenarioKey}` | Implementado | Detalhe sanitizado, sem payload renderizado ou CPF.                      |
-| `/api/v1/runs` e sub-recursos         | Futuro       | Criação, consulta, passos, cancelamento e retry não estão implementados. |
-| `POST /api/ms-clientes/graphql`       | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.      |
+| Endpoint                              | Status       | Observação                                                             |
+| ------------------------------------- | ------------ | ---------------------------------------------------------------------- |
+| `GET /api/v1/health`                  | Implementado | Health atual, sem valores de configuração.                             |
+| `GET /api/v1/openapi`                 | Implementado | OpenAPI 3.1 gerado em TypeScript e servido da memória.                 |
+| `GET /api/v1/scenarios`               | Implementado | Lista metadados sanitizados dos quatro cenários `CORE` `READY`.        |
+| `GET /api/v1/scenarios/{scenarioKey}` | Implementado | Detalhe sanitizado, sem payload renderizado ou CPF.                    |
+| `POST /api/v1/runs`                   | Implementado | Criação/replay idempotente; `dryRun` não acessa dependências externas. |
+| `GET /api/v1/runs`                    | Implementado | Listagem paginada com filtros seguros e máximo de 100 itens.           |
+| `GET /api/v1/runs/{runId}`            | Implementado | Estado sanitizado de uma execução.                                     |
+| `GET /api/v1/runs/{runId}/steps`      | Implementado | Passos sanitizados, paginados e ordenados.                             |
+| Cancelamento e retry de runs          | Futuro       | Permanecem sem handlers neste incremento.                              |
+| `POST /api/ms-clientes/graphql`       | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.    |
 
 Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
 `phase-2` ou `future`. O endpoint interno de dispatch não é incluído no
 documento público.
+
+### Runs administrativos
+
+Com `ORCHESTRATION_ENABLED=false`, todos os endpoints de runs retornam `503
+ORCHESTRATION_DISABLED` antes de acessar banco ou integrações; health e catálogo
+continuam disponíveis. Quando habilitados, exigem um único header
+`Authorization: Bearer <SIMULATOR_ADMIN_API_KEY>`. A chave nunca é usada como
+`requestedBy`, persistida ou retornada.
+
+Exemplo de `dryRun`, sem segredo literal:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/runs \
+  -H "Authorization: Bearer $SIMULATOR_ADMIN_API_KEY" \
+  -H "Idempotency-Key: 123e4567-e89b-12d3-a456-426614174000" \
+  -H "Content-Type: application/json" \
+  -d '{"scenarioKey":"match-id-cliente","scenarioVersion":1,"variables":{"seed":"TC001-A","eventStartAt":"2026-08-21T10:00:00Z"},"execution":{"dryRun":true,"speed":1,"stopOnFailure":true}}'
+```
+
+`dryRun` pode persistir somente metadados de auditoria do run e dos passos. A
+expressão “não cria registros” refere-se a registros Salesforce: nenhum setup,
+verify, cleanup, agendamento ou publicação externa é executado. O preview
+autenticado não inclui envelopes/payloads brutos.
+
+Runs com `dryRun=false` falham fechados com `503 SCHEDULER_NOT_CONFIGURED`
+antes da persistência. As interfaces `Scheduler` e `DispatchPublisher` estão
+preparadas para o incremento seguinte, sem implementação QStash nesta versão.
 
 Os schemas Zod em `src/contracts/` são estritos na borda pública. O envelope
 Event Grid aceita exatamente um dos seis eventos de cliente, contato ou
@@ -132,6 +161,7 @@ roda automaticamente no build/deploy.
 - [Validação do incremento 2.1](docs/phase-2/increment-2.1-validation.md)
 - [Validação do incremento 2.4](docs/phase-2/increment-2.4-validation.md)
 - [Validação do incremento 3.0](docs/phase-3/increment-3.0-validation.md)
+- [Validação do incremento 3.1](docs/phase-3/increment-3.1-validation.md)
 - [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)

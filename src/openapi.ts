@@ -2,12 +2,19 @@ import { z } from 'zod';
 
 import {
   atualizarClienteInputSchema,
+  createRunRequestSchema,
+  createRunResponseSchema,
+  dryRunPreviewSchema,
   eventGridEnvelopeSchema,
   graphqlErrorResponseSchema,
   graphqlResponsePolicySchema,
   graphqlSuccessResponseSchema,
   healthResponseSchema,
   paginationMetadataSchema,
+  runListResponseSchema,
+  runResponseSchema,
+  runStepListResponseSchema,
+  runStepResponseSchema,
   scenarioDetailSchema,
   scenarioListResponseSchema,
   scenarioMetadataSchema,
@@ -141,6 +148,16 @@ const publicScenarioErrorResponses = {
   '500': errorResponses['500'],
 };
 
+const runErrorResponses = {
+  '401': errorResponses['401'],
+  '422': errorResponses['422'],
+  '503': response(
+    'Orquestração desabilitada ou scheduler indisponível.',
+    'RestErrorResponse',
+  ),
+  '500': errorResponses['500'],
+};
+
 const bearerSecurity = [{ bearerAuth: [] }];
 
 const scenarioKeyParameter = {
@@ -198,7 +215,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.2.1',
+    version: '0.3.1',
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },
@@ -216,7 +233,7 @@ export const openApiDocument: OpenApiDocument = {
     },
     {
       name: 'Runs',
-      description: 'Orquestração futura de execuções.',
+      description: 'Criação idempotente e consulta protegida de execuções.',
     },
     {
       name: 'GraphQL callback',
@@ -360,11 +377,11 @@ export const openApiDocument: OpenApiDocument = {
       get: {
         summary: 'Listar execuções',
         description:
-          'Contrato futuro de paginação e filtros por status, cenário e datas.',
+          'Lista execuções com paginação limitada e filtros por status, cenário e datas.',
         operationId: 'listRuns',
         tags: ['Runs'],
         security: bearerSecurity,
-        'x-implementation-status': 'future',
+        'x-implementation-status': 'implemented',
         parameters: [
           ...paginationParameters,
           {
@@ -390,23 +407,26 @@ export const openApiDocument: OpenApiDocument = {
         ],
         responses: {
           '200': response('Página de execuções.', 'RunListResponse'),
-          ...errorResponses,
+          ...runErrorResponses,
         },
       },
       post: {
         summary: 'Criar execução',
         description:
-          'Contrato futuro. A mesma chave de idempotência e o mesmo corpo devem identificar a mesma execução.',
+          'Cria ou reproduz uma execução idempotente. dryRun renderiza e persiste somente auditoria técnica, sem dependências externas.',
         operationId: 'createRun',
         tags: ['Runs'],
         security: bearerSecurity,
-        'x-implementation-status': 'future',
+        'x-implementation-status': 'implemented',
         parameters: [
           {
             name: 'Idempotency-Key',
             in: 'header',
             required: true,
-            schema: { type: 'string', format: 'uuid' },
+            schema: {
+              type: 'string',
+              format: 'uuid',
+            },
           },
         ],
         requestBody: {
@@ -419,23 +439,23 @@ export const openApiDocument: OpenApiDocument = {
             'CreateRunResponse',
           ),
           '409': response('Conflito de idempotência.', 'RestErrorResponse'),
-          ...errorResponses,
+          ...runErrorResponses,
         },
       },
     },
     '/api/v1/runs/{runId}': {
       get: {
         summary: 'Consultar execução',
-        description: 'Contrato futuro do estado consolidado da execução.',
+        description: 'Retorna o estado consolidado sanitizado da execução.',
         operationId: 'getRun',
         tags: ['Runs'],
         security: bearerSecurity,
-        'x-implementation-status': 'future',
+        'x-implementation-status': 'implemented',
         parameters: [runIdParameter],
         responses: {
           '200': response('Estado consolidado da execução.', 'Run'),
           '404': response('Execução não encontrada.', 'RestErrorResponse'),
-          ...errorResponses,
+          ...runErrorResponses,
         },
       },
     },
@@ -443,11 +463,11 @@ export const openApiDocument: OpenApiDocument = {
       get: {
         summary: 'Listar passos da execução',
         description:
-          'Contrato futuro para passos, tentativas e respostas sanitizadas.',
+          'Lista passos sanitizados em ordem de execução e com paginação limitada.',
         operationId: 'listRunSteps',
         tags: ['Runs'],
         security: bearerSecurity,
-        'x-implementation-status': 'future',
+        'x-implementation-status': 'implemented',
         parameters: [runIdParameter, ...paginationParameters],
         responses: {
           '200': response(
@@ -455,7 +475,7 @@ export const openApiDocument: OpenApiDocument = {
             'RunStepListResponse',
           ),
           '404': response('Execução não encontrada.', 'RestErrorResponse'),
-          ...errorResponses,
+          ...runErrorResponses,
         },
       },
     },
@@ -625,116 +645,25 @@ export const openApiDocument: OpenApiDocument = {
         },
         additionalProperties: true,
       },
-      CreateRunRequest: {
-        type: 'object',
-        required: ['scenarioKey', 'scenarioVersion', 'variables', 'execution'],
-        properties: {
-          scenarioKey: { type: 'string', minLength: 1 },
-          scenarioVersion: { type: 'integer', minimum: 1 },
-          variables: {
-            type: 'object',
-            required: ['seed', 'eventStartAt'],
-            properties: {
-              seed: { type: 'string', minLength: 1 },
-              eventStartAt: { type: 'string', format: 'date-time' },
-            },
-            additionalProperties: false,
-          },
-          execution: {
-            type: 'object',
-            required: ['dryRun', 'speed', 'stopOnFailure'],
-            properties: {
-              dryRun: { type: 'boolean' },
-              speed: { type: 'number', exclusiveMinimum: 0 },
-              stopOnFailure: { type: 'boolean' },
-            },
-            additionalProperties: false,
-          },
-        },
-        additionalProperties: false,
-      },
-      Run: {
-        type: 'object',
-        required: [
-          'runId',
-          'status',
-          'scenarioKey',
-          'scenarioVersion',
-          'createdAt',
-        ],
-        properties: {
-          runId: { type: 'string', minLength: 1 },
-          status: { type: 'string', enum: runStatusValues },
-          scenarioKey: { type: 'string', minLength: 1 },
-          scenarioVersion: { type: 'integer', minimum: 1 },
-          createdAt: { type: 'string', format: 'date-time' },
-          stepsUrl: { type: 'string', format: 'uri-reference' },
-        },
-        additionalProperties: false,
-      },
-      CreateRunResponse: {
-        type: 'object',
-        required: ['data'],
-        properties: {
-          data: { $ref: '#/components/schemas/Run' },
-        },
-        additionalProperties: false,
-      },
-      RunListResponse: {
-        type: 'object',
-        required: ['data', 'pagination'],
-        properties: {
-          data: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/Run' },
-          },
-          pagination: {
-            $ref: '#/components/schemas/PaginationMetadata',
-          },
-        },
-        additionalProperties: false,
-      },
-      RunStep: {
-        type: 'object',
-        required: ['stepId', 'key', 'status', 'attempts'],
-        properties: {
-          stepId: { type: 'string', minLength: 1 },
-          key: { type: 'string', minLength: 1 },
-          status: { type: 'string', minLength: 1 },
-          attempts: {
-            type: 'array',
-            items: {
-              type: 'object',
-              required: ['attempt', 'status'],
-              properties: {
-                attempt: { type: 'integer', minimum: 1 },
-                status: { type: 'string', minLength: 1 },
-                httpStatus: {
-                  type: ['integer', 'null'],
-                  minimum: 100,
-                  maximum: 599,
-                },
-              },
-              additionalProperties: false,
-            },
-          },
-        },
-        additionalProperties: false,
-      },
-      RunStepListResponse: {
-        type: 'object',
-        required: ['data', 'pagination'],
-        properties: {
-          data: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/RunStep' },
-          },
-          pagination: {
-            $ref: '#/components/schemas/PaginationMetadata',
-          },
-        },
-        additionalProperties: false,
-      },
+      CreateRunRequest: toComponentSchema(
+        'CreateRunRequest',
+        createRunRequestSchema,
+      ),
+      DryRunPreview: toComponentSchema('DryRunPreview', dryRunPreviewSchema),
+      Run: toComponentSchema('Run', runResponseSchema),
+      CreateRunResponse: toComponentSchema(
+        'CreateRunResponse',
+        createRunResponseSchema,
+      ),
+      RunListResponse: toComponentSchema(
+        'RunListResponse',
+        runListResponseSchema,
+      ),
+      RunStep: toComponentSchema('RunStep', runStepResponseSchema),
+      RunStepListResponse: toComponentSchema(
+        'RunStepListResponse',
+        runStepListResponseSchema,
+      ),
       RunActionAccepted: {
         type: 'object',
         required: ['data'],

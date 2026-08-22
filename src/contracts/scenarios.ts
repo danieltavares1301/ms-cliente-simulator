@@ -13,6 +13,7 @@ const safePublicTextSchema = z
   .regex(safePublicTextPattern);
 
 const kebabCaseSchema = z.string().trim().regex(kebabCasePattern);
+const variableNameSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,63}$/);
 const normalizedTagSchema = z
   .string()
   .trim()
@@ -115,8 +116,8 @@ export const scenarioVariableSchema = z.discriminatedUnion('type', [
 export const scenarioVariablesSchema = z
   .object({
     type: z.literal('object'),
-    properties: z.record(kebabCaseSchema, scenarioVariableSchema),
-    required: z.array(kebabCaseSchema),
+    properties: z.record(variableNameSchema, scenarioVariableSchema),
+    required: z.array(variableNameSchema),
     additionalProperties: z.literal(false),
   })
   .strict()

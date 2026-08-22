@@ -15,8 +15,21 @@ const generated = <T extends GeneratedValue>(value: T) =>
 
 const variablesSchema: ScenarioDefinition['variablesSchema'] = {
   type: 'object',
-  properties: {},
-  required: [],
+  properties: {
+    seed: {
+      type: 'string',
+      description: 'Semente técnica determinística da execução.',
+      minLength: 1,
+      maxLength: 64,
+    },
+    eventStartAt: {
+      type: 'string',
+      description: 'Instante UTC inicial dos eventos renderizados.',
+      minLength: 20,
+      maxLength: 24,
+    },
+  },
+  required: ['seed', 'eventStartAt'],
   additionalProperties: false,
 };
 

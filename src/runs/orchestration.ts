@@ -1,0 +1,348 @@
+import { createHash, randomUUID } from 'node:crypto';
+
+import {
+  apexCompatibleUtcDateTimeSchema,
+  type CreateRunRequest,
+  type DryRunPreview,
+  type ScenarioDefinition,
+} from '../contracts';
+import {
+  createIdempotencyKeyHash,
+  createRequestFingerprint,
+} from '../db/idempotency';
+import type { NewRunStep, Run, RunRepository } from '../db/run-repository';
+import { scenarioCatalog } from '../scenarios/catalog';
+import { renderScenarioFixture } from '../scenarios/renderer';
+import type { Scheduler } from './scheduler';
+
+export type RunServiceErrorCode =
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'INVALID_VARIABLES'
+  | 'SCENARIO_NOT_READY'
+  | 'SCHEDULER_NOT_CONFIGURED';
+
+export class RunServiceError extends Error {
+  constructor(
+    readonly code: RunServiceErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RunServiceError';
+  }
+}
+
+export interface CreateRunServiceResult {
+  outcome: 'CREATED' | 'REPLAY';
+  run: Run;
+  preview?: DryRunPreview;
+}
+
+type ServiceDependencies = {
+  repository: RunRepository;
+  scheduler?: Scheduler;
+  idempotencyPepper: string;
+  requestedBy: string;
+  now?: () => Date;
+  generateRunId?: () => string;
+};
+
+function isDeclaredValueValid(
+  declaration: ScenarioDefinition['variablesSchema']['properties'][string],
+  value: unknown,
+): boolean {
+  if (declaration.type === 'string') {
+    return (
+      typeof value === 'string' &&
+      (declaration.minLength === undefined ||
+        value.length >= declaration.minLength) &&
+      (declaration.maxLength === undefined ||
+        value.length <= declaration.maxLength) &&
+      (declaration.enum === undefined || declaration.enum.includes(value))
+    );
+  }
+  if (declaration.type === 'boolean') return typeof value === 'boolean';
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    (declaration.type === 'integer' && !Number.isInteger(value))
+  ) {
+    return false;
+  }
+  return (
+    (declaration.minimum === undefined || value >= declaration.minimum) &&
+    (declaration.maximum === undefined || value <= declaration.maximum)
+  );
+}
+
+function validateVariables(
+  definition: ScenarioDefinition,
+  variables: Record<string, unknown>,
+): void {
+  const declarations = definition.variablesSchema.properties;
+  const names = Object.keys(variables);
+  const valid =
+    definition.variablesSchema.required.every((name) => name in variables) &&
+    (definition.variablesSchema.additionalProperties ||
+      names.every((name) => name in declarations)) &&
+    names.every((name) => {
+      const declaration = declarations[name];
+      return (
+        declaration !== undefined &&
+        isDeclaredValueValid(declaration, variables[name])
+      );
+    });
+
+  if (!valid) {
+    throw new RunServiceError(
+      'INVALID_VARIABLES',
+      'Variables do not match the scenario schema',
+    );
+  }
+}
+
+function seedAsInteger(seed: string): number {
+  return Number.parseInt(
+    createHash('sha256').update(seed, 'utf8').digest('hex').slice(0, 7),
+    16,
+  );
+}
+
+function deriveSteps(
+  fixture: ReturnType<typeof renderScenarioFixture>,
+  dryRun: boolean,
+  speed: number,
+): NewRunStep[] {
+  const eventStart = Date.parse(fixture.eventStartAt);
+  const status = dryRun ? ('SKIPPED' as const) : ('PENDING' as const);
+  let ordinal = 0;
+  const setup = fixture.setup.map((instruction, index) => ({
+    stepKey: `setup-${index + 1}`,
+    ordinal: ordinal++,
+    target: 'ACCOUNT',
+    status,
+    requestRedacted: {
+      operation: instruction.operation,
+      target: 'ACCOUNT',
+    },
+    responseRedacted: {},
+    stepKind: 'SETUP' as const,
+  }));
+  const dispatch = fixture.steps.map((step) => ({
+    stepKey: step.key,
+    ordinal: ordinal++,
+    target: step.target,
+    eventType: step.eventType,
+    status,
+    scheduledAt: new Date(eventStart + step.delayMs / speed),
+    requestRedacted: {
+      eventId: step.envelope[0].id,
+      eventType: step.eventType,
+    },
+    responseRedacted: {},
+    stepKind: 'DISPATCH' as const,
+  }));
+  const verify = fixture.expectedOutcomes.map((outcome, index) => ({
+    stepKey: `verify-${index + 1}`,
+    ordinal: ordinal++,
+    target: 'SALESFORCE',
+    status,
+    requestRedacted: {
+      kind: outcome.kind,
+      checks: [...outcome.checks],
+    },
+    responseRedacted: {},
+    stepKind: 'VERIFY' as const,
+  }));
+  const cleanup = fixture.cleanup.map((instruction, index) => ({
+    stepKey: `cleanup-${index + 1}`,
+    ordinal: ordinal++,
+    target: instruction.target,
+    status,
+    requestRedacted: {
+      operation: instruction.operation,
+      target: instruction.target,
+    },
+    responseRedacted: {},
+    stepKind: 'CLEANUP' as const,
+  }));
+  return [...setup, ...dispatch, ...verify, ...cleanup];
+}
+
+function createPreview(
+  fixture: ReturnType<typeof renderScenarioFixture>,
+  speed: number,
+): DryRunPreview {
+  const eventStart = Date.parse(fixture.eventStartAt);
+  return {
+    eventStartAt: fixture.eventStartAt,
+    setup: fixture.setup.map(({ operation }) => ({
+      operation,
+      target: 'ACCOUNT',
+    })),
+    steps: fixture.steps.map(({ key, target, eventType, delayMs }) => ({
+      key,
+      target,
+      eventType,
+      scheduledAt: new Date(eventStart + delayMs / speed).toISOString(),
+    })),
+    assertions: fixture.expectedOutcomes.map(({ kind, checks }) => ({
+      kind,
+      checks: [...checks],
+    })),
+    cleanup: fixture.cleanup.map(({ operation, target }) => ({
+      operation,
+      target,
+    })),
+  };
+}
+
+export function createRunOrchestrationService(
+  dependencies: ServiceDependencies,
+) {
+  const now = dependencies.now ?? (() => new Date());
+  const generateRunId = dependencies.generateRunId ?? randomUUID;
+
+  return {
+    async createRun(input: {
+      idempotencyKey: string;
+      request: CreateRunRequest;
+    }): Promise<CreateRunServiceResult> {
+      if (
+        !input.request.execution.dryRun &&
+        dependencies.scheduler === undefined
+      ) {
+        throw new RunServiceError(
+          'SCHEDULER_NOT_CONFIGURED',
+          'Scheduler is not configured',
+        );
+      }
+
+      const definition = scenarioCatalog.get(
+        input.request.scenarioKey,
+        input.request.scenarioVersion,
+      );
+      if (definition?.availability !== 'READY') {
+        throw new RunServiceError(
+          'SCENARIO_NOT_READY',
+          'Scenario or version is not ready',
+        );
+      }
+      validateVariables(
+        definition as ScenarioDefinition,
+        input.request.variables,
+      );
+      const seed = input.request.variables.seed;
+      const eventStartAt = input.request.variables.eventStartAt;
+      if (
+        typeof seed !== 'string' ||
+        !/^[A-Za-z0-9_-]{1,64}$/.test(seed) ||
+        typeof eventStartAt !== 'string' ||
+        !apexCompatibleUtcDateTimeSchema.safeParse(eventStartAt).success
+      ) {
+        throw new RunServiceError(
+          'INVALID_VARIABLES',
+          'Variables do not match the renderer contract',
+        );
+      }
+
+      const runId = generateRunId();
+      const fixture = renderScenarioFixture({
+        scenarioKey: input.request.scenarioKey,
+        version: input.request.scenarioVersion,
+        seed,
+        runId: `run_${runId.replaceAll('-', '')}`,
+        eventStartAt,
+      });
+      const steps = deriveSteps(
+        fixture,
+        input.request.execution.dryRun,
+        input.request.execution.speed,
+      );
+      const createdAt = now();
+      const normalizedRequest = {
+        ...input.request,
+        variables: {
+          ...input.request.variables,
+          eventStartAt: new Date(eventStartAt).toISOString(),
+        },
+      };
+      const result = await dependencies.repository.createRun({
+        run: {
+          id: runId,
+          scenarioKey: definition.key,
+          scenarioVersion: definition.version,
+          idempotencyKeyHash: createIdempotencyKeyHash(
+            input.idempotencyKey,
+            dependencies.idempotencyPepper,
+          ),
+          requestFingerprint: createRequestFingerprint(normalizedRequest),
+          requestedBy: dependencies.requestedBy,
+          seed: seedAsInteger(seed),
+          variablesRedacted: {
+            keys: Object.keys(input.request.variables).sort(),
+          },
+          dryRun: input.request.execution.dryRun,
+          stopOnFailure: input.request.execution.stopOnFailure,
+          expectedCallbackMin: fixture.asyncPolicy.expectedCallbacks.min,
+          expectedCallbackMax: fixture.asyncPolicy.expectedCallbacks.max,
+          asyncWaitDeadline:
+            fixture.asyncPolicy.waitTimeoutMs === 0
+              ? null
+              : new Date(
+                  Date.parse(fixture.eventStartAt) +
+                    fixture.asyncPolicy.waitTimeoutMs,
+                ),
+          cleanupPolicy: 'ALWAYS',
+          retentionExpiresAt: new Date(
+            createdAt.getTime() + 7 * 24 * 60 * 60 * 1_000,
+          ),
+        },
+        steps,
+      });
+
+      if (result.outcome === 'CONFLICT') {
+        throw new RunServiceError(
+          'IDEMPOTENCY_CONFLICT',
+          'Idempotency key was already used with a different request',
+        );
+      }
+      if (
+        result.outcome === 'CREATED' &&
+        !input.request.execution.dryRun &&
+        dependencies.scheduler
+      ) {
+        await dependencies.scheduler.schedule({
+          runId: result.run.id,
+          steps: steps.map(({ stepKey, ordinal, scheduledAt }) => ({
+            stepKey,
+            ordinal,
+            scheduledAt: scheduledAt ?? null,
+          })),
+        });
+      }
+
+      const responseFixture =
+        result.outcome === 'REPLAY' && result.run.id !== runId
+          ? renderScenarioFixture({
+              scenarioKey: input.request.scenarioKey,
+              version: input.request.scenarioVersion,
+              seed,
+              runId: `run_${result.run.id.replaceAll('-', '')}`,
+              eventStartAt,
+            })
+          : fixture;
+      return {
+        outcome: result.outcome,
+        run: result.run,
+        ...(input.request.execution.dryRun
+          ? {
+              preview: createPreview(
+                responseFixture,
+                input.request.execution.speed,
+              ),
+            }
+          : {}),
+      };
+    },
+  };
+}

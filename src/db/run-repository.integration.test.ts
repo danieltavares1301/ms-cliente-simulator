@@ -19,6 +19,7 @@ type CreateInputOverrides = {
 function createInput(overrides: CreateInputOverrides = {}): CreateRunInput {
   return {
     run: {
+      id: '00000000-0000-4000-8000-000000000001',
       scenarioKey: 'match-id-cliente',
       scenarioVersion: 1,
       idempotencyKeyHash,
@@ -106,8 +107,10 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       requestFingerprint,
       status: 'CREATED',
     });
-    const steps = await repository.listSteps(created.run.id);
-    expect(steps).toHaveLength(2);
+    const steps = await repository.listSteps(created.run.id, {
+      limit: 100,
+    });
+    expect(steps.items).toHaveLength(2);
     expect((await repository.listRuns({ limit: 1 })).items).toHaveLength(1);
 
     await repository.appendAuditEvent({
@@ -137,7 +140,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ).toBe(false);
     expect(
       await repository.updateStepStatus({
-        stepId: steps[0].id,
+        stepId: steps.items[0].id,
         expectedStatus: 'PENDING',
         nextStatus: 'SCHEDULED',
         scheduledAt: new Date('2026-08-22T12:00:00.000Z'),
@@ -145,7 +148,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ).toBe(true);
     expect(
       await repository.updateStepStatus({
-        stepId: steps[0].id,
+        stepId: steps.items[0].id,
         expectedStatus: 'PENDING',
         nextStatus: 'RUNNING',
       }),
@@ -184,13 +187,17 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       1,
     );
     expect(new Set(results.map(({ run }) => run.id))).toHaveLength(1);
-    expect(await repository.listSteps(results[0].run.id)).toHaveLength(2);
+    expect(
+      (await repository.listSteps(results[0].run.id, { limit: 100 })).items,
+    ).toHaveLength(2);
 
     await client.query('delete from scenario_run_step where ordinal = 1');
     const recovered = await repository.createRun(createInput());
 
     expect(recovered.outcome).toBe('REPLAY');
-    expect(await repository.listSteps(recovered.run.id)).toHaveLength(2);
+    expect(
+      (await repository.listSteps(recovered.run.id, { limit: 100 })).items,
+    ).toHaveLength(2);
   });
 
   it('enforces repository pagination and database constraints', async () => {
@@ -207,5 +214,48 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
          from scenario_run limit 1`,
       ),
     ).rejects.toThrow();
+  });
+
+  it('applies bounded run filters and paginates steps in ordinal order', async () => {
+    await repository.createRun(
+      createInput({
+        run: {
+          id: '11111111-1111-4111-8111-111111111111',
+          scenarioKey: 'match-id-cliente',
+          status: 'CREATED',
+        },
+      }),
+    );
+    await repository.createRun(
+      createInput({
+        run: {
+          id: '22222222-2222-4222-8222-222222222222',
+          scenarioKey: 'no-match-cliente-insert',
+          status: 'FAILED',
+          idempotencyKeyHash: 'c'.repeat(64),
+        },
+      }),
+    );
+
+    const filtered = await repository.listRuns({
+      limit: 10,
+      filters: {
+        status: 'FAILED',
+        scenarioKey: 'no-match-cliente-insert',
+        createdFrom: new Date('2026-01-01T00:00:00.000Z'),
+        createdTo: new Date('2027-01-01T00:00:00.000Z'),
+      },
+    });
+    const page = await repository.listSteps(
+      '11111111-1111-4111-8111-111111111111',
+      { limit: 1, offset: 1 },
+    );
+
+    expect(filtered.items).toHaveLength(1);
+    expect(filtered.items[0].scenarioKey).toBe('no-match-cliente-insert');
+    expect(filtered.total).toBe(1);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].ordinal).toBe(1);
+    expect(page.total).toBe(2);
   });
 });

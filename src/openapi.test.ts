@@ -31,7 +31,7 @@ describe('OpenAPI document', () => {
 
   it('is OpenAPI 3.1 and documents every planned public endpoint', () => {
     expect(openApiDocument.openapi).toBe('3.1.0');
-    expect(openApiDocument.info.version).toBe('0.2.1');
+    expect(openApiDocument.info.version).toBe('0.3.1');
     expect(openApiDocument.info.title).toBeTruthy();
 
     for (const path of publicPaths) {
@@ -62,8 +62,20 @@ describe('OpenAPI document', () => {
         'x-implementation-status'
       ],
     ).toBe('implemented');
+    for (const operation of [
+      openApiDocument.paths['/api/v1/runs']?.get,
+      openApiDocument.paths['/api/v1/runs']?.post,
+      openApiDocument.paths['/api/v1/runs/{runId}']?.get,
+      openApiDocument.paths['/api/v1/runs/{runId}/steps']?.get,
+    ]) {
+      expect(operation?.['x-implementation-status']).toBe('implemented');
+      expect(operation?.responses).toHaveProperty('401');
+      expect(operation?.responses).toHaveProperty('503');
+    }
     expect(
-      openApiDocument.paths['/api/v1/runs']?.post?.['x-implementation-status'],
+      openApiDocument.paths['/api/v1/runs/{runId}/cancellations']?.post?.[
+        'x-implementation-status'
+      ],
     ).toBe('future');
     expect(
       openApiDocument.paths['/api/ms-clientes/graphql']?.post?.[
@@ -93,10 +105,14 @@ describe('OpenAPI document', () => {
       Object.keys(publicScenarioOperations[1]?.responses ?? {}).sort(),
     ).toEqual(['200', '400', '404', '422', '500']);
 
-    const futureRun = openApiDocument.paths['/api/v1/runs']?.post;
-    expect(futureRun?.security).toStrictEqual([{ bearerAuth: [] }]);
-    expect(futureRun?.responses).toHaveProperty('401');
-    expect(futureRun?.responses).toHaveProperty('403');
+    const protectedRun = openApiDocument.paths['/api/v1/runs']?.post;
+    expect(protectedRun?.security).toStrictEqual([{ bearerAuth: [] }]);
+    expect(protectedRun?.responses).toHaveProperty('401');
+    expect(protectedRun?.responses).toHaveProperty('503');
+    expect(protectedRun?.parameters?.[0]).toMatchObject({
+      name: 'Idempotency-Key',
+      schema: { type: 'string', format: 'uuid' },
+    });
   });
 
   it('keeps key schemas strict and aligned with contract requirements', () => {

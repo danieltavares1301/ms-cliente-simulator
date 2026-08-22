@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lte } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 
 import { auditEvent, scenarioRun, scenarioRunStep } from './schema';
@@ -8,9 +8,11 @@ import type {
   CreateRunResult,
   NewRunStep,
   Run,
+  RunFilters,
   RunPage,
   RunRepository,
   RunStep,
+  RunStepPage,
   StepStatus,
 } from './run-repository';
 import * as schema from './schema';
@@ -97,34 +99,77 @@ export class DrizzleRunRepository<
     return run === undefined ? null : asRun(run);
   }
 
-  async listRuns(page: { limit: number; offset?: number }): Promise<RunPage> {
+  async listRuns(page: {
+    limit: number;
+    offset?: number;
+    filters?: RunFilters;
+  }): Promise<RunPage> {
     assertLimit(page.limit);
     const offset = page.offset ?? 0;
     if (!Number.isInteger(offset) || offset < 0) {
       throw new RangeError('offset must be a non-negative integer');
     }
 
+    const conditions = [
+      page.filters?.status === undefined
+        ? undefined
+        : eq(scenarioRun.status, page.filters.status),
+      page.filters?.scenarioKey === undefined
+        ? undefined
+        : eq(scenarioRun.scenarioKey, page.filters.scenarioKey),
+      page.filters?.createdFrom === undefined
+        ? undefined
+        : gte(scenarioRun.createdAt, page.filters.createdFrom),
+      page.filters?.createdTo === undefined
+        ? undefined
+        : lte(scenarioRun.createdAt, page.filters.createdTo),
+    ].filter((condition) => condition !== undefined);
+    const where = conditions.length === 0 ? undefined : and(...conditions);
     const rows = await this.database
       .select()
       .from(scenarioRun)
+      .where(where)
       .orderBy(desc(scenarioRun.createdAt), desc(scenarioRun.id))
       .limit(page.limit + 1)
       .offset(offset);
+    const [countRow] = await this.database
+      .select({ total: count() })
+      .from(scenarioRun)
+      .where(where);
 
     return {
       items: rows.slice(0, page.limit).map(asRun),
+      total: countRow?.total ?? 0,
       hasMore: rows.length > page.limit,
     };
   }
 
-  async listSteps(runId: string): Promise<RunStep[]> {
+  async listSteps(
+    runId: string,
+    page: { limit: number; offset?: number },
+  ): Promise<RunStepPage> {
+    assertLimit(page.limit);
+    const offset = page.offset ?? 0;
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new RangeError('offset must be a non-negative integer');
+    }
     const rows = await this.database
       .select()
       .from(scenarioRunStep)
       .where(eq(scenarioRunStep.runId, runId))
-      .orderBy(asc(scenarioRunStep.ordinal));
+      .orderBy(asc(scenarioRunStep.ordinal), asc(scenarioRunStep.id))
+      .limit(page.limit + 1)
+      .offset(offset);
+    const [countRow] = await this.database
+      .select({ total: count() })
+      .from(scenarioRunStep)
+      .where(eq(scenarioRunStep.runId, runId));
 
-    return rows.map(asRunStep);
+    return {
+      items: rows.slice(0, page.limit).map(asRunStep),
+      total: countRow?.total ?? 0,
+      hasMore: rows.length > page.limit,
+    };
   }
 
   async appendAuditEvent(
@@ -231,7 +276,7 @@ export class DrizzleRunRepository<
         .onConflictDoNothing();
     }
 
-    const persisted = await this.listSteps(runId);
+    const persisted = (await this.listSteps(runId, { limit: 100 })).items;
     const matches =
       persisted.length === steps.length &&
       steps.every((expected) => {

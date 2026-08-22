@@ -86,12 +86,7 @@ export interface AuditEvent {
 
 export type NewRun = Omit<
   Run,
-  | 'id'
-  | 'status'
-  | 'createdAt'
-  | 'startedAt'
-  | 'finishedAt'
-  | 'asyncWaitDeadline'
+  'status' | 'createdAt' | 'startedAt' | 'finishedAt' | 'asyncWaitDeadline'
 > & {
   status?: RunStatus;
   asyncWaitDeadline?: Date | null;
@@ -136,14 +131,35 @@ export interface CreateRunResult {
 
 export interface RunPage {
   items: Run[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface RunFilters {
+  status?: RunStatus;
+  scenarioKey?: string;
+  createdFrom?: Date;
+  createdTo?: Date;
+}
+
+export interface RunStepPage {
+  items: RunStep[];
+  total: number;
   hasMore: boolean;
 }
 
 export interface RunRepository {
   createRun(input: CreateRunInput): Promise<CreateRunResult>;
   findRun(runId: string): Promise<Run | null>;
-  listRuns(page: { limit: number; offset?: number }): Promise<RunPage>;
-  listSteps(runId: string): Promise<RunStep[]>;
+  listRuns(page: {
+    limit: number;
+    offset?: number;
+    filters?: RunFilters;
+  }): Promise<RunPage>;
+  listSteps(
+    runId: string,
+    page: { limit: number; offset?: number },
+  ): Promise<RunStepPage>;
   appendAuditEvent(
     event: Omit<AuditEvent, 'id' | 'createdAt'>,
   ): Promise<AuditEvent>;
