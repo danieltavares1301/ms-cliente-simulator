@@ -1,5 +1,17 @@
 # Resolução dos bloqueantes da revisão da Fase 3
 
+## Compatibilidade do `deduplicationId` com QStash
+
+Uma chamada real de `Client.publishJSON` contra a API QStash US retornou HTTP
+400 com `DeduplicationId cannot contain ':'`. O identificador antes concatenava
+`runId`, `stepId` e tentativa com dois-pontos.
+
+O scheduler agora deriva um identificador determinístico a partir dessa mesma
+combinação com SHA-256 em base64url e o prefixo legível `dispatch_`. O valor
+publicado contém somente `[A-Za-z0-9_-]`, não expõe os identificadores de origem
+e permanece abaixo de 64 caracteres como limite defensivo. O agendamento inicial
+e os retries passam pelo mesmo scheduler e, portanto, pelo mesmo gerador.
+
 ## Persistência compatível com Neon HTTP
 
 O repository de runtime não usa mais transações interativas. A conclusão de um
@@ -52,15 +64,15 @@ verificação e terminal não são rebaixados.
 
 Existe uma janela entre o aceite de `publishJSON` e a persistência do message
 ID. Nessa janela, a falha deixa o run recuperável e o replay usa o mesmo
-`deduplicationId` (`runId:stepId:attemptNumber`). A deduplicação do QStash dura
-10 minutos: o procedimento de resolução é repetir imediatamente a mesma POST.
-Se uma falha de agendamento acontece após uma entrega rápida já ter concluído, o
-erro passa a registrar `PARTIAL`/`FAILED` também a partir de `RUNNING`, sem
-limpar o sucesso do step ou o histórico de tentativa já persistido. Se a
-indisponibilidade ultrapassar a janela de deduplicação, deve-se reconciliar a
-mensagem no QStash antes do replay; sem essa reconciliação permanece o risco
-residual de uma segunda entrega, que continua protegida pela idempotência do
-dispatch.
+`deduplicationId` derivado por SHA-256 de `runId`, `stepId` e `attemptNumber`. A
+deduplicação do QStash dura 10 minutos: o procedimento de resolução é repetir
+imediatamente a mesma POST. Se uma falha de agendamento acontece após uma entrega
+rápida já ter concluído, o erro passa a registrar `PARTIAL`/`FAILED` também a
+partir de `RUNNING`, sem limpar o sucesso do step ou o histórico de tentativa já
+persistido. Se a indisponibilidade ultrapassar a janela de deduplicação, deve-se
+reconciliar a mensagem no QStash antes do replay; sem essa reconciliação
+permanece o risco residual de uma segunda entrega, que continua protegida pela
+idempotência do dispatch.
 
 ## Recovery de cancelamento
 

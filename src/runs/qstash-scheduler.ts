@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { RunRepository } from '../db/run-repository';
 import type { Scheduler } from './scheduler';
 
@@ -26,6 +28,17 @@ type QStashRunSchedulerDependencies = {
   publicAppBaseUrl: string;
   retries: number;
 };
+
+export function createDispatchDeduplicationId(
+  runId: string,
+  stepId: string,
+  attemptNumber: number,
+): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify([runId, stepId, attemptNumber]))
+    .digest('base64url');
+  return `dispatch_${digest}`;
+}
 
 function isMissingMessage(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
@@ -72,7 +85,11 @@ export class QStashRunScheduler implements Scheduler {
           },
           delay: Math.ceil(step.delayMs / 1_000),
           retries: this.dependencies.retries,
-          deduplicationId: `${input.runId}:${step.stepId}:${step.attemptNumber}`,
+          deduplicationId: createDispatchDeduplicationId(
+            input.runId,
+            step.stepId,
+            step.attemptNumber,
+          ),
         });
         publishedCount += 1;
         const persisted =

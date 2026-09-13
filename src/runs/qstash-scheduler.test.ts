@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RunRepository } from '../db/run-repository';
-import { QStashRunScheduler } from './qstash-scheduler';
+import {
+  createDispatchDeduplicationId,
+  QStashRunScheduler,
+} from './qstash-scheduler';
 
 const runId = '11111111-1111-4111-8111-111111111111';
 const steps = [
@@ -20,6 +23,38 @@ const steps = [
     attemptNumber: 1,
   },
 ] as const;
+
+describe('createDispatchDeduplicationId', () => {
+  it('returns a readable QStash-safe identifier within the defensive limit', () => {
+    const id = createDispatchDeduplicationId(
+      'run with whitespace:and-sensitive@example.com',
+      'step:with:separators',
+      1,
+    );
+
+    expect(id).toMatch(/^dispatch_[A-Za-z0-9_-]+$/);
+    expect(id.length).toBeLessThanOrEqual(64);
+    expect(id).not.toContain(':');
+    expect(id).not.toContain('sensitive');
+  });
+
+  it('is deterministic for the same dispatch identity', () => {
+    const first = createDispatchDeduplicationId(runId, steps[0].stepId, 1);
+    const second = createDispatchDeduplicationId(runId, steps[0].stepId, 1);
+
+    expect(second).toBe(first);
+  });
+
+  it('distinguishes attempts and obvious input-boundary collisions', () => {
+    const attemptOne = createDispatchDeduplicationId(runId, steps[0].stepId, 1);
+    const attemptTwo = createDispatchDeduplicationId(runId, steps[0].stepId, 2);
+    const leftBoundary = createDispatchDeduplicationId('ab', 'c', 1);
+    const rightBoundary = createDispatchDeduplicationId('a', 'bc', 1);
+
+    expect(attemptTwo).not.toBe(attemptOne);
+    expect(rightBoundary).not.toBe(leftBoundary);
+  });
+});
 
 describe('QStashRunScheduler', () => {
   it('publishes only the minimal technical body with ordered second delays and deterministic deduplication', async () => {
@@ -54,7 +89,7 @@ describe('QStashRunScheduler', () => {
       },
       delay: 1,
       retries: 3,
-      deduplicationId: `${runId}:${steps[0].stepId}:1`,
+      deduplicationId: createDispatchDeduplicationId(runId, steps[0].stepId, 1),
     });
     expect(publishJSON).toHaveBeenNthCalledWith(
       2,
@@ -65,9 +100,14 @@ describe('QStashRunScheduler', () => {
           attemptNumber: 1,
         },
         delay: 2,
-        deduplicationId: `${runId}:${steps[1].stepId}:1`,
+        deduplicationId: createDispatchDeduplicationId(
+          runId,
+          steps[1].stepId,
+          1,
+        ),
       }),
     );
+    expect(publishJSON.mock.calls[0]?.[0].deduplicationId).not.toContain(':');
     expect(JSON.stringify(publishJSON.mock.calls)).not.toContain('numerocpf');
     expect(recordStepScheduled).toHaveBeenNthCalledWith(1, {
       stepId: steps[0].stepId,
