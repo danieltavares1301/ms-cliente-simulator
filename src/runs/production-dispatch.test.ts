@@ -131,13 +131,16 @@ describe('createProductionDispatchTarget', () => {
         SALESFORCE_DISPATCH_ENABLED: 'false',
       }),
     );
-    const realTarget = createProductionDispatchTarget(createEnabledEnvironment());
+    const realTarget = createProductionDispatchTarget(
+      createEnabledEnvironment(),
+    );
 
     const fakeResult = await fakeTarget.dispatch(dispatchInput);
     await expect(realTarget.dispatch(dispatchInput)).rejects.toThrow(
       'token endpoint called',
     );
-    const fakeResultAfterRealDispatch = await fakeTarget.dispatch(dispatchInput);
+    const fakeResultAfterRealDispatch =
+      await fakeTarget.dispatch(dispatchInput);
 
     expect(fakeResult.responseRedacted).toMatchObject({
       transport: 'FAKE_SALESFORCE',

@@ -4,13 +4,14 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.4.0**. A Fase 4 (núcleo) mantém o target fake por padrão, mas agora
+Versão **0.4.1**. A Fase 4 (núcleo) mantém o target fake por padrão, mas agora
 persiste o envelope Event Grid de cada step `DISPATCH` e permite habilitar o
 dispatch real para a sandbox autorizada via OAuth2 Client Credentials. O guard
 de segurança valida host, org e `IsSandbox` antes do `POST
-/services/apexrest/Cliente`. Os quatro cenários `CORE` permanecem `READY`;
-callback/verifier e qualquer Test Data Adapter Salesforce continuam fora deste
-incremento.
+/services/apexrest/Cliente`. Um Test Data Adapter isolado e allowlisted executa
+setup, verificação e cleanup de `Account` para os quatro cenários `CORE`.
+A conexão do adapter ao ciclo de runs/QStash, callback e objetos
+Lead/Proponente/PAC/Opportunity continuam fora deste incremento.
 
 ## Quick Start
 
@@ -134,6 +135,9 @@ nenhuma credencial Salesforce é necessária enquanto
 - `SALESFORCE_DISPATCH_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`. Quando `false`, o endpoint interno usa o fake
   `FakeSalesforceDispatchTarget`.
+- `SALESFORCE_TEST_DATA_ENABLED`: `false` por padrão. Só pode ser `true` quando
+  `ORCHESTRATION_ENABLED=true` e `SALESFORCE_DISPATCH_ENABLED=true`. O adapter
+  reutiliza o mesmo OAuth do dispatch e não adiciona segredos.
 - `SALESFORCE_CLIENT_ID` e `SALESFORCE_CLIENT_SECRET`: exigidos somente quando
   `SALESFORCE_DISPATCH_ENABLED=true`.
 - `SALESFORCE_TOKEN_URL`: exigida somente quando
@@ -142,9 +146,10 @@ nenhuma credencial Salesforce é necessária enquanto
 
 As URLs HTTPS têm a barra final removida durante a normalização. O health valida
 a configuração a cada requisição, falha de forma fechada quando ela é inválida
-e responde com `dependencies.configuration: "ok"` e
-`orchestration: disabled|configured` quando válida, sem retornar valores de
-ambiente. `npm run build` não exige configuração real nem acessa integrações.
+e responde com `dependencies.configuration: "ok"`,
+`orchestration: disabled|configured` e `testData: disabled|configured` quando
+válida, sem retornar valores de ambiente nem testar conexão. `npm run build`
+não exige configuração real nem acessa integrações.
 O `Client` e o `Receiver` QStash são construídos de forma lazy somente durante
 agendamento ou recepção com a feature habilitada. Quando o dispatch real é
 ligado, o token OAuth fica apenas em memória do processo e é invalidado sob
@@ -202,6 +207,7 @@ roda automaticamente no build/deploy.
 - [Validação do incremento 3.3](docs/phase-3/increment-3.3-validation.md)
 - [Checkpoint preliminar da Fase 3](docs/phase-3/checkpoint.md)
 - [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
+- [Test Data Adapter da Fase 4](docs/phase-4/test-data-adapter.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
 - [Política de validação de dados de negócio](docs/decisions/0005-business-data-validation-policy.md)

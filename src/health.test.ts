@@ -20,6 +20,7 @@ describe('createHealthResponse', () => {
       status: 'ok',
       version: packageJson.version,
       orchestration: 'disabled',
+      testData: 'disabled',
       dependencies: {
         application: 'ok',
         configuration: 'ok',
@@ -40,6 +41,7 @@ describe('createHealthResponse', () => {
       'status',
       'version',
       'orchestration',
+      'testData',
       'dependencies',
     ]);
     expect(Object.keys(response.dependencies)).toStrictEqual([
@@ -65,8 +67,35 @@ describe('createHealthResponse', () => {
     });
 
     expect(response.orchestration).toBe('configured');
+    expect(response.testData).toBe('disabled');
     expect(JSON.stringify(response)).not.toContain('admin-api-key');
     expect(JSON.stringify(response)).not.toContain('qstash-token');
+  });
+
+  it('reports configured test data without probing Salesforce', () => {
+    const response = createHealthResponse({
+      ...validEnvironment,
+      ORCHESTRATION_ENABLED: 'true',
+      SALESFORCE_DISPATCH_ENABLED: 'true',
+      SALESFORCE_TEST_DATA_ENABLED: 'true',
+      SIMULATOR_ADMIN_API_KEY:
+        'admin-api-key-with-at-least-thirty-two-characters',
+      IDEMPOTENCY_HASH_PEPPER:
+        'idempotency-pepper-with-at-least-thirty-two-characters',
+      PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+      QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+      QSTASH_CURRENT_SIGNING_KEY:
+        'current-signing-key-with-at-least-thirty-two-characters',
+      QSTASH_NEXT_SIGNING_KEY:
+        'next-signing-key-with-at-least-thirty-two-characters',
+      SALESFORCE_CLIENT_ID: 'salesforce-client-id',
+      SALESFORCE_CLIENT_SECRET: 'salesforce-client-secret',
+      SALESFORCE_TOKEN_URL:
+        'https://example.my.salesforce.com/services/oauth2/token',
+    });
+
+    expect(response.testData).toBe('configured');
+    expect(JSON.stringify(response)).not.toContain('salesforce-client');
   });
 
   it('fails closed without returning environment values', () => {

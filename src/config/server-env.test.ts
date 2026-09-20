@@ -17,6 +17,7 @@ describe('parseServerEnvironment', () => {
       ...validEnvironment,
       ORCHESTRATION_ENABLED: false,
       SALESFORCE_DISPATCH_ENABLED: false,
+      SALESFORCE_TEST_DATA_ENABLED: false,
     });
   });
 
@@ -25,6 +26,7 @@ describe('parseServerEnvironment', () => {
 
     expect(configuration.ORCHESTRATION_ENABLED).toBe(false);
     expect(configuration.SALESFORCE_DISPATCH_ENABLED).toBe(false);
+    expect(configuration.SALESFORCE_TEST_DATA_ENABLED).toBe(false);
     expect(configuration).not.toHaveProperty('SIMULATOR_ADMIN_API_KEY');
     expect(configuration).not.toHaveProperty('IDEMPOTENCY_HASH_PEPPER');
     expect(configuration).not.toHaveProperty('QSTASH_TOKEN');
@@ -47,6 +49,7 @@ describe('parseServerEnvironment', () => {
       ...validEnvironment,
       ORCHESTRATION_ENABLED: false,
       SALESFORCE_DISPATCH_ENABLED: false,
+      SALESFORCE_TEST_DATA_ENABLED: false,
     });
   });
 
@@ -80,6 +83,62 @@ describe('parseServerEnvironment', () => {
         SALESFORCE_DISPATCH_ENABLED: 'true',
       }),
     ).toThrowError('SALESFORCE_DISPATCH_ENABLED');
+  });
+
+  it('requires orchestration and real dispatch when Salesforce test data is enabled', () => {
+    expect(() =>
+      parseServerEnvironment({
+        ...validEnvironment,
+        SALESFORCE_TEST_DATA_ENABLED: 'true',
+      }),
+    ).toThrowError('SALESFORCE_TEST_DATA_ENABLED');
+
+    expect(() =>
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        SALESFORCE_TEST_DATA_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      }),
+    ).toThrowError('SALESFORCE_TEST_DATA_ENABLED');
+  });
+
+  it('reuses dispatch OAuth configuration when Salesforce test data is enabled', () => {
+    expect(
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        SALESFORCE_DISPATCH_ENABLED: 'true',
+        SALESFORCE_TEST_DATA_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+        SALESFORCE_CLIENT_ID: 'salesforce-client-id',
+        SALESFORCE_CLIENT_SECRET: 'salesforce-client-secret',
+        SALESFORCE_TOKEN_URL:
+          'https://example.my.salesforce.com/services/oauth2/token',
+      }),
+    ).toMatchObject({
+      ORCHESTRATION_ENABLED: true,
+      SALESFORCE_DISPATCH_ENABLED: true,
+      SALESFORCE_TEST_DATA_ENABLED: true,
+    });
   });
 
   it('requires Salesforce client credentials only when real dispatch is enabled', () => {

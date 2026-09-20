@@ -15,6 +15,9 @@ export function createHealthResponse(
     orchestration: configuration.ORCHESTRATION_ENABLED
       ? 'configured'
       : 'disabled',
+    testData: configuration.SALESFORCE_TEST_DATA_ENABLED
+      ? 'configured'
+      : 'disabled',
     dependencies: {
       application: 'ok',
       configuration: 'ok',

@@ -9,6 +9,7 @@ const serverEnvironmentKeys = [
   'QSTASH_URL',
   'ORCHESTRATION_ENABLED',
   'SALESFORCE_DISPATCH_ENABLED',
+  'SALESFORCE_TEST_DATA_ENABLED',
   'SIMULATOR_ADMIN_API_KEY',
   'IDEMPOTENCY_HASH_PEPPER',
   'PUBLIC_APP_BASE_URL',
@@ -178,6 +179,10 @@ const serverEnvironmentSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    SALESFORCE_TEST_DATA_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     SIMULATOR_ADMIN_API_KEY: z.string().optional(),
     IDEMPOTENCY_HASH_PEPPER: z.string().optional(),
     PUBLIC_APP_BASE_URL: z.string().optional(),
@@ -197,6 +202,19 @@ const serverEnvironmentSchema = z
         code: 'custom',
         path: ['SALESFORCE_DISPATCH_ENABLED'],
         message: 'Real Salesforce dispatch requires ORCHESTRATION_ENABLED=true',
+      });
+    }
+
+    if (
+      configuration.SALESFORCE_TEST_DATA_ENABLED &&
+      (!configuration.ORCHESTRATION_ENABLED ||
+        !configuration.SALESFORCE_DISPATCH_ENABLED)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['SALESFORCE_TEST_DATA_ENABLED'],
+        message:
+          'Salesforce test data requires orchestration and real dispatch',
       });
     }
 
@@ -296,6 +314,7 @@ const serverEnvironmentSchema = z
         QSTASH_URL: configuration.QSTASH_URL,
         ORCHESTRATION_ENABLED: false as const,
         SALESFORCE_DISPATCH_ENABLED: false as const,
+        SALESFORCE_TEST_DATA_ENABLED: false as const,
       };
     }
 
@@ -304,6 +323,7 @@ const serverEnvironmentSchema = z
         ...configuration,
         ORCHESTRATION_ENABLED: true as const,
         SALESFORCE_DISPATCH_ENABLED: false as const,
+        SALESFORCE_TEST_DATA_ENABLED: false as const,
         PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
           configuration.PUBLIC_APP_BASE_URL,
         ),
@@ -314,6 +334,7 @@ const serverEnvironmentSchema = z
       ...configuration,
       ORCHESTRATION_ENABLED: true as const,
       SALESFORCE_DISPATCH_ENABLED: true as const,
+      SALESFORCE_TEST_DATA_ENABLED: configuration.SALESFORCE_TEST_DATA_ENABLED,
       PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
         configuration.PUBLIC_APP_BASE_URL,
       ),
@@ -337,10 +358,12 @@ export type ServerEnvironment = BaseServerEnvironment &
     | {
         ORCHESTRATION_ENABLED: false;
         SALESFORCE_DISPATCH_ENABLED: false;
+        SALESFORCE_TEST_DATA_ENABLED: false;
       }
     | {
         ORCHESTRATION_ENABLED: true;
         SALESFORCE_DISPATCH_ENABLED: false;
+        SALESFORCE_TEST_DATA_ENABLED: false;
         SIMULATOR_ADMIN_API_KEY: string;
         IDEMPOTENCY_HASH_PEPPER: string;
         PUBLIC_APP_BASE_URL: string;
@@ -351,6 +374,7 @@ export type ServerEnvironment = BaseServerEnvironment &
     | {
         ORCHESTRATION_ENABLED: true;
         SALESFORCE_DISPATCH_ENABLED: true;
+        SALESFORCE_TEST_DATA_ENABLED: boolean;
         SIMULATOR_ADMIN_API_KEY: string;
         IDEMPOTENCY_HASH_PEPPER: string;
         PUBLIC_APP_BASE_URL: string;
