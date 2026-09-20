@@ -67,6 +67,7 @@ class MemoryRunRepository implements RunRepository {
         id: `22222222-2222-4222-8222-${String(index).padStart(12, '0')}`,
         runId: persisted.id,
         eventType: step.eventType ?? null,
+        eventEnvelope: step.eventEnvelope ?? null,
         scheduledAt: step.scheduledAt ?? null,
         startedAt: step.startedAt ?? null,
         finishedAt: step.finishedAt ?? null,
@@ -190,6 +191,16 @@ class MemoryRunRepository implements RunRepository {
     throw new Error('not used');
   }
 
+  async getDispatchPayload(input: {
+    runId: string;
+    stepId: string;
+  }): Promise<RunStep['eventEnvelope']> {
+    return (
+      this.steps.get(input.runId)?.find(({ id }) => id === input.stepId)
+        ?.eventEnvelope ?? null
+    );
+  }
+
   claimDispatch(): never {
     throw new Error('not used');
   }
@@ -215,7 +226,7 @@ function createService(repository: RunRepository, scheduler?: Scheduler) {
 }
 
 describe('run orchestration service', () => {
-  it('renders and persists a dry run without scheduling or raw payload persistence', async () => {
+  it('renders and persists a dry run with sanitized metadata and the real dispatch envelope', async () => {
     const repository = new MemoryRunRepository();
     const scheduler = { schedule: vi.fn(), cancelPending: vi.fn() };
     const result = await createService(repository, scheduler).createRun({
@@ -235,8 +246,15 @@ describe('run orchestration service', () => {
     expect(repository.runs[0].variablesRedacted).toStrictEqual({
       keys: ['eventStartAt', 'seed'],
     });
-    expect(JSON.stringify([...repository.steps.values()])).not.toContain(
-      'numerocpf',
+    const persistedDispatch = [...repository.steps.values()]
+      .flat()
+      .find(({ stepKind }) => stepKind === 'DISPATCH');
+    expect(persistedDispatch?.requestRedacted).toStrictEqual({
+      eventId: expect.any(String),
+      eventType: 'cliente-update',
+    });
+    expect(persistedDispatch?.eventEnvelope?.[0].data.numerocpf).toMatch(
+      /^\d{11}$/,
     );
     expect(
       [...repository.steps.values()]

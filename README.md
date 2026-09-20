@@ -4,11 +4,13 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.3.0**. O incremento 3.3 adiciona cancelamento e retry administrativos,
-máquina de estados pura e auditoria sanitizada. O cancelamento usa
-`client.messages.cancel`, e retries preservam tentativas anteriores. Os quatro
-cenários `CORE` permanecem `READY`; callback/verifier e qualquer Salesforce real
-continuam fora deste incremento.
+Versão **0.4.0**. A Fase 4 (núcleo) mantém o target fake por padrão, mas agora
+persiste o envelope Event Grid de cada step `DISPATCH` e permite habilitar o
+dispatch real para a sandbox autorizada via OAuth2 Client Credentials. O guard
+de segurança valida host, org e `IsSandbox` antes do `POST
+/services/apexrest/Cliente`. Os quatro cenários `CORE` permanecem `READY`;
+callback/verifier e qualquer Test Data Adapter Salesforce continuam fora deste
+incremento.
 
 ## Quick Start
 
@@ -115,8 +117,9 @@ existente nem implementa parsing textual.
 
 Use `.env.example` como referência e mantenha valores reais apenas em arquivos
 locais ignorados pelo Git ou no gerenciador seguro do ambiente. Nunca versione
-URLs com credenciais. O projeto não exige tokens Salesforce nem credenciais de
-client Salesforce.
+URLs com credenciais. Por padrão, o dispatch continua usando o target fake;
+nenhuma credencial Salesforce é necessária enquanto
+`SALESFORCE_DISPATCH_ENABLED=false`.
 
 - `APP_ENV`: `development`, `test` ou `production`; quando omitida, usa
   `development`.
@@ -128,6 +131,14 @@ client Salesforce.
 - `ORCHESTRATION_ENABLED`: `false` por padrão. Quando `true`, exige os segredos
   server-only e a URL pública HTTPS descritos em
   [database-and-feature-gate.md](docs/phase-3/database-and-feature-gate.md).
+- `SALESFORCE_DISPATCH_ENABLED`: `false` por padrão. Só pode ser `true` quando
+  `ORCHESTRATION_ENABLED=true`. Quando `false`, o endpoint interno usa o fake
+  `FakeSalesforceDispatchTarget`.
+- `SALESFORCE_CLIENT_ID` e `SALESFORCE_CLIENT_SECRET`: exigidos somente quando
+  `SALESFORCE_DISPATCH_ENABLED=true`.
+- `SALESFORCE_TOKEN_URL`: exigida somente quando
+  `SALESFORCE_DISPATCH_ENABLED=true`; deve ser HTTPS, sem credenciais/query/fragment
+  e terminar em `/services/oauth2/token`.
 
 As URLs HTTPS têm a barra final removida durante a normalização. O health valida
 a configuração a cada requisição, falha de forma fechada quando ela é inválida
@@ -135,7 +146,10 @@ e responde com `dependencies.configuration: "ok"` e
 `orchestration: disabled|configured` quando válida, sem retornar valores de
 ambiente. `npm run build` não exige configuração real nem acessa integrações.
 O `Client` e o `Receiver` QStash são construídos de forma lazy somente durante
-agendamento ou recepção com a feature habilitada.
+agendamento ou recepção com a feature habilitada. Quando o dispatch real é
+ligado, o token OAuth fica apenas em memória do processo e é invalidado sob
+demanda após `401`, já que o fluxo Client Credentials do Salesforce não expõe
+`expires_in` de forma confiável nesse cenário.
 
 ## Comandos de desenvolvimento
 

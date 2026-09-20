@@ -1,0 +1,1 @@
+ALTER TABLE "scenario_run_step" ADD COLUMN "event_envelope" jsonb;

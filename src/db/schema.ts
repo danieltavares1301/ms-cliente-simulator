@@ -13,6 +13,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { EventGridEnvelope } from '../contracts';
+
 const redactedJson = (name: string) =>
   jsonb(name).$type<Record<string, unknown>>().notNull().default({});
 
@@ -131,6 +133,7 @@ export const scenarioRunStep = pgTable(
     scheduledAt: timestampWithTimezone('scheduled_at'),
     startedAt: timestampWithTimezone('started_at'),
     finishedAt: timestampWithTimezone('finished_at'),
+    eventEnvelope: jsonb('event_envelope').$type<EventGridEnvelope>(),
     requestRedacted: redactedJson('request_redacted'),
     responseRedacted: redactedJson('response_redacted'),
     httpStatus: integer('http_status'),

@@ -8,12 +8,16 @@ const serverEnvironmentKeys = [
   'DATABASE_URL',
   'QSTASH_URL',
   'ORCHESTRATION_ENABLED',
+  'SALESFORCE_DISPATCH_ENABLED',
   'SIMULATOR_ADMIN_API_KEY',
   'IDEMPOTENCY_HASH_PEPPER',
   'PUBLIC_APP_BASE_URL',
   'QSTASH_TOKEN',
   'QSTASH_CURRENT_SIGNING_KEY',
   'QSTASH_NEXT_SIGNING_KEY',
+  'SALESFORCE_CLIENT_ID',
+  'SALESFORCE_CLIENT_SECRET',
+  'SALESFORCE_TOKEN_URL',
 ] as const;
 
 const serverEnvironmentKeySet = new Set<string>(serverEnvironmentKeys);
@@ -117,6 +121,30 @@ const securePublicUrlSchema = z.string().transform((value, context) => {
   return normalizeTrailingSlash(url);
 });
 
+const salesforceTokenUrlSchema = z.string().transform((value, context) => {
+  const url = parseUrl(value);
+
+  if (
+    url === undefined ||
+    url.protocol !== 'https:' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    value.includes('?') ||
+    value.includes('#') ||
+    url.pathname.replace(/\/+$/, '') !== '/services/oauth2/token'
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Invalid secure URL',
+    });
+    return z.NEVER;
+  }
+
+  return normalizeTrailingSlash(url);
+});
+
 const orchestrationOnlyKeys = [
   'SIMULATOR_ADMIN_API_KEY',
   'IDEMPOTENCY_HASH_PEPPER',
@@ -124,6 +152,12 @@ const orchestrationOnlyKeys = [
   'QSTASH_TOKEN',
   'QSTASH_CURRENT_SIGNING_KEY',
   'QSTASH_NEXT_SIGNING_KEY',
+] as const;
+
+const salesforceDispatchOnlyKeys = [
+  'SALESFORCE_CLIENT_ID',
+  'SALESFORCE_CLIENT_SECRET',
+  'SALESFORCE_TOKEN_URL',
 ] as const;
 
 const serverEnvironmentSchema = z
@@ -140,14 +174,32 @@ const serverEnvironmentSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    SALESFORCE_DISPATCH_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     SIMULATOR_ADMIN_API_KEY: z.string().optional(),
     IDEMPOTENCY_HASH_PEPPER: z.string().optional(),
     PUBLIC_APP_BASE_URL: z.string().optional(),
     QSTASH_TOKEN: z.string().optional(),
     QSTASH_CURRENT_SIGNING_KEY: z.string().optional(),
     QSTASH_NEXT_SIGNING_KEY: z.string().optional(),
+    SALESFORCE_CLIENT_ID: z.string().optional(),
+    SALESFORCE_CLIENT_SECRET: z.string().optional(),
+    SALESFORCE_TOKEN_URL: z.string().optional(),
   })
   .superRefine((configuration, context) => {
+    if (
+      configuration.SALESFORCE_DISPATCH_ENABLED &&
+      !configuration.ORCHESTRATION_ENABLED
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['SALESFORCE_DISPATCH_ENABLED'],
+        message: 'Real Salesforce dispatch requires ORCHESTRATION_ENABLED=true',
+      });
+    }
+
     if (!configuration.ORCHESTRATION_ENABLED) {
       return;
     }
@@ -191,6 +243,47 @@ const serverEnvironmentSchema = z
         message: 'Invalid secure URL',
       });
     }
+
+    if (!configuration.SALESFORCE_DISPATCH_ENABLED) {
+      return;
+    }
+
+    for (const variableName of salesforceDispatchOnlyKeys) {
+      const value = configuration[variableName];
+      if (value === undefined || value === '') {
+        context.addIssue({
+          code: 'custom',
+          path: [variableName],
+          message: 'Required when real Salesforce dispatch is enabled',
+        });
+      }
+    }
+
+    for (const variableName of [
+      'SALESFORCE_CLIENT_ID',
+      'SALESFORCE_CLIENT_SECRET',
+    ] as const) {
+      const value = configuration[variableName];
+      if (value !== undefined && value.length < 15) {
+        context.addIssue({
+          code: 'custom',
+          path: [variableName],
+          message: 'Secret is too short',
+        });
+      }
+    }
+
+    if (
+      configuration.SALESFORCE_TOKEN_URL !== undefined &&
+      !salesforceTokenUrlSchema.safeParse(configuration.SALESFORCE_TOKEN_URL)
+        .success
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['SALESFORCE_TOKEN_URL'],
+        message: 'Invalid secure URL',
+      });
+    }
   })
   .transform((configuration) => {
     if (!configuration.ORCHESTRATION_ENABLED) {
@@ -202,14 +295,30 @@ const serverEnvironmentSchema = z
         DATABASE_URL: configuration.DATABASE_URL,
         QSTASH_URL: configuration.QSTASH_URL,
         ORCHESTRATION_ENABLED: false as const,
+        SALESFORCE_DISPATCH_ENABLED: false as const,
+      };
+    }
+
+    if (!configuration.SALESFORCE_DISPATCH_ENABLED) {
+      return {
+        ...configuration,
+        ORCHESTRATION_ENABLED: true as const,
+        SALESFORCE_DISPATCH_ENABLED: false as const,
+        PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
+          configuration.PUBLIC_APP_BASE_URL,
+        ),
       };
     }
 
     return {
       ...configuration,
       ORCHESTRATION_ENABLED: true as const,
+      SALESFORCE_DISPATCH_ENABLED: true as const,
       PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
         configuration.PUBLIC_APP_BASE_URL,
+      ),
+      SALESFORCE_TOKEN_URL: salesforceTokenUrlSchema.parse(
+        configuration.SALESFORCE_TOKEN_URL,
       ),
     };
   });
@@ -225,15 +334,32 @@ type BaseServerEnvironment = {
 
 export type ServerEnvironment = BaseServerEnvironment &
   (
-    | { ORCHESTRATION_ENABLED: false }
+    | {
+        ORCHESTRATION_ENABLED: false;
+        SALESFORCE_DISPATCH_ENABLED: false;
+      }
     | {
         ORCHESTRATION_ENABLED: true;
+        SALESFORCE_DISPATCH_ENABLED: false;
         SIMULATOR_ADMIN_API_KEY: string;
         IDEMPOTENCY_HASH_PEPPER: string;
         PUBLIC_APP_BASE_URL: string;
         QSTASH_TOKEN: string;
         QSTASH_CURRENT_SIGNING_KEY: string;
         QSTASH_NEXT_SIGNING_KEY: string;
+      }
+    | {
+        ORCHESTRATION_ENABLED: true;
+        SALESFORCE_DISPATCH_ENABLED: true;
+        SIMULATOR_ADMIN_API_KEY: string;
+        IDEMPOTENCY_HASH_PEPPER: string;
+        PUBLIC_APP_BASE_URL: string;
+        QSTASH_TOKEN: string;
+        QSTASH_CURRENT_SIGNING_KEY: string;
+        QSTASH_NEXT_SIGNING_KEY: string;
+        SALESFORCE_CLIENT_ID: string;
+        SALESFORCE_CLIENT_SECRET: string;
+        SALESFORCE_TOKEN_URL: string;
       }
   );
 

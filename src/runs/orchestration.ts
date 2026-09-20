@@ -136,6 +136,7 @@ function deriveSteps(
     eventType: step.eventType,
     status: dispatchStatus,
     scheduledAt: new Date(eventStart + step.delayMs / speed),
+    eventEnvelope: step.envelope,
     requestRedacted: {
       eventId: step.envelope[0].id,
       eventType: step.eventType,

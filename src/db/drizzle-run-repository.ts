@@ -65,6 +65,24 @@ function assertLimit(limit: number): void {
   }
 }
 
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableValue);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, stableValue(nested)]),
+    );
+  }
+  return value;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(stableValue(value));
+}
+
 function asRun(row: typeof scenarioRun.$inferSelect): Run {
   return row;
 }
@@ -1226,6 +1244,25 @@ export class DrizzleRunRepository<
     };
   }
 
+  async getDispatchPayload(input: {
+    runId: string;
+    stepId: string;
+  }): Promise<RunStep['eventEnvelope']> {
+    const [step] = await this.database
+      .select({ eventEnvelope: scenarioRunStep.eventEnvelope })
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.id, input.stepId),
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, 'DISPATCH'),
+        ),
+      )
+      .limit(1);
+
+    return step?.eventEnvelope ?? null;
+  }
+
   async completeDispatch(input: {
     runId: string;
     stepId: string;
@@ -1439,6 +1476,8 @@ export class DrizzleRunRepository<
           actual.ordinal === expected.ordinal &&
           actual.target === expected.target &&
           actual.eventType === (expected.eventType ?? null) &&
+          stableStringify(actual.eventEnvelope) ===
+            stableStringify(expected.eventEnvelope ?? null) &&
           actual.stepKind === expected.stepKind
         );
       });

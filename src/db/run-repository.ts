@@ -1,3 +1,5 @@
+import type { EventGridEnvelope } from '../contracts';
+
 export const runStatuses = [
   'CREATED',
   'PROVISIONING',
@@ -68,6 +70,7 @@ export interface RunStep {
   scheduledAt: Date | null;
   startedAt: Date | null;
   finishedAt: Date | null;
+  eventEnvelope: EventGridEnvelope | null;
   requestRedacted: RedactedMetadata;
   responseRedacted: RedactedMetadata;
   httpStatus: number | null;
@@ -139,6 +142,7 @@ export type NewRunStep = Omit<
   | 'scheduledAt'
   | 'startedAt'
   | 'finishedAt'
+  | 'eventEnvelope'
   | 'httpStatus'
   | 'durationMs'
   | 'attemptCount'
@@ -151,6 +155,7 @@ export type NewRunStep = Omit<
   scheduledAt?: Date | null;
   startedAt?: Date | null;
   finishedAt?: Date | null;
+  eventEnvelope?: EventGridEnvelope | null;
   httpStatus?: number | null;
   durationMs?: number | null;
   attemptCount?: number;
@@ -316,6 +321,10 @@ export interface RunRepository {
     attemptNumber: number;
     claimedAt: Date;
   }): Promise<DispatchClaimResult>;
+  getDispatchPayload(input: {
+    runId: string;
+    stepId: string;
+  }): Promise<EventGridEnvelope | null>;
   completeDispatch(input: {
     runId: string;
     stepId: string;

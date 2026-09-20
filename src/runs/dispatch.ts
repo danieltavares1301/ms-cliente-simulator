@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Receiver } from '@upstash/qstash';
 import { z } from 'zod';
 
+import type { EventGridEnvelope } from '../contracts';
 import { restErrorResponseSchema } from '../contracts';
 import type { RunRepository } from '../db/run-repository';
 
@@ -27,7 +28,7 @@ export interface DispatchReceiver {
 }
 
 export interface DispatchTarget {
-  dispatch(input: DispatchRequest): Promise<{
+  dispatch(input: DispatchRequest & { envelope: EventGridEnvelope }): Promise<{
     httpStatus: number;
     durationMs: number;
     responseRedacted: Record<string, unknown>;
@@ -35,11 +36,14 @@ export interface DispatchTarget {
 }
 
 export class FakeSalesforceDispatchTarget implements DispatchTarget {
-  async dispatch(): Promise<{
+  async dispatch(
+    input: DispatchRequest & { envelope: EventGridEnvelope },
+  ): Promise<{
     httpStatus: number;
     durationMs: number;
     responseRedacted: Record<string, unknown>;
   }> {
+    void input;
     return {
       httpStatus: 200,
       durationMs: 0,
@@ -198,10 +202,36 @@ export function createDispatchHandler(
     }
 
     const requestId = requestIdFactory();
+    let envelope: EventGridEnvelope | null;
+    try {
+      envelope = await repository.getDispatchPayload({
+        runId: parsed.data.runId,
+        stepId: parsed.data.stepId,
+      });
+    } catch {
+      return errorResponse(
+        503,
+        'DISPATCH_PERSISTENCE_FAILED',
+        'Dispatch payload persistence failed',
+        { 'Retry-After': '1' },
+      );
+    }
+    if (envelope === null) {
+      return errorResponse(
+        503,
+        'DISPATCH_PERSISTENCE_FAILED',
+        'Dispatch payload persistence failed',
+        { 'Retry-After': '1' },
+      );
+    }
+
     let targetFailed = false;
     let result: Awaited<ReturnType<DispatchTarget['dispatch']>>;
     try {
-      result = await dependencies.target.dispatch(parsed.data);
+      result = await dependencies.target.dispatch({
+        ...parsed.data,
+        envelope,
+      });
     } catch {
       targetFailed = true;
       result = {

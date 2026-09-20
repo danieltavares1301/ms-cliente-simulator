@@ -51,6 +51,23 @@ function createInput(overrides: CreateInputOverrides = {}): CreateRunInput {
         ordinal: 1,
         target: 'EVENT_GRID',
         eventType: 'CLIENTE',
+        eventEnvelope: [
+          {
+            id: 'evt-1',
+            subject: 'cliente/evt-1',
+            eventType: 'cliente-update',
+            eventTime: '2026-08-21T10:00:00Z',
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/subscriptions/test/topics/clientes',
+            data: {
+              idcliente: 'cli-1',
+              id: 'cli-1',
+              numerocpf: '12345678901',
+              dataalteracao: '2026-08-21T10:00:00Z',
+            },
+          },
+        ],
         status: 'PENDING',
         requestRedacted: {},
         responseRedacted: {},
@@ -105,6 +122,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     );
     expect(stepColumns.rows.map(({ column_name }) => column_name)).toEqual(
       expect.arrayContaining([
+        'event_envelope',
         'scheduling_kind',
         'scheduling_lease_expires_at',
       ]),
@@ -133,6 +151,9 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       limit: 100,
     });
     expect(steps.items).toHaveLength(2);
+    expect(steps.items[1].eventEnvelope).toStrictEqual(
+      createInput().steps[1]?.eventEnvelope,
+    );
     expect((await repository.listRuns({ limit: 1 })).items).toHaveLength(1);
 
     await repository.appendAuditEvent({
@@ -347,6 +368,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       errorCode: null,
       finishedAt: new Date('2026-08-22T12:00:00.000Z'),
     });
+
     await expect(
       repository.claimDispatch({
         runId: created.run.id,
@@ -383,6 +405,20 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(await repository.listDeliveryAttempts(second.id, 10)).toHaveLength(
       1,
     );
+  });
+
+  it('returns the persisted dispatch envelope for the handler payload reconstruction', async () => {
+    const created = await repository.createRun(createInput());
+    const dispatchStep = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items[1];
+
+    await expect(
+      repository.getDispatchPayload({
+        runId: created.run.id,
+        stepId: dispatchStep.id,
+      }),
+    ).resolves.toStrictEqual(createInput().steps[1]?.eventEnvelope);
   });
 
   it('completes a dispatch through a Neon-compatible adapter that rejects transactions', async () => {
