@@ -106,9 +106,10 @@ describe('createProductionDispatchTarget', () => {
     vi.stubGlobal('fetch', fetchMock);
     const target = createProductionDispatchTarget(createEnabledEnvironment());
 
-    await expect(target.dispatch(dispatchInput)).rejects.toThrow(
-      'token endpoint called',
-    );
+    await expect(target.dispatch(dispatchInput)).resolves.toMatchObject({
+      httpStatus: 503,
+      responseRedacted: { statusText: 'SALESFORCE_NETWORK_ERROR' },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       'https://example.my.salesforce.com/services/oauth2/token',
@@ -136,9 +137,10 @@ describe('createProductionDispatchTarget', () => {
     );
 
     const fakeResult = await fakeTarget.dispatch(dispatchInput);
-    await expect(realTarget.dispatch(dispatchInput)).rejects.toThrow(
-      'token endpoint called',
-    );
+    await expect(realTarget.dispatch(dispatchInput)).resolves.toMatchObject({
+      httpStatus: 503,
+      responseRedacted: { statusText: 'SALESFORCE_NETWORK_ERROR' },
+    });
     const fakeResultAfterRealDispatch =
       await fakeTarget.dispatch(dispatchInput);
 

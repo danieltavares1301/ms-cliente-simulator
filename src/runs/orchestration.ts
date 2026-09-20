@@ -23,7 +23,9 @@ export type RunServiceErrorCode =
   | 'SCENARIO_NOT_READY'
   | 'SCHEDULER_NOT_CONFIGURED'
   | 'SCHEDULING_FAILED'
-  | 'TEST_DATA_SETUP_FAILED';
+  | 'TEST_DATA_SETUP_FAILED'
+  | 'SALESFORCE_DISPATCH_DISABLED'
+  | 'SALESFORCE_TEST_DATA_DISABLED';
 
 export class RunServiceError extends Error {
   constructor(
@@ -49,6 +51,7 @@ type ServiceDependencies = {
   now?: () => Date;
   generateRunId?: () => string;
   testDataEnabled?: boolean;
+  dispatchMode?: 'FAKE' | 'SALESFORCE';
   testDataAdapter?: SalesforceTestDataAdapter;
 };
 
@@ -226,17 +229,6 @@ export function createRunOrchestrationService(
           'Scheduler is not configured',
         );
       }
-      if (
-        !input.request.execution.dryRun &&
-        dependencies.testDataEnabled === true &&
-        dependencies.testDataAdapter === undefined
-      ) {
-        throw new RunServiceError(
-          'TEST_DATA_SETUP_FAILED',
-          'Salesforce test data adapter is not configured',
-        );
-      }
-
       const definition = scenarioCatalog.get(
         input.request.scenarioKey,
         input.request.scenarioVersion,
@@ -315,6 +307,8 @@ export function createRunOrchestrationService(
                     fixture.asyncPolicy.waitTimeoutMs,
                 ),
           cleanupPolicy: 'ALWAYS',
+          dispatchMode: dependencies.dispatchMode ?? 'FAKE',
+          testDataEnabled: dependencies.testDataEnabled === true,
           retentionExpiresAt: new Date(
             createdAt.getTime() + 7 * 24 * 60 * 60 * 1_000,
           ),
@@ -326,6 +320,36 @@ export function createRunOrchestrationService(
         throw new RunServiceError(
           'IDEMPOTENCY_CONFLICT',
           'Idempotency key was already used with a different request',
+        );
+      }
+      if (
+        !input.request.execution.dryRun &&
+        result.run.dispatchMode === 'SALESFORCE' &&
+        dependencies.dispatchMode !== 'SALESFORCE'
+      ) {
+        throw new RunServiceError(
+          'SALESFORCE_DISPATCH_DISABLED',
+          'Salesforce dispatch is temporarily disabled',
+        );
+      }
+      if (
+        !input.request.execution.dryRun &&
+        result.run.testDataEnabled &&
+        dependencies.testDataEnabled !== true
+      ) {
+        throw new RunServiceError(
+          'SALESFORCE_TEST_DATA_DISABLED',
+          'Salesforce test data lifecycle is temporarily disabled',
+        );
+      }
+      if (
+        !input.request.execution.dryRun &&
+        result.run.testDataEnabled &&
+        dependencies.testDataAdapter === undefined
+      ) {
+        throw new RunServiceError(
+          'TEST_DATA_SETUP_FAILED',
+          'Salesforce test data adapter is not configured',
         );
       }
       let responseRun = result.run;
@@ -344,7 +368,7 @@ export function createRunOrchestrationService(
         });
         if (claim.outcome === 'CLAIMED') {
           if (
-            dependencies.testDataEnabled === true &&
+            result.run.testDataEnabled &&
             dependencies.testDataAdapter !== undefined
           ) {
             const setup = await createSalesforceLifecycleService({
@@ -398,6 +422,17 @@ export function createRunOrchestrationService(
                 })),
             });
           } catch {
+            if (
+              responseRun.testDataEnabled &&
+              dependencies.testDataAdapter !== undefined
+            ) {
+              await createSalesforceLifecycleService({
+                repository: dependencies.repository,
+                adapter: dependencies.testDataAdapter,
+                actor: dependencies.requestedBy,
+                now,
+              }).compensate(result.run.id);
+            }
             throw new RunServiceError(
               'SCHEDULING_FAILED',
               'Run was persisted but QStash scheduling failed',

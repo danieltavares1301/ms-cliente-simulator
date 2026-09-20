@@ -1,11 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { SalesforceNetworkError } from './network-policy';
+import { SALESFORCE_NETWORK_TIMEOUT_MS } from './network-policy';
+import { DEFAULT_LIFECYCLE_CLAIM_RECOVERY_MS } from '../db/drizzle-run-repository';
 import { SalesforceOAuthClient } from './oauth-client';
 
 describe('SalesforceOAuthClient', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('uses a network timeout shorter than the lifecycle claim lease', () => {
+    expect(SALESFORCE_NETWORK_TIMEOUT_MS).toBeLessThan(
+      DEFAULT_LIFECYCLE_CLAIM_RECOVERY_MS,
+    );
   });
 
   it('requests a client-credentials token and reuses the in-memory cache', async () => {
@@ -39,6 +48,8 @@ describe('SalesforceOAuthClient', () => {
       'https://example.my.salesforce.com/services/oauth2/token',
       expect.objectContaining({
         method: 'POST',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
         headers: {
           'content-type': 'application/x-www-form-urlencoded',
         },
@@ -49,6 +60,57 @@ describe('SalesforceOAuthClient', () => {
     expect(String(options?.body)).toBe(
       'grant_type=client_credentials&client_id=salesforce-client-id&client_secret=salesforce-client-secret',
     );
+  });
+
+  it.each([301, 302, 307, 308])(
+    'does not follow an OAuth redirect or resend credentials (%s)',
+    async (status) => {
+      const bodies: string[] = [];
+      const fetchMock = vi.fn<typeof fetch>(async (_url, init) => {
+        bodies.push(String(init?.body));
+        expect(init?.redirect).toBe('error');
+        throw new TypeError(`redirect ${status} blocked`);
+      });
+      const client = new SalesforceOAuthClient({
+        clientId: 'salesforce-client-id',
+        clientSecret: 'salesforce-client-secret',
+        tokenUrl: 'https://example.my.salesforce.com/services/oauth2/token',
+        fetchFn: fetchMock,
+      });
+
+      await expect(client.getAccess()).rejects.toBeInstanceOf(
+        SalesforceNetworkError,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(bodies).toStrictEqual([
+        'grant_type=client_credentials&client_id=salesforce-client-id&client_secret=salesforce-client-secret',
+      ]);
+    },
+  );
+
+  it('returns a typed redacted timeout without credential material', async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      (_request, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(init.signal?.reason),
+          );
+        }),
+    );
+    const client = new SalesforceOAuthClient({
+      clientId: 'do-not-leak-client',
+      clientSecret: 'do-not-leak-secret',
+      tokenUrl: 'https://example.my.salesforce.com/services/oauth2/token',
+      fetchFn,
+      networkTimeoutMs: 1,
+    });
+
+    const operation = client.getAccess();
+    await expect(operation).rejects.toMatchObject({
+      name: 'SalesforceNetworkError',
+      code: 'SALESFORCE_REQUEST_TIMEOUT',
+    });
+    await expect(operation).rejects.not.toThrow(/do-not-leak/);
   });
 
   it('invalidates the cached token on demand', async () => {

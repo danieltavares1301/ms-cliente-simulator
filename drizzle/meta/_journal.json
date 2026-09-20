@@ -36,6 +36,13 @@
       "when": 1789923561383,
       "tag": "0004_misty_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789926706644,
+      "tag": "0005_clumsy_cammi",
+      "breakpoints": true
     }
   ]
 }

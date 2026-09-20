@@ -25,6 +25,7 @@ export const productionDispatchHandler = createDispatchHandler({
       nextSigningKey: configuration.QSTASH_NEXT_SIGNING_KEY,
     });
   },
-  target: productionSalesforceServices.dispatchTarget,
+  fakeTarget: productionSalesforceServices.fakeDispatchTarget,
+  salesforceTarget: productionSalesforceServices.salesforceDispatchTarget,
   testDataAdapter: productionSalesforceServices.testDataAdapter,
 });

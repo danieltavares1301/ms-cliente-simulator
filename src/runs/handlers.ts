@@ -64,11 +64,14 @@ type HandlerDependencies = {
     idempotencyPepper: string;
     requestedBy: string;
     testDataEnabled?: boolean;
+    dispatchMode?: 'FAKE' | 'SALESFORCE';
     testDataAdapter?: SalesforceTestDataAdapter;
   }) => RunService;
   administrationServiceFactory?: (dependencies: {
     repository: RunRepository;
     scheduler: Scheduler;
+    testDataAdapter?: SalesforceTestDataAdapter;
+    testDataAvailable?: boolean;
   }) => AdministrationService;
 };
 
@@ -76,12 +79,16 @@ function errorResponse(
   status: number,
   code: string,
   message: string,
+  extraHeaders: HeadersInit = {},
 ): Response {
   return Response.json(
     restErrorResponseSchema.parse({
       error: { code, message, requestId: randomUUID() },
     }),
-    { status, headers: { 'Cache-Control': 'no-store' } },
+    {
+      status,
+      headers: { 'Cache-Control': 'no-store', ...extraHeaders },
+    },
   );
 }
 
@@ -273,6 +280,10 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
           requestedBy,
           testDataEnabled:
             dependencies.environment.SALESFORCE_TEST_DATA_ENABLED === 'true',
+          dispatchMode:
+            dependencies.environment.SALESFORCE_DISPATCH_ENABLED === 'true'
+              ? 'SALESFORCE'
+              : 'FAKE',
           testDataAdapter: dependencies.testDataAdapter,
         });
         const result = await service.createRun({
@@ -311,6 +322,17 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
               503,
               code,
               'Salesforce test data setup failed',
+            );
+          }
+          if (
+            code === 'SALESFORCE_DISPATCH_DISABLED' ||
+            code === 'SALESFORCE_TEST_DATA_DISABLED'
+          ) {
+            return errorResponse(
+              503,
+              code,
+              'Required Salesforce execution mode is temporarily disabled',
+              { 'Retry-After': '60' },
             );
           }
           if (code === 'SCENARIO_NOT_READY' || code === 'INVALID_VARIABLES') {
@@ -442,7 +464,13 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
           dependencies.administrationServiceFactory ??
           createRunAdministrationService;
         const body = parsed.data as z.infer<typeof cancelRunRequestSchema>;
-        const result = await factory({ repository, scheduler }).cancelRun({
+        const result = await factory({
+          repository,
+          scheduler,
+          testDataAdapter: dependencies.testDataAdapter,
+          testDataAvailable:
+            dependencies.environment.SALESFORCE_TEST_DATA_ENABLED === 'true',
+        }).cancelRun({
           runId,
           ...(body.reasonCode === undefined
             ? {}

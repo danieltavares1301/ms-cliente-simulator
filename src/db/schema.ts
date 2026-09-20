@@ -63,6 +63,8 @@ export const schedulingKindEnum = pgEnum('scheduling_kind', [
   'RETRY',
 ]);
 
+export const dispatchModeEnum = pgEnum('dispatch_mode', ['FAKE', 'SALESFORCE']);
+
 export const scenarioRun = pgTable(
   'scenario_run',
   {
@@ -82,6 +84,8 @@ export const scenarioRun = pgTable(
     expectedCallbackMax: integer('expected_callback_max').notNull().default(0),
     asyncWaitDeadline: timestampWithTimezone('async_wait_deadline'),
     cleanupPolicy: cleanupPolicyEnum('cleanup_policy').notNull(),
+    dispatchMode: dispatchModeEnum('dispatch_mode').notNull().default('FAKE'),
+    testDataEnabled: boolean('test_data_enabled').notNull().default(false),
     createdAt: timestampWithTimezone('created_at').notNull().defaultNow(),
     startedAt: timestampWithTimezone('started_at'),
     finishedAt: timestampWithTimezone('finished_at'),
@@ -147,6 +151,7 @@ export const scenarioRunStep = pgTable(
     schedulingLeaseExpiresAt: timestampWithTimezone(
       'scheduling_lease_expires_at',
     ),
+    lifecycleClaimId: uuid('lifecycle_claim_id'),
   },
   (table) => [
     unique('scenario_run_step_run_step_key_unique').on(

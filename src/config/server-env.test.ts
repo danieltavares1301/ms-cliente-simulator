@@ -210,6 +210,8 @@ describe('parseServerEnvironment', () => {
     'https://example.my.salesforce.com/services/oauth2/token?secret=1',
     'https://example.my.salesforce.com/services/oauth2/token#fragment',
     'https://example.my.salesforce.com/services/oauth2/authorize',
+    'https://example.my.salesforce.com/services/oauth2/token/',
+    'https://evil.example.com/services/oauth2/token',
   ])('rejects an unsafe Salesforce token URL when enabled: %s', (url) => {
     expect(() =>
       parseServerEnvironment({
@@ -231,6 +233,32 @@ describe('parseServerEnvironment', () => {
         SALESFORCE_TOKEN_URL: url,
       }),
     ).toThrowError('SALESFORCE_TOKEN_URL');
+  });
+
+  it.each([
+    'https://example.my.salesforce.com/services/oauth2/token',
+    'https://test.salesforce.com/services/oauth2/token',
+  ])('accepts an OAuth token URL on an authorized host: %s', (url) => {
+    expect(
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        SALESFORCE_DISPATCH_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+        SALESFORCE_CLIENT_ID: 'salesforce-client-id',
+        SALESFORCE_CLIENT_SECRET: 'salesforce-client-secret',
+        SALESFORCE_TOKEN_URL: url,
+      }),
+    ).toMatchObject({ SALESFORCE_TOKEN_URL: url });
   });
 
   it.each([

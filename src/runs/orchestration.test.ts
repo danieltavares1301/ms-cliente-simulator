@@ -59,6 +59,8 @@ class MemoryRunRepository implements RunRepository {
       finishedAt: input.run.finishedAt ?? null,
       schedulingKind: input.run.schedulingKind ?? null,
       schedulingLeaseExpiresAt: input.run.schedulingLeaseExpiresAt ?? null,
+      dispatchMode: input.run.dispatchMode ?? 'FAKE',
+      testDataEnabled: input.run.testDataEnabled ?? false,
       createdAt: now,
     };
     this.runs.push(persisted);
@@ -80,6 +82,7 @@ class MemoryRunRepository implements RunRepository {
         errorCode: step.errorCode ?? null,
         schedulingKind: step.schedulingKind ?? null,
         schedulingLeaseExpiresAt: step.schedulingLeaseExpiresAt ?? null,
+        lifecycleClaimId: step.lifecycleClaimId ?? null,
       })),
     );
     return { outcome: 'CREATED', run: persisted };
@@ -153,6 +156,22 @@ class MemoryRunRepository implements RunRepository {
     if (pending.length === 0) return { outcome: 'NOT_RECOVERABLE' };
     const previousStatus = run.status;
     run.status = 'PROVISIONING';
+    if (
+      input.recovery &&
+      run.testDataEnabled &&
+      (previousStatus === 'FAILED' || previousStatus === 'PARTIAL')
+    ) {
+      for (const step of this.steps.get(input.runId) ?? []) {
+        if (step.stepKind !== 'DISPATCH') {
+          step.status = 'PENDING';
+          step.startedAt = null;
+          step.finishedAt = null;
+          step.responseRedacted = {};
+          step.errorCode = null;
+          step.lifecycleClaimId = null;
+        }
+      }
+    }
     if (input.recovery) {
       this.audits.push({
         action: 'RUN_SCHEDULING_RECOVERY_STARTED',
@@ -232,26 +251,40 @@ class MemoryRunRepository implements RunRepository {
     if (step.status === 'RUNNING') return { outcome: 'IN_PROGRESS' };
     step.status = 'RUNNING';
     step.startedAt = input.claimedAt;
-    return { outcome: 'CLAIMED', run, step };
+    step.lifecycleClaimId = '33333333-3333-4333-8333-333333333333';
+    return {
+      outcome: 'CLAIMED',
+      claimId: step.lifecycleClaimId,
+      run,
+      step,
+    };
   }
 
   async completeLifecycleStep(input: {
     runId: string;
     stepId: string;
+    claimId: string;
     succeeded: boolean;
     responseRedacted: Record<string, unknown>;
     errorCode: string | null;
     finishedAt: Date;
-  }): Promise<boolean> {
+  }): Promise<import('../db/run-repository').CompleteLifecycleStepResult> {
     const step = this.steps
       .get(input.runId)
       ?.find(({ id }) => id === input.stepId);
-    if (step?.status !== 'RUNNING') return false;
+    if (step?.status !== 'RUNNING' || step.lifecycleClaimId !== input.claimId) {
+      return { outcome: 'STALE' };
+    }
     step.status = input.succeeded ? 'SUCCEEDED' : 'FAILED';
     step.responseRedacted = input.responseRedacted;
     step.errorCode = input.errorCode;
     step.finishedAt = input.finishedAt;
-    return true;
+    step.lifecycleClaimId = null;
+    return { outcome: 'COMPLETED' };
+  }
+
+  recordLifecycleCompensation(): Promise<'COMPLETED'> {
+    return Promise.resolve('COMPLETED');
   }
 
   async finalizeLifecycleRun(input: {
@@ -281,12 +314,15 @@ function createService(
   options: {
     testDataEnabled?: boolean;
     testDataAdapter?: SalesforceTestDataAdapter;
+    dispatchMode?: 'FAKE' | 'SALESFORCE';
   } = {},
 ) {
   return createRunOrchestrationService({
     repository,
     scheduler,
     ...options,
+    dispatchMode:
+      options.dispatchMode ?? (options.testDataEnabled ? 'SALESFORCE' : 'FAKE'),
     idempotencyPepper: 'p'.repeat(32),
     requestedBy: 'simulator-admin-api',
     now: () => now,
@@ -305,6 +341,7 @@ describe('run orchestration service', () => {
     };
     const result = await createService(repository, scheduler, {
       testDataEnabled: true,
+      dispatchMode: 'SALESFORCE',
       testDataAdapter,
     }).createRun({
       idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
@@ -443,10 +480,18 @@ describe('run orchestration service', () => {
     const testDataAdapter = {
       setup: vi.fn().mockImplementation(async () => {
         calls.push('setup');
-        return { status: 'CREATED', createdCount: 1, replayedCount: 0 };
+        return {
+          status: 'CREATED',
+          createdCount: 1,
+          replayedCount: 0,
+          recordIds: ['001000000000001AAA'],
+        };
       }),
       verify: vi.fn(),
-      cleanup: vi.fn(),
+      cleanup: vi.fn().mockResolvedValue({
+        status: 'DELETED',
+        deletedCount: 1,
+      }),
     };
     const scheduler = {
       schedule: vi.fn().mockImplementation(async () => {
@@ -457,6 +502,7 @@ describe('run orchestration service', () => {
 
     const result = await createService(repository, scheduler, {
       testDataEnabled: true,
+      dispatchMode: 'SALESFORCE',
       testDataAdapter,
     }).createRun({
       idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
@@ -470,6 +516,10 @@ describe('run orchestration service', () => {
     expect(result.run.fixtureSnapshot).toStrictEqual(
       repository.runs[0].fixtureSnapshot,
     );
+    expect(result.run).toMatchObject({
+      dispatchMode: 'SALESFORCE',
+      testDataEnabled: true,
+    });
     expect(
       repository.steps
         .get(runId)
@@ -487,7 +537,7 @@ describe('run orchestration service', () => {
     const testDataAdapter = {
       setup: vi.fn().mockRejectedValue(new Error('Salesforce unavailable')),
       verify: vi.fn(),
-      cleanup: vi.fn(),
+      cleanup: vi.fn().mockResolvedValue({ status: 'NO_OP', deletedCount: 0 }),
     };
 
     await expect(
@@ -504,19 +554,27 @@ describe('run orchestration service', () => {
     ).rejects.toMatchObject({ code: 'TEST_DATA_SETUP_FAILED' });
 
     expect(scheduler.schedule).not.toHaveBeenCalled();
+    expect(testDataAdapter.cleanup).toHaveBeenCalledWith(
+      expect.any(Object),
+      [],
+    );
     expect(repository.runs[0]).toMatchObject({ status: 'FAILED' });
   });
 
-  it('does not repeat successful setup while recovering QStash scheduling', async () => {
+  it('recreates cleaned setup data while recovering QStash scheduling', async () => {
     const repository = new MemoryRunRepository();
     const testDataAdapter = {
       setup: vi.fn().mockResolvedValue({
         status: 'CREATED',
         createdCount: 1,
         replayedCount: 0,
+        recordIds: ['001000000000001AAA'],
       }),
       verify: vi.fn(),
-      cleanup: vi.fn(),
+      cleanup: vi.fn().mockResolvedValue({
+        status: 'DELETED',
+        deletedCount: 1,
+      }),
     };
     const scheduler = {
       schedule: vi
@@ -546,9 +604,12 @@ describe('run orchestration service', () => {
     await expect(service.createRun(input)).rejects.toMatchObject({
       code: 'SCHEDULING_FAILED',
     });
+    expect(testDataAdapter.cleanup).toHaveBeenCalledWith(expect.any(Object), [
+      '001000000000001AAA',
+    ]);
     await service.createRun(input);
 
-    expect(testDataAdapter.setup).toHaveBeenCalledTimes(1);
+    expect(testDataAdapter.setup).toHaveBeenCalledTimes(2);
     expect(scheduler.schedule).toHaveBeenCalledTimes(2);
   });
 
@@ -647,5 +708,75 @@ describe('run orchestration service', () => {
 
     expect(secondReplay.outcome).toBe('REPLAY');
     expect(schedule).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not promote a persisted FAKE run when flags are enabled later', async () => {
+    const repository = new MemoryRunRepository();
+    const input = {
+      idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+      request,
+    };
+    const first = await createService(repository, undefined, {
+      dispatchMode: 'FAKE',
+      testDataEnabled: false,
+    }).createRun(input);
+    const replay = await createService(repository, undefined, {
+      dispatchMode: 'SALESFORCE',
+      testDataEnabled: true,
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+    }).createRun(input);
+
+    expect(first.run.dispatchMode).toBe('FAKE');
+    expect(replay.run).toMatchObject({
+      dispatchMode: 'FAKE',
+      testDataEnabled: false,
+    });
+  });
+
+  it('does not downgrade a persisted SALESFORCE run when flags are disabled later', async () => {
+    const repository = new MemoryRunRepository();
+    const scheduler = {
+      schedule: vi.fn().mockResolvedValue(undefined),
+      cancelPending: vi.fn(),
+    };
+    const testDataAdapter = {
+      setup: vi.fn().mockResolvedValue({
+        status: 'CREATED',
+        createdCount: 1,
+        replayedCount: 0,
+        recordIds: ['001000000000001AAA'],
+      }),
+      verify: vi.fn(),
+      cleanup: vi
+        .fn()
+        .mockResolvedValue({ status: 'DELETED', deletedCount: 1 }),
+    };
+    const input = {
+      idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+      request: {
+        ...request,
+        execution: { ...request.execution, dryRun: false },
+      },
+    };
+    await createService(repository, scheduler, {
+      dispatchMode: 'SALESFORCE',
+      testDataEnabled: true,
+      testDataAdapter,
+    }).createRun(input);
+
+    await expect(
+      createService(repository, scheduler, {
+        dispatchMode: 'FAKE',
+        testDataEnabled: false,
+      }).createRun(input),
+    ).rejects.toMatchObject({ code: 'SALESFORCE_DISPATCH_DISABLED' });
+    expect(repository.runs[0]).toMatchObject({
+      dispatchMode: 'SALESFORCE',
+      testDataEnabled: true,
+    });
   });
 });

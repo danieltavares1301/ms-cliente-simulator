@@ -210,7 +210,126 @@ describe('run administration service', () => {
       replayed: true,
       status: 'CANCELLED',
     });
+
     expect(scheduler.cancelPending).not.toHaveBeenCalled();
+  });
+
+  it('cleans persisted Salesforce-owned records before finalizing cancellation', async () => {
+    const compensate = vi.fn().mockResolvedValue({ outcome: 'SUCCEEDED' });
+    const repository = {
+      beginCancellation: vi.fn().mockResolvedValue({
+        outcome: 'STARTED',
+        messageIds: [],
+        affectedStepCount: 1,
+      }),
+      findRun: vi.fn().mockResolvedValue({
+        id: runId,
+        testDataEnabled: true,
+      }),
+      finalizeCancellation: vi.fn().mockResolvedValue({
+        status: 'CANCELLED',
+        affectedStepCount: 1,
+      }),
+    } as unknown as RunRepository;
+    const service = createRunAdministrationService({
+      repository,
+      scheduler: {
+        cancelPending: vi.fn().mockResolvedValue({
+          cancelledMessageIds: [],
+          failedMessageIds: [],
+        }),
+      } as unknown as Scheduler,
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+      lifecycleServiceFactory: () => ({ compensate }),
+    });
+
+    await expect(service.cancelRun({ runId })).resolves.toMatchObject({
+      status: 'CANCELLED',
+    });
+    expect(compensate).toHaveBeenCalledWith(runId);
+    expect(repository.finalizeCancellation).toHaveBeenCalledOnce();
+  });
+
+  it('keeps cancellation recoverable when Salesforce cleanup fails', async () => {
+    const repository = {
+      beginCancellation: vi.fn().mockResolvedValue({
+        outcome: 'STARTED',
+        messageIds: [],
+        affectedStepCount: 1,
+      }),
+      findRun: vi.fn().mockResolvedValue({
+        id: runId,
+        testDataEnabled: true,
+      }),
+      finalizeCancellation: vi.fn(),
+    } as unknown as RunRepository;
+    const service = createRunAdministrationService({
+      repository,
+      scheduler: {
+        cancelPending: vi.fn().mockResolvedValue({
+          cancelledMessageIds: [],
+          failedMessageIds: [],
+        }),
+      } as unknown as Scheduler,
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+      lifecycleServiceFactory: () => ({
+        compensate: vi.fn().mockResolvedValue({
+          outcome: 'FAILED',
+          errorCode: 'OWNERSHIP_MISMATCH',
+        }),
+      }),
+    });
+
+    await expect(service.cancelRun({ runId })).rejects.toMatchObject({
+      code: 'CANCELLATION_FAILED',
+    });
+    expect(repository.finalizeCancellation).not.toHaveBeenCalled();
+  });
+
+  it('does not skip persisted cleanup when the current test-data flag is off', async () => {
+    const compensate = vi.fn();
+    const repository = {
+      beginCancellation: vi.fn().mockResolvedValue({
+        outcome: 'STARTED',
+        messageIds: [],
+        affectedStepCount: 1,
+      }),
+      findRun: vi.fn().mockResolvedValue({
+        id: runId,
+        testDataEnabled: true,
+      }),
+      finalizeCancellation: vi.fn(),
+    } as unknown as RunRepository;
+    const service = createRunAdministrationService({
+      repository,
+      scheduler: {
+        cancelPending: vi.fn().mockResolvedValue({
+          cancelledMessageIds: [],
+          failedMessageIds: [],
+        }),
+      } as unknown as Scheduler,
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+      testDataAvailable: false,
+      lifecycleServiceFactory: () => ({ compensate }),
+    });
+
+    await expect(service.cancelRun({ runId })).rejects.toMatchObject({
+      code: 'CANCELLATION_FAILED',
+    });
+    expect(compensate).not.toHaveBeenCalled();
+    expect(repository.finalizeCancellation).not.toHaveBeenCalled();
   });
 
   it('reserves eligible failed steps once, publishes incremented attempts, and preserves history in the repository', async () => {

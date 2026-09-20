@@ -90,6 +90,8 @@ describe('Salesforce dispatch target', () => {
       'https://example.my.salesforce.com/services/apexrest/Cliente',
       expect.objectContaining({
         method: 'POST',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
         headers: {
           authorization: 'Bearer token-1',
           'content-type': 'application/json',
@@ -143,6 +145,45 @@ describe('Salesforce dispatch target', () => {
         statusText: 'Service Unavailable',
       },
     });
+  });
+
+  it('returns a typed redacted timeout without exposing the request body', async () => {
+    const target = createSalesforceDispatchTarget({
+      oauthClient: {
+        getAccess: vi.fn(),
+        invalidateToken: vi.fn(),
+      },
+      safetyGuard: {
+        validate: vi.fn().mockResolvedValue({
+          accessToken: 'do-not-leak-token',
+          instanceUrl: 'https://example.my.salesforce.com',
+        }),
+      },
+      fetchFn: vi.fn<typeof fetch>(
+        (_request, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      ),
+      networkTimeoutMs: 1,
+      now: () => new Date('2026-08-22T12:00:01.000Z'),
+    });
+
+    const result = await target.dispatch({
+      runId: '11111111-1111-4111-8111-111111111111',
+      stepId: '22222222-2222-4222-8222-222222222222',
+      attemptNumber: 1,
+      envelope,
+    });
+
+    expect(result).toMatchObject({
+      httpStatus: 504,
+      responseRedacted: { statusText: 'SALESFORCE_REQUEST_TIMEOUT' },
+    });
+    expect(JSON.stringify(result)).not.toContain('12345678901');
+    expect(JSON.stringify(result)).not.toContain('do-not-leak-token');
   });
 
   it('invalidates the token cache and retries exactly once after a 401 response', async () => {

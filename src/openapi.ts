@@ -155,7 +155,7 @@ const runErrorResponses = {
   '401': errorResponses['401'],
   '422': errorResponses['422'],
   '503': response(
-    'Orquestração desabilitada ou scheduler indisponível.',
+    'Orquestração, scheduler ou kill switch Salesforce indisponível; a operação é recuperável.',
     'RestErrorResponse',
   ),
   '500': errorResponses['500'],
@@ -167,7 +167,7 @@ const runActionErrorResponses = {
   '409': response('Conflito de estado da execução.', 'RestErrorResponse'),
   '422': response('Corpo estrito inválido.', 'RestErrorResponse'),
   '503': response(
-    'Orquestração ou integração QStash indisponível.',
+    'Orquestração, QStash ou cleanup Salesforce indisponível; a operação permanece recuperável.',
     'RestErrorResponse',
   ),
 };
@@ -229,7 +229,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.3.0',
+    version: '0.4.3',
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },

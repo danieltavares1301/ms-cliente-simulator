@@ -52,6 +52,8 @@ describe('Salesforce safety guard', () => {
       'https://example.my.salesforce.com/services/data/v61.0/query?q=SELECT+Id%2CIsSandbox+FROM+Organization',
       expect.objectContaining({
         method: 'GET',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
         headers: {
           authorization: 'Bearer token-1',
           accept: 'application/json',

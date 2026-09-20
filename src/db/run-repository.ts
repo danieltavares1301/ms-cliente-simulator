@@ -27,12 +27,14 @@ export const stepStatuses = [
 export const stepKinds = ['SETUP', 'DISPATCH', 'VERIFY', 'CLEANUP'] as const;
 export const cleanupPolicies = ['ALWAYS', 'ON_SUCCESS', 'NEVER'] as const;
 export const schedulingKinds = ['INITIAL', 'RETRY'] as const;
+export const dispatchModes = ['FAKE', 'SALESFORCE'] as const;
 
 export type RunStatus = (typeof runStatuses)[number];
 export type StepStatus = (typeof stepStatuses)[number];
 export type StepKind = (typeof stepKinds)[number];
 export type CleanupPolicy = (typeof cleanupPolicies)[number];
 export type SchedulingKind = (typeof schedulingKinds)[number];
+export type DispatchMode = (typeof dispatchModes)[number];
 export type RedactedMetadata = Record<string, unknown>;
 
 export interface Run {
@@ -52,6 +54,8 @@ export interface Run {
   expectedCallbackMax: number;
   asyncWaitDeadline: Date | null;
   cleanupPolicy: CleanupPolicy;
+  dispatchMode: DispatchMode;
+  testDataEnabled: boolean;
   createdAt: Date;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -82,6 +86,7 @@ export interface RunStep {
   stepKind: StepKind;
   schedulingKind: SchedulingKind | null;
   schedulingLeaseExpiresAt: Date | null;
+  lifecycleClaimId: string | null;
 }
 
 export interface AuditEvent {
@@ -123,15 +128,19 @@ export type LifecycleStepKind = Extract<
 >;
 
 export type ClaimLifecycleStepResult =
-  | { outcome: 'CLAIMED'; run: Run; step: RunStep }
+  | { outcome: 'CLAIMED'; claimId: string; run: Run; step: RunStep }
   | {
       outcome: 'TERMINAL';
       runStatus: RunStatus;
       stepStatus: StepStatus;
     }
   | {
-      outcome: 'IN_PROGRESS' | 'NOT_READY' | 'NOT_FOUND' | 'CANCELLED';
+      outcome:
+        'IN_PROGRESS' | 'NOT_READY' | 'NOT_FOUND' | 'CANCELLED' | 'STALE';
     };
+
+export type CompleteLifecycleStepResult =
+  { outcome: 'COMPLETED' } | { outcome: 'STALE' | 'CANCELLED' };
 
 export type NewRun = Omit<
   Run,
@@ -142,6 +151,8 @@ export type NewRun = Omit<
   | 'asyncWaitDeadline'
   | 'schedulingKind'
   | 'schedulingLeaseExpiresAt'
+  | 'dispatchMode'
+  | 'testDataEnabled'
 > & {
   status?: RunStatus;
   asyncWaitDeadline?: Date | null;
@@ -149,6 +160,8 @@ export type NewRun = Omit<
   finishedAt?: Date | null;
   schedulingKind?: SchedulingKind | null;
   schedulingLeaseExpiresAt?: Date | null;
+  dispatchMode?: DispatchMode;
+  testDataEnabled?: boolean;
 };
 
 export type NewRunStep = Omit<
@@ -167,6 +180,7 @@ export type NewRunStep = Omit<
   | 'errorCode'
   | 'schedulingKind'
   | 'schedulingLeaseExpiresAt'
+  | 'lifecycleClaimId'
 > & {
   eventType?: string | null;
   scheduledAt?: Date | null;
@@ -180,6 +194,7 @@ export type NewRunStep = Omit<
   errorCode?: string | null;
   schedulingKind?: SchedulingKind | null;
   schedulingLeaseExpiresAt?: Date | null;
+  lifecycleClaimId?: string | null;
 };
 
 export interface CreateRunInput {
@@ -363,12 +378,21 @@ export interface RunRepository {
     runId: string;
     stepId: string;
     stepKind: LifecycleStepKind;
+    claimId: string;
     succeeded: boolean;
     responseRedacted: RedactedMetadata;
     errorCode: string | null;
     actor: string;
     finishedAt: Date;
-  }): Promise<boolean>;
+  }): Promise<CompleteLifecycleStepResult>;
+  recordLifecycleCompensation(input: {
+    runId: string;
+    succeeded: boolean;
+    responseRedacted: RedactedMetadata;
+    errorCode: string | null;
+    actor: string;
+    finishedAt: Date;
+  }): Promise<'COMPLETED' | 'NOT_FOUND'>;
   finalizeLifecycleRun(input: {
     runId: string;
     actor: string;

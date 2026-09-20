@@ -9,7 +9,9 @@ orchestration e dispatch Salesforce reais. Com a feature desligada, `SETUP`,
 preservado.
 
 A migration `0004_misty_serpent_society.sql` adiciona
-`scenario_run.fixture_snapshot jsonb` nullable. Novos runs persistem a
+`scenario_run.fixture_snapshot jsonb` nullable. A migration incremental
+`0005_clumsy_cammi.sql` adiciona `dispatch_mode`, `test_data_enabled` e
+`scenario_run_step.lifecycle_claim_id`. Novos runs persistem a
 `RenderedScenarioFixture` completa. A coluna nullable mantém leitura de runs
 antigos; ao tentar executar lifecycle sem snapshot, o run falha fechado e o
 erro técnico `FIXTURE_SNAPSHOT_MISSING` é auditado. Responses públicas não
@@ -34,12 +36,19 @@ incluem o snapshot nem o `event_envelope`.
 
 ## Recovery e concorrência
 
-Claims `RUNNING` de lifecycle podem ser retomados após 60 segundos. Um step
+Claims `RUNNING` de lifecycle podem ser retomados após 60 segundos e recebem
+um UUID novo a cada aquisição. A conclusão usa CAS com esse UUID e com o
+estado não terminal do run; um worker expirado não pode concluir o claim do
+sucessor. Requests Salesforce abortam após 30 segundos e não seguem redirects.
+Um step
 `SUCCEEDED` não chama o adapter novamente. Se o processo cair depois de
 `completeDispatch` e antes de verify, a reentrega terminal retoma apenas o
 lifecycle pendente e não reenvia o target. Duas reentregas concorrentes
-convergem por CAS; somente a vencedora acessa Salesforce. Runs `CANCELLING` ou
-`CANCELLED` nunca executam setup, verify ou cleanup.
+convergem por CAS; somente a vencedora acessa Salesforce.
+
+`dispatch_mode` e `test_data_enabled` são snapshots da criação. Flags atuais
+atuam somente como kill switches: desligá-las retorna `503` recuperável sem
+trocar Salesforce por fake nem pular lifecycle.
 
 Cada transição gera auditoria `SETUP_*`, `VERIFY_*` ou `CLEANUP_*` contendo
 somente status, códigos e contagens técnicas. Tokens, secrets e respostas
@@ -50,5 +59,9 @@ Salesforce brutas não são persistidos.
 - Os quatro cenários `CORE` cobrem somente `Account`.
 - O lifecycle assíncrono após callbacks ainda não está implementado; os
   cenários atuais usam `expectedCallbacks.max = 0`.
+- Se Salesforce confirmar DML mas a conexão cair antes da resposta, existe
+  uma janela residual inevitável até a próxima compensação; IDs confirmados
+  são persistidos e compensados imediatamente quando o CAS de completion
+  perde a corrida.
 - A validação automatizada usa PGlite e doubles de Salesforce/QStash; não há
   smoke test contra a org real.

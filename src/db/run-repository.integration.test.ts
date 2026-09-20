@@ -127,6 +127,8 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(runColumns.rows.map(({ column_name }) => column_name)).toEqual(
       expect.arrayContaining([
         'fixture_snapshot',
+        'dispatch_mode',
+        'test_data_enabled',
         'scheduling_kind',
         'scheduling_lease_expires_at',
       ]),
@@ -134,6 +136,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(stepColumns.rows.map(({ column_name }) => column_name)).toEqual(
       expect.arrayContaining([
         'event_envelope',
+        'lifecycle_claim_id',
         'scheduling_kind',
         'scheduling_lease_expires_at',
       ]),
@@ -1923,6 +1926,146 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ).resolves.toMatchObject({ outcome: 'CLAIMED' });
   });
 
+  it('fences stale lifecycle completion after another worker reclaims the lease', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'VERIFYING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+        ],
+      }),
+    );
+    const workerA = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'VERIFY',
+      claimedAt: currentTime,
+      actor: 'worker-a',
+    });
+    if (workerA.outcome !== 'CLAIMED') throw new Error('worker A not claimed');
+
+    currentTime = new Date('2026-08-22T12:01:01.000Z');
+    const workerB = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'VERIFY',
+      claimedAt: currentTime,
+      actor: 'worker-b',
+    });
+    if (workerB.outcome !== 'CLAIMED') throw new Error('worker B not claimed');
+    expect(workerB.claimId).not.toBe(workerA.claimId);
+
+    await expect(
+      repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: workerA.step.id,
+        stepKind: 'VERIFY',
+        claimId: workerA.claimId,
+        succeeded: true,
+        responseRedacted: { worker: 'a' },
+        errorCode: null,
+        actor: 'worker-a',
+        finishedAt: currentTime,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'STALE' });
+    await expect(
+      repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: workerB.step.id,
+        stepKind: 'VERIFY',
+        claimId: workerB.claimId,
+        succeeded: true,
+        responseRedacted: { worker: 'b' },
+        errorCode: null,
+        actor: 'worker-b',
+        finishedAt: currentTime,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'COMPLETED' });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.find(
+        ({ stepKind }) => stepKind === 'VERIFY',
+      ),
+    ).toMatchObject({
+      status: 'SUCCEEDED',
+      lifecycleClaimId: null,
+      responseRedacted: { worker: 'b' },
+    });
+  });
+
+  it('does not reclaim lifecycle work after cancellation starts', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'VERIFYING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+        ],
+      }),
+    );
+    const first = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'VERIFY',
+      claimedAt: currentTime,
+      actor,
+    });
+    if (first.outcome !== 'CLAIMED') throw new Error('step not claimed');
+    await repository.beginCancellation({ runId: created.run.id, actor });
+    currentTime = new Date('2026-08-22T12:01:01.000Z');
+
+    await expect(
+      repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'VERIFY',
+        claimedAt: currentTime,
+        actor: 'worker-b',
+      }),
+    ).resolves.toStrictEqual({ outcome: 'CANCELLED' });
+    await expect(
+      repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: first.step.id,
+        stepKind: 'VERIFY',
+        claimId: first.claimId,
+        succeeded: true,
+        responseRedacted: {},
+        errorCode: null,
+        actor,
+        finishedAt: currentTime,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'CANCELLED' });
+  });
+
   it('audits setup lifecycle transitions with technical metadata only', async () => {
     const created = await repository.createRun(
       createInput({
@@ -1964,6 +2107,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       runId: created.run.id,
       stepId: claim.step.id,
       stepKind: 'SETUP',
+      claimId: claim.claimId,
       succeeded: true,
       responseRedacted: {
         status: 'CREATED',
@@ -2102,6 +2246,59 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     });
   });
 
+  it('keeps failed cancellation cleanup PARTIAL and allows an idempotent retry', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          status: 'VERIFYING',
+          testDataEnabled: true,
+        },
+        steps: [
+          {
+            stepKey: 'cleanup',
+            ordinal: 0,
+            target: 'ACCOUNT',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'CLEANUP',
+          },
+        ],
+      }),
+    );
+
+    await repository.recordLifecycleCompensation({
+      runId: created.run.id,
+      succeeded: false,
+      responseRedacted: { status: 'FAILED' },
+      errorCode: 'OWNERSHIP_MISMATCH',
+      actor,
+      finishedAt: currentTime,
+    });
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'PARTIAL',
+    });
+
+    await expect(
+      repository.beginCancellation({ runId: created.run.id, actor }),
+    ).resolves.toMatchObject({ outcome: 'STARTED' });
+    await repository.recordLifecycleCompensation({
+      runId: created.run.id,
+      succeeded: true,
+      responseRedacted: { status: 'DELETED', deletedCount: 1 },
+      errorCode: null,
+      actor,
+      finishedAt: currentTime,
+    });
+    await expect(
+      repository.finalizeCancellation({
+        runId: created.run.id,
+        actor,
+        expectedAffectedStepCount: 0,
+      }),
+    ).resolves.toMatchObject({ status: 'CANCELLED' });
+  });
+
   it.each([
     {
       verifySucceeded: true,
@@ -2168,6 +2365,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
         runId: created.run.id,
         stepId: verifyClaim.step.id,
         stepKind: 'VERIFY',
+        claimId: verifyClaim.claimId,
         succeeded: verifySucceeded,
         responseRedacted: { status: verifySucceeded ? 'PASSED' : 'FAILED' },
         errorCode: verifySucceeded ? null : 'VERIFICATION_FAILED',
@@ -2187,6 +2385,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
         runId: created.run.id,
         stepId: cleanupClaim.step.id,
         stepKind: 'CLEANUP',
+        claimId: cleanupClaim.claimId,
         succeeded: cleanupSucceeded,
         responseRedacted: {
           status: cleanupSucceeded ? 'DELETED' : 'FAILED',
@@ -2259,6 +2458,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
       runId: created.run.id,
       stepId: claim.step.id,
       stepKind: 'VERIFY',
+      claimId: claim.claimId,
       succeeded: false,
       responseRedacted: { status: 'FAILED' },
       errorCode: 'FIXTURE_SNAPSHOT_MISSING',

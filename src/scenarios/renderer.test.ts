@@ -70,6 +70,9 @@ describe('basic scenario fixture definitions', () => {
         result: 'PERSON_ACCOUNT_CREATED',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
           'LEAD_NOT_REQUIRED',
           'PROPONENTE_NOT_REQUIRED',
         ],

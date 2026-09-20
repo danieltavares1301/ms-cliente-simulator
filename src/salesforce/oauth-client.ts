@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { salesforceFetch } from './network-policy';
+
 export interface SalesforceAccess {
   accessToken: string;
   instanceUrl: string;
@@ -61,6 +63,7 @@ type SalesforceOAuthClientInput = {
   clientSecret: string;
   tokenUrl: string;
   fetchFn?: typeof fetch;
+  networkTimeoutMs?: number;
 };
 
 export class SalesforceOAuthClient implements SalesforceOAuthAccessProvider {
@@ -103,17 +106,22 @@ export class SalesforceOAuthClient implements SalesforceOAuthAccessProvider {
   }
 
   private async fetchAccess(): Promise<SalesforceAccess> {
-    const response = await this.fetchFn(this.input.tokenUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
+    const response = await salesforceFetch(
+      this.fetchFn,
+      this.input.tokenUrl,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: this.input.clientId,
+          client_secret: this.input.clientSecret,
+        }),
       },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: this.input.clientId,
-        client_secret: this.input.clientSecret,
-      }),
-    });
+      this.input.networkTimeoutMs,
+    );
 
     if (response.status === 400 || response.status === 401) {
       throw new SalesforceAuthError(

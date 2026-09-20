@@ -118,7 +118,9 @@ export const basicScenarioDefinitions = [
         description: 'Somente a Account correta deve ser atualizada.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
           'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
           'NO_OTHER_ACCOUNT_UPDATED',
         ],
       },
@@ -166,7 +168,9 @@ export const basicScenarioDefinitions = [
         checks: [
           'ACCOUNT_COUNT_BY_CPF_IS_ONE',
           'ACCOUNT_CLIENT_ID_EQUALS_EVENT',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
           'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
         ],
       },
     ],
@@ -210,6 +214,9 @@ export const basicScenarioDefinitions = [
           'Cria a Person Account; sem flags de divergência ou vínculo, Lead e Proponente não são exigidos.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
           'LEAD_NOT_REQUIRED',
           'PROPONENTE_NOT_REQUIRED',
         ],
@@ -256,6 +263,9 @@ export const basicScenarioDefinitions = [
           'Cliente update segue o mesmo upsert do insert; sem flags, não promete Lead ou Proponente.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
           'LEAD_NOT_REQUIRED',
           'PROPONENTE_NOT_REQUIRED',
         ],

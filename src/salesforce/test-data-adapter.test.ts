@@ -69,6 +69,7 @@ function accountFromFixture(
     IdProspectSalesforce__c: event.idprospectsalesforce ?? null,
     CPF__pc: event.numerocpf,
     LastName: event.nomecompleto,
+    IsPersonAccount: true,
     DataAlteracaoEvento__c: event.dataalteracao,
     ...overrides,
   };
@@ -102,6 +103,7 @@ describe('Salesforce test data adapter setup', () => {
       status: 'CREATED',
       createdCount: 1,
       replayedCount: 0,
+      recordIds: [accountId],
     });
 
     const requests = client.composite.mock.calls[0][0];
@@ -136,6 +138,7 @@ describe('Salesforce test data adapter setup', () => {
           IdProspectSalesforce__c: setupAccount.idProspect,
           CPF__pc: setupAccount.cpf,
           LastName: setupAccount.name,
+          IsPersonAccount: true,
           DataAlteracaoEvento__c: setupAccount.dataAlteracao,
         },
       ],
@@ -146,6 +149,7 @@ describe('Salesforce test data adapter setup', () => {
     }).setup(input());
 
     expect(result.status).toBe('REPLAY');
+    expect(result.recordIds).toStrictEqual([accountId]);
     expect(client.composite).not.toHaveBeenCalled();
   });
 
@@ -213,10 +217,59 @@ describe('Salesforce test data adapter verify', () => {
     }).verify(input(scenarioKey));
 
     expect(result.passed).toBe(true);
+    expect(result.recordIds).toStrictEqual([accountId]);
     expect(result.checks).toHaveLength(
       rendered.expectedOutcomes.flatMap((outcome) => outcome.checks).length,
     );
     expect(result.checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it('fails person-account verification for a Business Account with the expected id', async () => {
+    const rendered = fixture('no-match-cliente-insert');
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          IsPersonAccount: false,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(input('no-match-cliente-insert'));
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual({
+      check: 'ACCOUNT_IS_PERSON_ACCOUNT',
+      passed: false,
+    });
+  });
+
+  it('fails verification when the Account CPF diverges from the event', async () => {
+    const rendered = fixture('cliente-update-nova-estrutura');
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          CPF__pc: '99999999999',
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(input('cliente-update-nova-estrutura'));
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual({
+      check: 'ACCOUNT_CPF_EQUALS_EVENT',
+      passed: false,
+    });
   });
 
   it('reports count, value and isolation failures without throwing', async () => {
@@ -338,12 +391,16 @@ describe('Salesforce test data adapter cleanup', () => {
     });
 
     await expect(
-      createSalesforceTestDataAdapter({ restClient: client }).cleanup(input()),
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        input(),
+        [],
+      ),
     ).resolves.toStrictEqual({ status: 'NO_OP', deletedCount: 0 });
+    expect(client.query).not.toHaveBeenCalled();
     expect(client.deleteRecord).not.toHaveBeenCalled();
   });
 
-  it('does not delete the CPF setup Account before the event stamps Id__c', async () => {
+  it('deletes the CPF setup Account with null Id__c by its persisted Salesforce ID', async () => {
     const rendered = fixture('match-cpf-sem-id-cliente');
     const client = restClient();
     client.query.mockResolvedValue({
@@ -355,9 +412,10 @@ describe('Salesforce test data adapter cleanup', () => {
     await expect(
       createSalesforceTestDataAdapter({ restClient: client }).cleanup(
         input('match-cpf-sem-id-cliente'),
+        [accountId],
       ),
-    ).resolves.toStrictEqual({ status: 'NO_OP', deletedCount: 0 });
-    expect(client.deleteRecord).not.toHaveBeenCalled();
+    ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
+    expect(client.deleteRecord).toHaveBeenCalledWith('Account', accountId);
   });
 
   it('fails closed when an Account selected by fixture keys is not owned', async () => {
@@ -373,7 +431,9 @@ describe('Salesforce test data adapter cleanup', () => {
     });
 
     await expect(
-      createSalesforceTestDataAdapter({ restClient: client }).cleanup(input()),
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(input(), [
+        accountId,
+      ]),
     ).rejects.toMatchObject({ code: 'OWNERSHIP_MISMATCH' });
     expect(client.deleteRecord).not.toHaveBeenCalled();
   });
@@ -389,7 +449,9 @@ describe('Salesforce test data adapter cleanup', () => {
     client.deleteRecord.mockResolvedValue(undefined);
 
     await expect(
-      createSalesforceTestDataAdapter({ restClient: client }).cleanup(input()),
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(input(), [
+        accountId,
+      ]),
     ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
     expect(client.deleteRecord).toHaveBeenCalledWith('Account', accountId);
   });

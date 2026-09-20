@@ -71,7 +71,9 @@ type DispatchHandlerDependencies = {
   environment: Record<string, string | undefined>;
   repositoryFactory: () => RunRepository;
   receiverFactory: () => DispatchReceiver;
-  target: DispatchTarget;
+  target?: DispatchTarget;
+  fakeTarget?: DispatchTarget;
+  salesforceTarget?: DispatchTarget;
   testDataAdapter?: SalesforceTestDataAdapter;
   lifecycleServiceFactory?: (dependencies: {
     repository: RunRepository;
@@ -80,6 +82,9 @@ type DispatchHandlerDependencies = {
     now: () => Date;
   }) => {
     afterDispatch(runId: string): Promise<PostDispatchLifecycleResult>;
+    compensate?(runId: string): Promise<{
+      outcome: 'SUCCEEDED' | 'FAILED' | 'NOT_FOUND';
+    }>;
   };
   now?: () => Date;
   requestIdFactory?: () => string;
@@ -166,9 +171,57 @@ export function createDispatchHandler(
     }
 
     const repository = dependencies.repositoryFactory();
+    let run;
+    try {
+      run = await repository.findRun(parsed.data.runId);
+    } catch {
+      return errorResponse(
+        503,
+        'DISPATCH_PERSISTENCE_FAILED',
+        'Dispatch state persistence failed',
+        { 'Retry-After': '1' },
+      );
+    }
+    if (run === null) {
+      return errorResponse(404, 'DISPATCH_NOT_FOUND', 'Dispatch not found');
+    }
+    if (
+      run.dispatchMode === 'SALESFORCE' &&
+      dependencies.environment.SALESFORCE_DISPATCH_ENABLED !== 'true'
+    ) {
+      return errorResponse(
+        503,
+        'SALESFORCE_DISPATCH_DISABLED',
+        'Salesforce dispatch is temporarily disabled',
+        { 'Retry-After': '60' },
+      );
+    }
+    if (
+      run.testDataEnabled &&
+      dependencies.environment.SALESFORCE_TEST_DATA_ENABLED !== 'true'
+    ) {
+      return errorResponse(
+        503,
+        'SALESFORCE_TEST_DATA_DISABLED',
+        'Salesforce test data lifecycle is temporarily disabled',
+        { 'Retry-After': '60' },
+      );
+    }
+    const target =
+      run.dispatchMode === 'SALESFORCE'
+        ? (dependencies.salesforceTarget ?? dependencies.target)
+        : (dependencies.fakeTarget ?? dependencies.target);
+    if (target === undefined) {
+      return errorResponse(
+        503,
+        'DISPATCH_TARGET_NOT_CONFIGURED',
+        'Dispatch target is not configured',
+        { 'Retry-After': '60' },
+      );
+    }
     const resumeLifecycle =
       async (): Promise<PostDispatchLifecycleResult | null> => {
-        if (dependencies.environment.SALESFORCE_TEST_DATA_ENABLED !== 'true') {
+        if (!run.testDataEnabled) {
           return null;
         }
         if (dependencies.testDataAdapter === undefined) {
@@ -189,7 +242,8 @@ export function createDispatchHandler(
     ): Response | null => {
       if (
         lifecycle?.outcome === 'IN_PROGRESS' ||
-        lifecycle?.outcome === 'NOT_READY'
+        lifecycle?.outcome === 'NOT_READY' ||
+        lifecycle?.outcome === 'STALE'
       ) {
         return errorResponse(
           409,
@@ -295,7 +349,7 @@ export function createDispatchHandler(
     let targetFailed = false;
     let result: Awaited<ReturnType<DispatchTarget['dispatch']>>;
     try {
-      result = await dependencies.target.dispatch({
+      result = await target.dispatch({
         ...parsed.data,
         envelope,
       });
@@ -335,6 +389,36 @@ export function createDispatchHandler(
       try {
         const retry = lifecycleRetryResponse(await resumeLifecycle());
         if (retry !== null) return retry;
+      } catch {
+        return errorResponse(
+          503,
+          'LIFECYCLE_PERSISTENCE_FAILED',
+          'Salesforce test data lifecycle persistence failed',
+          { 'Retry-After': '1' },
+        );
+      }
+    } else if (run.testDataEnabled) {
+      try {
+        if (dependencies.testDataAdapter === undefined) {
+          throw new Error('Salesforce test data adapter is not configured');
+        }
+        const factory =
+          dependencies.lifecycleServiceFactory ??
+          createSalesforceLifecycleService;
+        const compensation = await factory({
+          repository,
+          adapter: dependencies.testDataAdapter,
+          actor: 'qstash-dispatch',
+          now,
+        }).compensate?.(parsed.data.runId);
+        if (compensation?.outcome === 'FAILED') {
+          return errorResponse(
+            503,
+            'LIFECYCLE_CLEANUP_FAILED',
+            'Salesforce test data cleanup failed',
+            { 'Retry-After': '60' },
+          );
+        }
       } catch {
         return errorResponse(
           503,

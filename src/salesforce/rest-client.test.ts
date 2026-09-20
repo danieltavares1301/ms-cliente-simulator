@@ -64,6 +64,8 @@ describe('Salesforce REST client', () => {
       expect.stringContaining('/services/data/v61.0/query?'),
       expect.objectContaining({
         method: 'GET',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
         headers: {
           authorization: ['Bear', 'er ', 'token-1'].join(''),
           'content-type': 'application/json',
@@ -74,6 +76,8 @@ describe('Salesforce REST client', () => {
       2,
       expect.any(String),
       expect.objectContaining({
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
         headers: {
           authorization: ['Bear', 'er ', 'token-2'].join(''),
           'content-type': 'application/json',
@@ -150,6 +154,8 @@ describe('Salesforce REST client', () => {
       'https://example.my.salesforce.com/services/data/v61.0/composite',
       expect.objectContaining({
         method: 'POST',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
         body: JSON.stringify({
           allOrNone: true,
           compositeRequest: [

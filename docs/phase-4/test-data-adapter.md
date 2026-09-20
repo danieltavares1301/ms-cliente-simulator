@@ -2,7 +2,7 @@
 
 ## Estado
 
-O incremento 0.4.1 entregou o adapter isolado. No incremento 0.4.2 ele passa a
+O incremento 0.4.1 entregou o adapter isolado. No incremento 0.4.3 ele passa a
 participar do state machine de runs e das entregas QStash quando
 `SALESFORCE_TEST_DATA_ENABLED=true`, que por sua vez exige orchestration e
 dispatch Salesforce habilitados. O lifecycle durável está detalhado em
@@ -40,6 +40,8 @@ Verificações permitidas:
 - `ACCOUNT_COUNT_BY_CPF_IS_ONE`;
 - `ACCOUNT_NAME_EQUALS_EVENT`;
 - `ACCOUNT_CLIENT_ID_EQUALS_EVENT`;
+- `ACCOUNT_IS_PERSON_ACCOUNT`;
+- `ACCOUNT_CPF_EQUALS_EVENT`;
 - `NO_OTHER_ACCOUNT_UPDATED`;
 - `LEAD_NOT_REQUIRED` e `PROPONENTE_NOT_REQUIRED`, como passes no-op explícitos.
 
@@ -63,10 +65,13 @@ gera `REPLAY`; registro incompatível gera `SETUP_CONFLICT`, sem update ou
 delete. `ENSURE_ACCOUNT_ABSENT` falha com `PRECONDITION_FAILED` diante de
 qualquer match.
 
-Cleanup só remove Account cujo `Id__c` seja exatamente o identificador da
-fixture e comece com `CLI-SIM-`. No cenário por CPF, uma Account ainda sem
-`Id__c` antes do evento é preservada. Divergência de ownership falha fechada
-com `OWNERSHIP_MISMATCH`; ausência de registros é no-op idempotente.
+Setup e verify devolvem os IDs Salesforce encontrados ou criados; o lifecycle
+os persiste em `response_redacted`. Cleanup recebe somente esses IDs, reconsulta
+por `Id` e exige que `Id__c`, quando preenchido, seja exatamente o identificador
+`CLI-SIM-` da fixture. Isso permite remover com segurança o registro do cenário
+por CPF ainda com `Id__c` nulo, sem inferir ownership por CPF. Sem IDs
+persistidos, cleanup é no-op fail-safe. Divergência falha fechada com
+`OWNERSHIP_MISMATCH`.
 
 Os dados de negócio das fixtures são fictícios por decisão do ADR-0005. Este
 incremento não adiciona classificação, scanner ou filtro de CPF, nome, e-mail,

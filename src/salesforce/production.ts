@@ -18,30 +18,26 @@ type ProductionOptions = {
 
 type InitializedServices = {
   dispatchTarget: DispatchTarget;
+  fakeDispatchTarget: DispatchTarget;
+  salesforceDispatchTarget: DispatchTarget;
   testDataAdapter: SalesforceTestDataAdapter;
 };
-
-function disabledAdapter(): SalesforceTestDataAdapter {
-  const disabled = () =>
-    Promise.reject(new Error('Salesforce test data is disabled'));
-  return { setup: disabled, verify: disabled, cleanup: disabled };
-}
 
 export function createSalesforceProductionServices(
   environment: Record<string, string | undefined>,
   options: ProductionOptions = {},
 ): InitializedServices {
-  let initialized: InitializedServices | null = null;
+  const fakeDispatchTarget = new FakeSalesforceDispatchTarget();
+  let initializedReal: Pick<
+    InitializedServices,
+    'salesforceDispatchTarget' | 'testDataAdapter'
+  > | null = null;
 
-  function services(): InitializedServices {
-    if (initialized !== null) return initialized;
+  function realServices() {
+    if (initializedReal !== null) return initializedReal;
     const configuration = parseServerEnvironment(environment);
     if (!configuration.SALESFORCE_DISPATCH_ENABLED) {
-      initialized = {
-        dispatchTarget: new FakeSalesforceDispatchTarget(),
-        testDataAdapter: disabledAdapter(),
-      };
-      return initialized;
+      throw new Error('Salesforce dispatch is disabled');
     }
 
     const oauthClient = new SalesforceOAuthClient({
@@ -61,25 +57,41 @@ export function createSalesforceProductionServices(
       safetyGuard,
       ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
     });
-    initialized = {
-      dispatchTarget: createSalesforceDispatchTarget({
+    initializedReal = {
+      salesforceDispatchTarget: createSalesforceDispatchTarget({
         oauthClient,
         safetyGuard,
         ...(options.fetchFn === undefined ? {} : { fetchFn: options.fetchFn }),
       }),
       testDataAdapter: createSalesforceTestDataAdapter({ restClient }),
     };
-    return initialized;
+    return initializedReal;
+  }
+
+  function testDataAdapter(): SalesforceTestDataAdapter {
+    if (environment.SALESFORCE_TEST_DATA_ENABLED !== 'true') {
+      throw new Error('Salesforce test data is disabled');
+    }
+    return realServices().testDataAdapter;
   }
 
   return {
+    fakeDispatchTarget,
     dispatchTarget: {
-      dispatch: (input) => services().dispatchTarget.dispatch(input),
+      dispatch: (input) =>
+        environment.SALESFORCE_DISPATCH_ENABLED === 'true'
+          ? realServices().salesforceDispatchTarget.dispatch(input)
+          : fakeDispatchTarget.dispatch(input),
+    },
+    salesforceDispatchTarget: {
+      dispatch: (input) =>
+        realServices().salesforceDispatchTarget.dispatch(input),
     },
     testDataAdapter: {
-      setup: (input) => services().testDataAdapter.setup(input),
-      verify: (input) => services().testDataAdapter.verify(input),
-      cleanup: (input) => services().testDataAdapter.cleanup(input),
+      setup: (input) => testDataAdapter().setup(input),
+      verify: (input) => testDataAdapter().verify(input),
+      cleanup: (input, ownedRecordIds) =>
+        testDataAdapter().cleanup(input, ownedRecordIds),
     },
   };
 }

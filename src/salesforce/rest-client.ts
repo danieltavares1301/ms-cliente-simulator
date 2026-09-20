@@ -8,6 +8,7 @@ import {
   type SalesforceSafetyGuard,
   SalesforceSafetyGuardRequestError,
 } from './safety-guard';
+import { salesforceFetch } from './network-policy';
 
 export const SALESFORCE_API_VERSION = 'v61.0' as const;
 
@@ -62,6 +63,7 @@ type SalesforceRestClientInput = {
   oauthClient: SalesforceOAuthAccessProvider;
   safetyGuard: SalesforceSafetyGuard;
   fetchFn?: typeof fetch;
+  networkTimeoutMs?: number;
 };
 
 const salesforceIdSchema = z
@@ -147,7 +149,8 @@ export function createSalesforceRestClient(
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const access = await input.safetyGuard.validate();
-        const response = await fetchFn(
+        const response = await salesforceFetch(
+          fetchFn,
           new URL(path, access.instanceUrl).toString(),
           {
             ...init,
@@ -156,6 +159,7 @@ export function createSalesforceRestClient(
               'content-type': 'application/json',
             },
           },
+          input.networkTimeoutMs,
         );
 
         if (response.status === 401 && attempt === 0) {

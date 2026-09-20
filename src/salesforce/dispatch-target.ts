@@ -9,12 +9,14 @@ import {
   SalesforceSafetyGuardRequestError,
   SafetyGuardViolationError,
 } from './safety-guard';
+import { SalesforceNetworkError, salesforceFetch } from './network-policy';
 
 type SalesforceDispatchTargetInput = {
   oauthClient: SalesforceOAuthAccessProvider;
   safetyGuard: SalesforceSafetyGuard;
   fetchFn?: typeof fetch;
   now?: () => Date;
+  networkTimeoutMs?: number;
 };
 
 type DispatchTargetPayload = DispatchRequest & {
@@ -54,7 +56,8 @@ export function createSalesforceDispatchTarget(
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
           const access = await input.safetyGuard.validate();
-          const response = await fetchFn(
+          const response = await salesforceFetch(
+            fetchFn,
             new URL(
               '/services/apexrest/Cliente',
               access.instanceUrl,
@@ -67,6 +70,7 @@ export function createSalesforceDispatchTarget(
               },
               body: JSON.stringify(request.envelope),
             },
+            input.networkTimeoutMs,
           );
 
           if (response.status === 401 && attempt === 0) {
@@ -108,6 +112,14 @@ export function createSalesforceDispatchTarget(
               startedAt,
               now,
               error.statusText,
+            );
+          }
+          if (error instanceof SalesforceNetworkError) {
+            return redactResponse(
+              error.code === 'SALESFORCE_REQUEST_TIMEOUT' ? 504 : 503,
+              startedAt,
+              now,
+              error.code,
             );
           }
           throw error;

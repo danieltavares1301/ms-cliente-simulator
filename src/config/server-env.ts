@@ -134,7 +134,7 @@ const salesforceTokenUrlSchema = z.string().transform((value, context) => {
     url.hash !== '' ||
     value.includes('?') ||
     value.includes('#') ||
-    url.pathname.replace(/\/+$/, '') !== '/services/oauth2/token'
+    url.pathname !== '/services/oauth2/token'
   ) {
     context.addIssue({
       code: 'custom',
@@ -143,7 +143,7 @@ const salesforceTokenUrlSchema = z.string().transform((value, context) => {
     return z.NEVER;
   }
 
-  return normalizeTrailingSlash(url);
+  return url.toString();
 });
 
 const orchestrationOnlyKeys = [
@@ -301,6 +301,22 @@ const serverEnvironmentSchema = z
         path: ['SALESFORCE_TOKEN_URL'],
         message: 'Invalid secure URL',
       });
+    }
+    if (configuration.SALESFORCE_TOKEN_URL !== undefined) {
+      const tokenUrl = parseUrl(configuration.SALESFORCE_TOKEN_URL);
+      const targetUrl = parseUrl(configuration.TARGET_SALESFORCE_BASE_URL);
+      if (
+        tokenUrl !== undefined &&
+        targetUrl !== undefined &&
+        tokenUrl.host !== targetUrl.host &&
+        tokenUrl.host !== 'test.salesforce.com'
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['SALESFORCE_TOKEN_URL'],
+          message: 'Salesforce OAuth host is not authorized',
+        });
+      }
     }
   })
   .transform((configuration) => {

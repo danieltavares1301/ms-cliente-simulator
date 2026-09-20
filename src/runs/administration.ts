@@ -1,6 +1,8 @@
 import type { RunRepository, RunStatus } from '../db/run-repository';
 import type { CancellationReasonCode } from '../contracts';
 import type { Scheduler } from './scheduler';
+import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
+import { createSalesforceLifecycleService } from './salesforce-lifecycle';
 
 export type RunAdministrationErrorCode =
   | 'RUN_NOT_FOUND'
@@ -23,6 +25,11 @@ type Dependencies = {
   repository: RunRepository;
   scheduler: Scheduler;
   actor?: string;
+  testDataAdapter?: SalesforceTestDataAdapter;
+  testDataAvailable?: boolean;
+  lifecycleServiceFactory?: (
+    dependencies: Parameters<typeof createSalesforceLifecycleService>[0],
+  ) => Pick<ReturnType<typeof createSalesforceLifecycleService>, 'compensate'>;
 };
 
 export interface RunAdministrationResult {
@@ -34,6 +41,31 @@ export interface RunAdministrationResult {
 
 export function createRunAdministrationService(dependencies: Dependencies) {
   const actor = dependencies.actor ?? 'simulator-admin-api';
+
+  async function compensateIfRequired(runId: string): Promise<void> {
+    if (dependencies.testDataAdapter === undefined) return;
+    const run = await dependencies.repository.findRun(runId);
+    if (!run?.testDataEnabled) return;
+    if (dependencies.testDataAvailable === false) {
+      throw new RunAdministrationError(
+        'CANCELLATION_FAILED',
+        'Salesforce test data lifecycle is temporarily disabled',
+      );
+    }
+    const lifecycleFactory =
+      dependencies.lifecycleServiceFactory ?? createSalesforceLifecycleService;
+    const cleanup = await lifecycleFactory({
+      repository: dependencies.repository,
+      adapter: dependencies.testDataAdapter,
+      actor,
+    }).compensate(runId);
+    if (cleanup.outcome !== 'SUCCEEDED') {
+      throw new RunAdministrationError(
+        'CANCELLATION_FAILED',
+        'Salesforce test data cleanup failed',
+      );
+    }
+  }
 
   return {
     async cancelRun(input: {
@@ -57,6 +89,7 @@ export function createRunAdministrationService(dependencies: Dependencies) {
         );
       }
       if (begun.outcome === 'REPLAY') {
+        await compensateIfRequired(input.runId);
         return {
           runId: input.runId,
           status: begun.status,
@@ -102,6 +135,8 @@ export function createRunAdministrationService(dependencies: Dependencies) {
           'QStash cancellation failed',
         );
       }
+
+      await compensateIfRequired(input.runId);
 
       const finalized = await dependencies.repository.finalizeCancellation({
         runId: input.runId,

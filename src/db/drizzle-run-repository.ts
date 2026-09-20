@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   and,
   asc,
@@ -55,7 +57,7 @@ export class RunRecoveryError extends Error {
 
 const DISPATCH_CLAIM_RECOVERY_MS = 1_000;
 const DEFAULT_SCHEDULING_LEASE_MS = 60_000;
-const DEFAULT_LIFECYCLE_CLAIM_RECOVERY_MS = 60_000;
+export const DEFAULT_LIFECYCLE_CLAIM_RECOVERY_MS = 60_000;
 
 type DrizzleRunRepositoryOptions = {
   now?: () => Date;
@@ -311,14 +313,26 @@ export class DrizzleRunRepository<
       .where(
         and(
           eq(scenarioRun.id, input.runId),
-          inArray(scenarioRun.status, [
-            'CREATED',
-            'PROVISIONING',
-            'SCHEDULED',
-            'RUNNING',
-            'WAITING_ASYNC',
-            'VERIFYING',
-          ]),
+          or(
+            inArray(scenarioRun.status, [
+              'CREATED',
+              'PROVISIONING',
+              'SCHEDULED',
+              'RUNNING',
+              'WAITING_ASYNC',
+              'VERIFYING',
+            ]),
+            and(
+              eq(scenarioRun.status, 'PARTIAL'),
+              eq(scenarioRun.testDataEnabled, true),
+              sql`exists (
+                select 1 from ${scenarioRunStep}
+                where ${scenarioRunStep.runId} = ${input.runId}
+                  and ${scenarioRunStep.stepKind} = 'CLEANUP'
+                  and ${scenarioRunStep.status} = 'FAILED'
+              )`,
+            ),
+          ),
         ),
       )
       .returning({ id: scenarioRun.id });
@@ -438,11 +452,21 @@ export class DrizzleRunRepository<
   }): Promise<{ status: 'CANCELLED'; affectedStepCount: number }> {
     const cancelledSteps = await this.database
       .update(scenarioRunStep)
-      .set({ status: 'CANCELLED', finishedAt: new Date() })
+      .set({
+        status: 'CANCELLED',
+        finishedAt: new Date(),
+        lifecycleClaimId: null,
+      })
       .where(
         and(
           eq(scenarioRunStep.runId, input.runId),
-          inArray(scenarioRunStep.status, ['PENDING', 'SCHEDULED']),
+          or(
+            inArray(scenarioRunStep.status, ['PENDING', 'SCHEDULED']),
+            and(
+              eq(scenarioRunStep.status, 'RUNNING'),
+              inArray(scenarioRunStep.stepKind, ['SETUP', 'VERIFY', 'CLEANUP']),
+            ),
+          ),
         ),
       )
       .returning({ id: scenarioRunStep.id });
@@ -526,6 +550,7 @@ export class DrizzleRunRepository<
     const [current] = await this.database
       .select({
         status: scenarioRun.status,
+        testDataEnabled: scenarioRun.testDataEnabled,
         schedulingKind: scenarioRun.schedulingKind,
         schedulingLeaseExpiresAt: scenarioRun.schedulingLeaseExpiresAt,
       })
@@ -597,6 +622,28 @@ export class DrizzleRunRepository<
       )
       .returning({ id: scenarioRun.id });
     if (claimed === undefined) return { outcome: 'IN_PROGRESS' };
+    if (
+      input.recovery &&
+      current.testDataEnabled &&
+      (current.status === 'FAILED' || current.status === 'PARTIAL')
+    ) {
+      await this.database
+        .update(scenarioRunStep)
+        .set({
+          status: 'PENDING',
+          startedAt: null,
+          finishedAt: null,
+          responseRedacted: {},
+          errorCode: null,
+          lifecycleClaimId: null,
+        })
+        .where(
+          and(
+            eq(scenarioRunStep.runId, input.runId),
+            inArray(scenarioRunStep.stepKind, ['SETUP', 'VERIFY', 'CLEANUP']),
+          ),
+        );
+    }
     if (input.recovery || reclaiming) {
       await this.appendAuditEvent({
         actor: input.actor,
@@ -1120,8 +1167,14 @@ export class DrizzleRunRepository<
           sql`exists (
             select 1 from ${scenarioRun}
             where ${scenarioRun.id} = ${input.runId}
-              and ${scenarioRun.status} in (
-                'CREATED', 'PROVISIONING', 'SCHEDULED', 'RUNNING', 'FAILED', 'PARTIAL'
+              and (
+                ${scenarioRun.status} in (
+                  'CREATED', 'PROVISIONING', 'SCHEDULED', 'RUNNING'
+                )
+                or (
+                  ${scenarioRun.status} in ('FAILED', 'PARTIAL')
+                  and ${scenarioRun.testDataEnabled} = false
+                )
               )
           )`,
           sql`not exists (
@@ -1580,10 +1633,15 @@ export class DrizzleRunRepository<
     }
 
     let claimed: { id: string } | undefined;
+    const claimId = randomUUID();
     if (step.status === 'PENDING') {
       [claimed] = await this.database
         .update(scenarioRunStep)
-        .set({ status: 'RUNNING', startedAt: input.claimedAt })
+        .set({
+          status: 'RUNNING',
+          startedAt: input.claimedAt,
+          lifecycleClaimId: claimId,
+        })
         .where(
           and(
             eq(scenarioRunStep.id, step.id),
@@ -1610,19 +1668,41 @@ export class DrizzleRunRepository<
       }
       [claimed] = await this.database
         .update(scenarioRunStep)
-        .set({ startedAt: input.claimedAt })
+        .set({ startedAt: input.claimedAt, lifecycleClaimId: claimId })
         .where(
           and(
             eq(scenarioRunStep.id, step.id),
+            eq(scenarioRunStep.runId, input.runId),
             eq(scenarioRunStep.status, 'RUNNING'),
             step.startedAt === null
               ? isNull(scenarioRunStep.startedAt)
               : eq(scenarioRunStep.startedAt, step.startedAt),
+            sql`exists (
+              select 1 from ${scenarioRun}
+              where ${scenarioRun.id} = ${input.runId}
+                and ${scenarioRun.status} = ${expectedRunStatus}
+            )`,
           ),
         )
         .returning({ id: scenarioRunStep.id });
     }
-    if (claimed === undefined) return { outcome: 'IN_PROGRESS' };
+    if (claimed === undefined) {
+      const [current] = await this.database
+        .select({ status: scenarioRun.status })
+        .from(scenarioRun)
+        .where(eq(scenarioRun.id, input.runId))
+        .limit(1);
+      if (current?.status === 'CANCELLING' || current?.status === 'CANCELLED') {
+        return { outcome: 'CANCELLED' };
+      }
+      if (
+        current === undefined ||
+        ['SUCCEEDED', 'FAILED', 'PARTIAL'].includes(current.status)
+      ) {
+        return { outcome: 'STALE' };
+      }
+      return { outcome: 'IN_PROGRESS' };
+    }
 
     await this.appendAuditEvent({
       actor: input.actor,
@@ -1636,11 +1716,13 @@ export class DrizzleRunRepository<
     });
     return {
       outcome: 'CLAIMED',
+      claimId,
       run: asRun(run),
       step: asRunStep({
         ...step,
         status: 'RUNNING',
         startedAt: input.claimedAt,
+        lifecycleClaimId: claimId,
       }),
     };
   }
@@ -1649,13 +1731,16 @@ export class DrizzleRunRepository<
     runId: string;
     stepId: string;
     stepKind: LifecycleStepKind;
+    claimId: string;
     succeeded: boolean;
     responseRedacted: Record<string, unknown>;
     errorCode: string | null;
     actor: string;
     finishedAt: Date;
-  }): Promise<boolean> {
+  }): Promise<import('./run-repository').CompleteLifecycleStepResult> {
     const nextStatus = input.succeeded ? 'SUCCEEDED' : 'FAILED';
+    const expectedRunStatus =
+      input.stepKind === 'SETUP' ? 'PROVISIONING' : 'VERIFYING';
     const [completed] = await this.database
       .update(scenarioRunStep)
       .set({
@@ -1663,6 +1748,7 @@ export class DrizzleRunRepository<
         finishedAt: input.finishedAt,
         responseRedacted: input.responseRedacted,
         errorCode: input.errorCode,
+        lifecycleClaimId: null,
       })
       .where(
         and(
@@ -1670,10 +1756,25 @@ export class DrizzleRunRepository<
           eq(scenarioRunStep.runId, input.runId),
           eq(scenarioRunStep.stepKind, input.stepKind),
           eq(scenarioRunStep.status, 'RUNNING'),
+          eq(scenarioRunStep.lifecycleClaimId, input.claimId),
+          sql`exists (
+            select 1 from ${scenarioRun}
+            where ${scenarioRun.id} = ${input.runId}
+              and ${scenarioRun.status} = ${expectedRunStatus}
+          )`,
         ),
       )
       .returning({ id: scenarioRunStep.id });
-    if (completed === undefined) return false;
+    if (completed === undefined) {
+      const [current] = await this.database
+        .select({ status: scenarioRun.status })
+        .from(scenarioRun)
+        .where(eq(scenarioRun.id, input.runId))
+        .limit(1);
+      return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
+        ? { outcome: 'CANCELLED' }
+        : { outcome: 'STALE' };
+    }
 
     await this.appendAuditEvent({
       actor: input.actor,
@@ -1686,7 +1787,72 @@ export class DrizzleRunRepository<
         ...(input.errorCode === null ? {} : { errorCode: input.errorCode }),
       },
     });
-    return true;
+    return { outcome: 'COMPLETED' };
+  }
+
+  async recordLifecycleCompensation(input: {
+    runId: string;
+    succeeded: boolean;
+    responseRedacted: Record<string, unknown>;
+    errorCode: string | null;
+    actor: string;
+    finishedAt: Date;
+  }): Promise<'COMPLETED' | 'NOT_FOUND'> {
+    const nextStatus = input.succeeded ? 'SUCCEEDED' : 'FAILED';
+    const [step] = await this.database
+      .update(scenarioRunStep)
+      .set({
+        status: nextStatus,
+        finishedAt: input.finishedAt,
+        responseRedacted: input.responseRedacted,
+        errorCode: input.errorCode,
+        lifecycleClaimId: null,
+      })
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, 'CLEANUP'),
+          inArray(scenarioRunStep.status, ['PENDING', 'RUNNING', 'FAILED']),
+        ),
+      )
+      .returning({ id: scenarioRunStep.id });
+    if (step === undefined) {
+      const [existing] = await this.database
+        .select({ status: scenarioRunStep.status })
+        .from(scenarioRunStep)
+        .where(
+          and(
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.stepKind, 'CLEANUP'),
+          ),
+        )
+        .limit(1);
+      return existing?.status === 'SUCCEEDED' ? 'COMPLETED' : 'NOT_FOUND';
+    }
+    if (!input.succeeded) {
+      await this.database
+        .update(scenarioRun)
+        .set({ status: 'PARTIAL', finishedAt: input.finishedAt })
+        .where(
+          and(
+            eq(scenarioRun.id, input.runId),
+            sql`${scenarioRun.status} <> 'CANCELLED'`,
+          ),
+        );
+    }
+    await this.appendAuditEvent({
+      actor: input.actor,
+      action: `CLEANUP_${nextStatus}`,
+      resourceType: 'scenario_run',
+      resourceId: input.runId,
+      metadataRedacted: {
+        status: nextStatus,
+        ...input.responseRedacted,
+        ...(input.errorCode === null ? {} : { errorCode: input.errorCode }),
+        compensation: true,
+      },
+    });
+    return 'COMPLETED';
   }
 
   async finalizeLifecycleRun(input: {

@@ -31,7 +31,7 @@ describe('OpenAPI document', () => {
 
   it('is OpenAPI 3.1 and documents every planned public endpoint', () => {
     expect(openApiDocument.openapi).toBe('3.1.0');
-    expect(openApiDocument.info.version).toBe('0.3.0');
+    expect(openApiDocument.info.version).toBe('0.4.3');
     expect(openApiDocument.info.title).toBeTruthy();
 
     for (const path of publicPaths) {

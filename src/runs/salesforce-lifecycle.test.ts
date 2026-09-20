@@ -23,6 +23,7 @@ function claimed(
 ): Extract<ClaimLifecycleStepResult, { outcome: 'CLAIMED' }> {
   return {
     outcome: 'CLAIMED',
+    claimId: '33333333-3333-4333-8333-333333333333',
     run: {
       id: runId,
       scenarioKey: fixture.scenarioKey,
@@ -40,6 +41,8 @@ function claimed(
       expectedCallbackMax: 0,
       asyncWaitDeadline: null,
       cleanupPolicy: 'ALWAYS',
+      dispatchMode: 'SALESFORCE',
+      testDataEnabled: true,
       createdAt: now,
       startedAt: null,
       finishedAt: null,
@@ -69,6 +72,7 @@ function claimed(
       stepKind,
       schedulingKind: null,
       schedulingLeaseExpiresAt: null,
+      lifecycleClaimId: '33333333-3333-4333-8333-333333333333',
     },
   };
 }
@@ -78,7 +82,14 @@ function repositoryWithClaims(
 ): RunRepository {
   return {
     claimLifecycleStep: vi.fn().mockImplementation(async () => claims.shift()),
-    completeLifecycleStep: vi.fn().mockResolvedValue(true),
+    listSteps: vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      hasMore: false,
+    }),
+    findRun: vi.fn().mockResolvedValue(claimed('SETUP').run),
+    recordLifecycleCompensation: vi.fn().mockResolvedValue('COMPLETED'),
+    completeLifecycleStep: vi.fn().mockResolvedValue({ outcome: 'COMPLETED' }),
     finalizeLifecycleRun: vi.fn().mockResolvedValue('SUCCEEDED'),
   } as unknown as RunRepository;
 }
@@ -91,8 +102,13 @@ function adapter(
       status: 'CREATED',
       createdCount: 1,
       replayedCount: 0,
+      recordIds: ['001000000000001AAA'],
     }),
-    verify: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
+    verify: vi.fn().mockResolvedValue({
+      passed: true,
+      checks: [],
+      recordIds: ['001000000000001AAA'],
+    }),
     cleanup: vi.fn().mockResolvedValue({ status: 'DELETED', deletedCount: 1 }),
     ...overrides,
   };
@@ -117,11 +133,13 @@ describe('Salesforce lifecycle service', () => {
       runId,
       stepId: 'setup-step',
       stepKind: 'SETUP',
+      claimId: '33333333-3333-4333-8333-333333333333',
       succeeded: true,
       responseRedacted: {
         status: 'CREATED',
         createdCount: 1,
         replayedCount: 0,
+        recordIds: ['001000000000001AAA'],
       },
       errorCode: null,
       actor: 'simulator-admin-api',
@@ -166,6 +184,7 @@ describe('Salesforce lifecycle service', () => {
       verify: vi.fn().mockResolvedValue({
         passed: false,
         checks: [{ check: 'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE', passed: false }],
+        recordIds: [],
       }),
     });
     const service = createSalesforceLifecycleService({
@@ -224,6 +243,28 @@ describe('Salesforce lifecycle service', () => {
     expect(testDataAdapter.cleanup).not.toHaveBeenCalled();
   });
 
+  it('immediately compensates owned setup records when cancellation rejects completion', async () => {
+    const repository = repositoryWithClaims([claimed('SETUP')]);
+    vi.mocked(repository.completeLifecycleStep).mockResolvedValue({
+      outcome: 'CANCELLED',
+    });
+    const testDataAdapter = adapter();
+    const service = createSalesforceLifecycleService({
+      repository,
+      adapter: testDataAdapter,
+      actor: 'simulator-admin-api',
+      now: () => now,
+    });
+
+    await expect(service.setup(runId)).resolves.toStrictEqual({
+      outcome: 'CANCELLED',
+    });
+    expect(testDataAdapter.cleanup).toHaveBeenCalledWith(expect.any(Object), [
+      '001000000000001AAA',
+    ]);
+    expect(repository.recordLifecycleCompensation).not.toHaveBeenCalled();
+  });
+
   it('lets only one concurrent redelivery execute verify and cleanup', async () => {
     let releaseVerify!: () => void;
     const verificationBlocked = new Promise<void>((resolve) => {
@@ -238,7 +279,7 @@ describe('Salesforce lifecycle service', () => {
     const testDataAdapter = adapter({
       verify: vi.fn().mockImplementation(async () => {
         await verificationBlocked;
-        return { passed: true, checks: [] };
+        return { passed: true, checks: [], recordIds: [] };
       }),
     });
     const service = createSalesforceLifecycleService({

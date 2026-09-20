@@ -139,6 +139,7 @@ export type SalesforceTestDataSetupResult = {
   status: 'CREATED' | 'REPLAY' | 'READY';
   createdCount: number;
   replayedCount: number;
+  recordIds: string[];
 };
 
 export type SalesforceTestDataVerificationCheck = {
@@ -147,6 +148,8 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_COUNT_BY_CPF_IS_ONE'
     | 'ACCOUNT_CLIENT_ID_EQUALS_EVENT'
     | 'ACCOUNT_NAME_EQUALS_EVENT'
+    | 'ACCOUNT_IS_PERSON_ACCOUNT'
+    | 'ACCOUNT_CPF_EQUALS_EVENT'
     | 'NO_OTHER_ACCOUNT_UPDATED'
     | 'LEAD_NOT_REQUIRED'
     | 'PROPONENTE_NOT_REQUIRED';
@@ -157,6 +160,7 @@ export type SalesforceTestDataVerificationCheck = {
 export type SalesforceTestDataVerifyResult = {
   passed: boolean;
   checks: SalesforceTestDataVerificationCheck[];
+  recordIds: string[];
 };
 
 export type SalesforceTestDataCleanupResult = {
@@ -173,6 +177,7 @@ export interface SalesforceTestDataAdapter {
   ): Promise<SalesforceTestDataVerifyResult>;
   cleanup(
     input: SalesforceTestDataAdapterInput,
+    ownedRecordIds: readonly string[],
   ): Promise<SalesforceTestDataCleanupResult>;
 }
 
@@ -189,6 +194,7 @@ const accountRecordSchema = z
     IdProspectSalesforce__c: nullableText,
     CPF__pc: nullableText,
     LastName: nullableText,
+    IsPersonAccount: z.boolean(),
     DataAlteracaoEvento__c: nullableText.optional(),
   })
   .passthrough();
@@ -242,7 +248,7 @@ const compositeResponseSchema = z
 type AccountRecord = z.infer<typeof accountRecordSchema>;
 
 const accountFields =
-  'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName' as const;
+  'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount' as const;
 const setupAccountFields = `${accountFields},DataAlteracaoEvento__c` as const;
 
 function literal(value: string): string {
@@ -326,6 +332,7 @@ export function createSalesforceTestDataAdapter(
       const { fixture } = parseInput(candidate);
       let createdCount = 0;
       let replayedCount = 0;
+      const recordIds: string[] = [];
 
       for (const instruction of fixture.setup) {
         if (instruction.operation === 'ENSURE_ACCOUNT_ABSENT') {
@@ -366,10 +373,12 @@ export function createSalesforceTestDataAdapter(
           existing.IdProspectSalesforce__c === account.idProspect &&
           existing.CPF__pc === account.cpf &&
           existing.LastName === account.name &&
+          existing.IsPersonAccount &&
           existing.DataAlteracaoEvento__c === account.dataAlteracao;
 
         if (matchesFixture) {
           replayedCount += 1;
+          recordIds.push(existing.Id);
           continue;
         }
         if (records.length > 0) {
@@ -396,13 +405,16 @@ export function createSalesforceTestDataAdapter(
             body,
           },
         ];
-        const response = await dependencies.restClient.composite(requests);
-        if (!compositeResponseSchema.safeParse(response).success) {
+        const response = compositeResponseSchema.safeParse(
+          await dependencies.restClient.composite(requests),
+        );
+        if (!response.success) {
           throw new SalesforceTestDataAdapterError(
             'SALESFORCE_RESPONSE_INVALID',
           );
         }
         createdCount += 1;
+        recordIds.push(response.data.compositeResponse[0]!.body.id);
       }
 
       return {
@@ -410,6 +422,7 @@ export function createSalesforceTestDataAdapter(
           createdCount > 0 ? 'CREATED' : replayedCount > 0 ? 'REPLAY' : 'READY',
         createdCount,
         replayedCount,
+        recordIds,
       };
     },
 
@@ -462,6 +475,19 @@ export function createSalesforceTestDataAdapter(
                 target !== undefined && target.LastName === event.nomecompleto,
             });
             break;
+          case 'ACCOUNT_IS_PERSON_ACCOUNT':
+            checks.push({
+              check,
+              passed: target?.IsPersonAccount === true,
+            });
+            break;
+          case 'ACCOUNT_CPF_EQUALS_EVENT':
+            checks.push({
+              check,
+              passed:
+                target !== undefined && target.CPF__pc === event.numerocpf,
+            });
+            break;
           case 'NO_OTHER_ACCOUNT_UPDATED':
             checks.push({
               check,
@@ -489,43 +515,52 @@ export function createSalesforceTestDataAdapter(
       return {
         passed: checks.every((check) => check.passed),
         checks,
+        recordIds: target === undefined ? [] : [target.Id],
       };
     },
 
-    async cleanup(candidate): Promise<SalesforceTestDataCleanupResult> {
+    async cleanup(
+      candidate,
+      ownedRecordIds,
+    ): Promise<SalesforceTestDataCleanupResult> {
       const { fixture } = parseInput(candidate);
-      const records = await queryAccounts(accountLookupQuery(fixture));
       const exactOwnerId = fixture.identifiers.accountIdCliente;
-      const permitsUnstampedAccount = fixture.setup.some(
-        (instruction) =>
-          instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
-          instruction.matchBy === 'CPF' &&
-          instruction.account.idCliente === null,
+      const uniqueIds = [...new Set(ownedRecordIds)];
+      const validIds = z
+        .array(z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/))
+        .safeParse(uniqueIds);
+      if (!validIds.success || !exactOwnerId.startsWith('CLI-SIM-')) {
+        throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+      }
+      if (uniqueIds.length === 0) {
+        return { status: 'NO_OP', deletedCount: 0 };
+      }
+      const records = await queryAccounts(
+        asAllowlistedQuery(
+          `SELECT ${accountFields} FROM Account WHERE Id IN (${uniqueIds
+            .map(literal)
+            .join(',')})`,
+        ),
       );
-      const ownedRecords: AccountRecord[] = [];
 
       for (const record of records) {
-        if (record.Id__c === null && permitsUnstampedAccount) {
-          continue;
-        }
         if (
-          !exactOwnerId.startsWith('CLI-SIM-') ||
-          record.Id__c !== exactOwnerId
+          !uniqueIds.includes(record.Id) ||
+          (record.Id__c !== null && record.Id__c !== exactOwnerId)
         ) {
           throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
         }
-        ownedRecords.push(record);
       }
 
       await Promise.all(
-        ownedRecords.map((record) =>
+        records.map((record) =>
           dependencies.restClient.deleteRecord('Account', record.Id),
         ),
       );
 
       return {
-        status: ownedRecords.length > 0 ? 'DELETED' : 'NO_OP',
-        deletedCount: ownedRecords.length,
+        status: records.length > 0 ? 'DELETED' : 'NO_OP',
+        deletedCount: records.length,
       };
     },
   };

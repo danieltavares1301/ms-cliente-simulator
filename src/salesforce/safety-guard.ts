@@ -4,6 +4,7 @@ import type {
   SalesforceAccess,
   SalesforceOAuthAccessProvider,
 } from './oauth-client';
+import { salesforceFetch } from './network-policy';
 
 export type SafetyGuardViolationCode =
   | 'SALESFORCE_HOST_MISMATCH'
@@ -51,6 +52,7 @@ type SalesforceSafetyGuardInput = {
   targetSalesforceBaseUrl: string;
   targetSalesforceOrgId: string;
   fetchFn?: typeof fetch;
+  networkTimeoutMs?: number;
 };
 
 export function createSalesforceSafetyGuard(
@@ -74,13 +76,18 @@ export function createSalesforceSafetyGuard(
         access.instanceUrl,
       );
       queryUrl.searchParams.set('q', 'SELECT Id,IsSandbox FROM Organization');
-      const response = await fetchFn(queryUrl.toString(), {
-        method: 'GET',
-        headers: {
-          authorization: `Bearer ${access.accessToken}`,
-          accept: 'application/json',
+      const response = await salesforceFetch(
+        fetchFn,
+        queryUrl.toString(),
+        {
+          method: 'GET',
+          headers: {
+            authorization: `Bearer ${access.accessToken}`,
+            accept: 'application/json',
+          },
         },
-      });
+        input.networkTimeoutMs,
+      );
 
       if (!response.ok) {
         throw new SalesforceSafetyGuardRequestError(
