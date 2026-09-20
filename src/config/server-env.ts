@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+export const GRAPHQL_CALLBACK_AUTH_MODES = [
+  'SHARED_SECRET',
+  'AZURE_BEARER_STRUCTURAL',
+] as const;
+
+export type GraphqlCallbackAuthMode =
+  (typeof GRAPHQL_CALLBACK_AUTH_MODES)[number];
+
 const serverEnvironmentKeys = [
   'APP_ENV',
   'TARGET_ENV',
@@ -9,6 +17,7 @@ const serverEnvironmentKeys = [
   'QSTASH_URL',
   'ORCHESTRATION_ENABLED',
   'GRAPHQL_CALLBACK_ENABLED',
+  'GRAPHQL_CALLBACK_AUTH_MODE',
   'SALESFORCE_DISPATCH_ENABLED',
   'SALESFORCE_TEST_DATA_ENABLED',
   'SIMULATOR_ADMIN_API_KEY',
@@ -24,6 +33,22 @@ const serverEnvironmentKeys = [
 ] as const;
 
 const serverEnvironmentKeySet = new Set<string>(serverEnvironmentKeys);
+
+function isGraphqlCallbackAuthMode(
+  value: string,
+): value is GraphqlCallbackAuthMode {
+  return (GRAPHQL_CALLBACK_AUTH_MODES as readonly string[]).includes(value);
+}
+
+export function parseGraphqlCallbackAuthMode(
+  value: string | undefined,
+): GraphqlCallbackAuthMode | undefined {
+  if (value === undefined || value === '') {
+    return 'SHARED_SECRET';
+  }
+
+  return isGraphqlCallbackAuthMode(value) ? value : undefined;
+}
 
 function parseUrl(value: string): URL | undefined {
   try {
@@ -181,6 +206,7 @@ const serverEnvironmentSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    GRAPHQL_CALLBACK_AUTH_MODE: z.string().optional(),
     SALESFORCE_DISPATCH_ENABLED: z
       .enum(['true', 'false'])
       .default('false')
@@ -201,6 +227,10 @@ const serverEnvironmentSchema = z
     SALESFORCE_TOKEN_URL: z.string().optional(),
   })
   .superRefine((configuration, context) => {
+    const graphqlCallbackAuthMode = parseGraphqlCallbackAuthMode(
+      configuration.GRAPHQL_CALLBACK_AUTH_MODE,
+    );
+
     if (
       configuration.GRAPHQL_CALLBACK_ENABLED &&
       !configuration.ORCHESTRATION_ENABLED
@@ -236,6 +266,17 @@ const serverEnvironmentSchema = z
       });
     }
 
+    if (
+      configuration.GRAPHQL_CALLBACK_ENABLED &&
+      graphqlCallbackAuthMode === undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['GRAPHQL_CALLBACK_AUTH_MODE'],
+        message: 'Invalid GraphQL callback auth mode',
+      });
+    }
+
     if (!configuration.ORCHESTRATION_ENABLED) {
       return;
     }
@@ -250,10 +291,9 @@ const serverEnvironmentSchema = z
         });
       }
     }
-
     for (const variableName of [
       'SIMULATOR_ADMIN_API_KEY',
-      'GRAPHQL_CALLBACK_SHARED_SECRET',
+      'SIMULATOR_ADMIN_API_KEY',
       'IDEMPOTENCY_HASH_PEPPER',
       'QSTASH_TOKEN',
       'QSTASH_CURRENT_SIGNING_KEY',
@@ -271,6 +311,20 @@ const serverEnvironmentSchema = z
 
     if (
       configuration.GRAPHQL_CALLBACK_ENABLED &&
+      graphqlCallbackAuthMode === 'SHARED_SECRET' &&
+      configuration.GRAPHQL_CALLBACK_SHARED_SECRET !== undefined &&
+      configuration.GRAPHQL_CALLBACK_SHARED_SECRET.length < 32
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['GRAPHQL_CALLBACK_SHARED_SECRET'],
+        message: 'Secret is too short',
+      });
+    }
+
+    if (
+      configuration.GRAPHQL_CALLBACK_ENABLED &&
+      graphqlCallbackAuthMode === 'SHARED_SECRET' &&
       (configuration.GRAPHQL_CALLBACK_SHARED_SECRET === undefined ||
         configuration.GRAPHQL_CALLBACK_SHARED_SECRET === '')
     ) {
@@ -351,6 +405,10 @@ const serverEnvironmentSchema = z
     }
   })
   .transform((configuration) => {
+    const graphqlCallbackAuthMode =
+      parseGraphqlCallbackAuthMode(configuration.GRAPHQL_CALLBACK_AUTH_MODE) ??
+      'SHARED_SECRET';
+
     if (!configuration.ORCHESTRATION_ENABLED) {
       return {
         APP_ENV: configuration.APP_ENV,
@@ -371,12 +429,14 @@ const serverEnvironmentSchema = z
         ...configuration,
         ORCHESTRATION_ENABLED: true as const,
         GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
+        GRAPHQL_CALLBACK_AUTH_MODE: graphqlCallbackAuthMode,
         SALESFORCE_DISPATCH_ENABLED: false as const,
         SALESFORCE_TEST_DATA_ENABLED: false as const,
         PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
           configuration.PUBLIC_APP_BASE_URL,
         ),
-        ...(configuration.GRAPHQL_CALLBACK_ENABLED
+        ...(configuration.GRAPHQL_CALLBACK_ENABLED &&
+        graphqlCallbackAuthMode === 'SHARED_SECRET'
           ? {
               GRAPHQL_CALLBACK_SHARED_SECRET:
                 configuration.GRAPHQL_CALLBACK_SHARED_SECRET!,
@@ -389,6 +449,7 @@ const serverEnvironmentSchema = z
       ...configuration,
       ORCHESTRATION_ENABLED: true as const,
       GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
+      GRAPHQL_CALLBACK_AUTH_MODE: graphqlCallbackAuthMode,
       SALESFORCE_DISPATCH_ENABLED: true as const,
       SALESFORCE_TEST_DATA_ENABLED: configuration.SALESFORCE_TEST_DATA_ENABLED,
       PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
@@ -397,7 +458,8 @@ const serverEnvironmentSchema = z
       SALESFORCE_TOKEN_URL: salesforceTokenUrlSchema.parse(
         configuration.SALESFORCE_TOKEN_URL,
       ),
-      ...(configuration.GRAPHQL_CALLBACK_ENABLED
+      ...(configuration.GRAPHQL_CALLBACK_ENABLED &&
+      graphqlCallbackAuthMode === 'SHARED_SECRET'
         ? {
             GRAPHQL_CALLBACK_SHARED_SECRET:
               configuration.GRAPHQL_CALLBACK_SHARED_SECRET!,
@@ -426,6 +488,7 @@ export type ServerEnvironment = BaseServerEnvironment &
     | {
         ORCHESTRATION_ENABLED: true;
         GRAPHQL_CALLBACK_ENABLED: boolean;
+        GRAPHQL_CALLBACK_AUTH_MODE: GraphqlCallbackAuthMode;
         SALESFORCE_DISPATCH_ENABLED: false;
         SALESFORCE_TEST_DATA_ENABLED: false;
         SIMULATOR_ADMIN_API_KEY: string;
@@ -439,6 +502,7 @@ export type ServerEnvironment = BaseServerEnvironment &
     | {
         ORCHESTRATION_ENABLED: true;
         GRAPHQL_CALLBACK_ENABLED: boolean;
+        GRAPHQL_CALLBACK_AUTH_MODE: GraphqlCallbackAuthMode;
         SALESFORCE_DISPATCH_ENABLED: true;
         SALESFORCE_TEST_DATA_ENABLED: boolean;
         SIMULATOR_ADMIN_API_KEY: string;

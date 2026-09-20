@@ -25,6 +25,21 @@ const validEnvironment = {
 const graphqlBody =
   'mutation{atualizarCliente(cliente:{id:"ABC123",idProspectSalesforce:"XYZ789",nomeCompleto:"Fulano"}){id}}';
 
+function encodeJwtSegment(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function createAzureBearerAuthorizationHeader(): string {
+  const header = encodeJwtSegment({ alg: 'RS256', typ: 'JWT' });
+  const payload = encodeJwtSegment({
+    exp: 1_885_000_000,
+    iss: 'https://login.microsoftonline.com/example-tenant/v2.0',
+  });
+  const signature = Buffer.from('signature', 'utf8').toString('base64url');
+
+  return `Bearer ${header}.${payload}.${signature}`;
+}
+
 function createRequest(body = graphqlBody, headers?: HeadersInit): Request {
   return new Request('https://simulator.example.com/api/ms-clientes/graphql', {
     method: 'POST',
@@ -88,6 +103,7 @@ describe('createGraphqlCallbackHandler', () => {
     const handler = createGraphqlCallbackHandler({
       environment: validEnvironment,
       repositoryFactory: repositoryFactory as unknown as () => RunRepository,
+      requestIdFactory: () => 'request-401',
     });
 
     const missing = await handler(
@@ -103,6 +119,84 @@ describe('createGraphqlCallbackHandler', () => {
 
     expect(missing.status).toBe(401);
     expect(invalid.status).toBe(401);
+    expect(await missing.clone().json()).toStrictEqual(
+      await invalid.clone().json(),
+    );
+    expect(repositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it('accepts a structurally valid Azure bearer token without persisting the raw token', async () => {
+    const recordGraphqlCallback = vi.fn().mockResolvedValue({
+      callback: { id: 'cb-1' } as GraphqlCallbackRecord,
+      runStatus: null,
+    });
+    const repository = {
+      findCorrelatableRun: vi.fn().mockResolvedValue(null),
+      recordGraphqlCallback,
+    } as unknown as RunRepository;
+    const authorization = createAzureBearerAuthorizationHeader();
+    const handler = createGraphqlCallbackHandler({
+      environment: {
+        ...validEnvironment,
+        GRAPHQL_CALLBACK_AUTH_MODE: 'AZURE_BEARER_STRUCTURAL',
+        GRAPHQL_CALLBACK_SHARED_SECRET: undefined,
+      },
+      repositoryFactory: () => repository,
+      requestIdFactory: () => 'request-azure',
+    });
+
+    const response = await handler(
+      createRequest(graphqlBody, { authorization }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.clone().json()).toStrictEqual({
+      data: { atualizarCliente: { id: 'ABC123' } },
+    });
+
+    const persisted = recordGraphqlCallback.mock.calls[0]?.[0];
+    const persistedJson = JSON.stringify(persisted);
+    expect(persisted).toMatchObject({
+      requestId: 'request-azure',
+      operationName: 'atualizarCliente',
+      httpStatus: 200,
+    });
+    expect(persistedJson).not.toContain(authorization);
+    expect(persistedJson).not.toContain('microsoftonline.com');
+    expect(persistedJson).not.toContain('Fulano');
+  });
+
+  it('returns the same 401 for invalid Azure bearer tokens without touching persistence', async () => {
+    const repositoryFactory = vi.fn();
+    const handler = createGraphqlCallbackHandler({
+      environment: {
+        ...validEnvironment,
+        GRAPHQL_CALLBACK_AUTH_MODE: 'AZURE_BEARER_STRUCTURAL',
+        GRAPHQL_CALLBACK_SHARED_SECRET: undefined,
+      },
+      repositoryFactory: repositoryFactory as unknown as () => RunRepository,
+      requestIdFactory: () => 'request-azure-401',
+    });
+
+    const missing = await handler(
+      new Request(createRequest().url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/graphql' },
+        body: graphqlBody,
+      }),
+    );
+    const invalid = await handler(
+      createRequest(graphqlBody, { authorization: 'Bearer not-a-jwt' }),
+    );
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(await missing.clone().json()).toStrictEqual(
+      await invalid.clone().json(),
+    );
+    expect(JSON.stringify(await invalid.clone().json())).not.toContain(
+      'not-a-jwt',
+    );
     expect(repositoryFactory).not.toHaveBeenCalled();
   });
 

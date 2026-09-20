@@ -4,12 +4,12 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.5.0**. A Fase 5 entrega a infraestrutura do callback GraphQL
+Versão **0.5.1**. A Fase 5 entrega a infraestrutura do callback GraphQL
 simulado no lado do simulador: parser com AST oficial (`graphql`), políticas de
 resposta, correlação com runs recentes por `id`/`idProspectSalesforce`,
 persistência sanitizada em `graphql_callback`, feature flag dedicada e endpoint
-interno protegido por segredo exclusivo do simulador. O target fake continua
-default; o dispatch real e o Test Data Adapter da Fase 4 permanecem disponíveis.
+interno protegido por autenticação configurável. O target fake continua default;
+o dispatch real e o Test Data Adapter da Fase 4 permanecem disponíveis.
 Nenhum cenário atual do catálogo dispara esse callback em round-trip real ainda:
 os quatro cenários `CORE` seguem com `expectedCallbacks.max = 0`, então esta
 fase deixa a infraestrutura pronta e testada para expansões futuras das Fases
@@ -157,9 +157,20 @@ nenhuma credencial Salesforce é necessária enquanto
   [database-and-feature-gate.md](docs/phase-3/database-and-feature-gate.md).
 - `GRAPHQL_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`.
+- `GRAPHQL_CALLBACK_AUTH_MODE`: opcional; default `SHARED_SECRET`. O operador
+  escolhe entre `SHARED_SECRET` e `AZURE_BEARER_STRUCTURAL` por variável de
+  ambiente, sem trocar código.
 - `GRAPHQL_CALLBACK_SHARED_SECRET`: exigido somente quando
-  `GRAPHQL_CALLBACK_ENABLED=true`; mínimo de 32 caracteres e exclusivo do
-  simulador.
+  `GRAPHQL_CALLBACK_ENABLED=true` e o modo é `SHARED_SECRET`; mínimo de 32
+  caracteres e exclusivo do simulador.
+- `AZURE_BEARER_STRUCTURAL`: existe para o cenário em que a org `mrv-devDan`
+  reaproveita a Named Credential compartilhada `VFlexMsClientes` apontando para
+  o simulador, enquanto o Apex continua enviando manualmente um Bearer OAuth
+  real obtido no Azure AD por outra Named Credential. Nesse modo o simulador
+  faz apenas checagem estrutural do JWT (`Bearer`, base64url, `exp`, `iss` com
+  indícios de Azure AD); isso **não** substitui validação criptográfica via
+  JWKS. Se o callback voltar a ter uma Named Credential dedicada, o modo
+  `SHARED_SECRET` continua sendo a recomendação mais segura.
 - `SALESFORCE_DISPATCH_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`. O valor é persistido por run; desligar a flag
   depois atua como kill switch (`503`) e nunca redireciona um run Salesforce

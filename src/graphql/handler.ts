@@ -4,8 +4,13 @@ import {
   restErrorResponseSchema,
   type AtualizarClienteInput,
 } from '../contracts';
+import {
+  parseGraphqlCallbackAuthMode,
+  type GraphqlCallbackAuthMode,
+} from '../config/server-env';
 import type { RunRepository } from '../db/run-repository';
 import { hasValidAdminAuthorization } from '../runs/auth';
+import { isStructurallyValidAzureBearerToken } from './azure-bearer';
 import {
   createGraphqlCorrelationHashes,
   DEFAULT_GRAPHQL_RESPONSE_POLICY,
@@ -60,6 +65,25 @@ function requestFieldNames(cliente: AtualizarClienteInput): string[] {
   return Object.keys(cliente).sort();
 }
 
+function isAuthorizedGraphqlCallbackRequest(
+  request: Request,
+  environment: Record<string, string | undefined>,
+  authMode: GraphqlCallbackAuthMode,
+): boolean {
+  if (authMode === 'AZURE_BEARER_STRUCTURAL') {
+    return isStructurallyValidAzureBearerToken(
+      request.headers.get('authorization'),
+    );
+  }
+
+  const expectedToken = environment.GRAPHQL_CALLBACK_SHARED_SECRET;
+  return (
+    expectedToken !== undefined &&
+    expectedToken.length >= 32 &&
+    hasValidAdminAuthorization(request.headers, expectedToken)
+  );
+}
+
 export function createGraphqlCallbackHandler(
   dependencies: GraphqlCallbackHandlerDependencies,
 ): (request: Request) => Promise<Response> {
@@ -84,9 +108,10 @@ export function createGraphqlCallbackHandler(
       );
     }
 
-    const expectedToken =
-      dependencies.environment.GRAPHQL_CALLBACK_SHARED_SECRET;
-    if (expectedToken === undefined || expectedToken.length < 32) {
+    const authMode = parseGraphqlCallbackAuthMode(
+      dependencies.environment.GRAPHQL_CALLBACK_AUTH_MODE,
+    );
+    if (authMode === undefined) {
       return errorResponse(
         503,
         'GRAPHQL_CALLBACK_CONFIGURATION_ERROR',
@@ -94,7 +119,27 @@ export function createGraphqlCallbackHandler(
         requestIdFactory(),
       );
     }
-    if (!hasValidAdminAuthorization(request.headers, expectedToken)) {
+
+    if (
+      authMode === 'SHARED_SECRET' &&
+      (dependencies.environment.GRAPHQL_CALLBACK_SHARED_SECRET === undefined ||
+        dependencies.environment.GRAPHQL_CALLBACK_SHARED_SECRET.length < 32)
+    ) {
+      return errorResponse(
+        503,
+        'GRAPHQL_CALLBACK_CONFIGURATION_ERROR',
+        'GraphQL callback configuration is unavailable',
+        requestIdFactory(),
+      );
+    }
+
+    if (
+      !isAuthorizedGraphqlCallbackRequest(
+        request,
+        dependencies.environment,
+        authMode,
+      )
+    ) {
       return errorResponse(
         401,
         'UNAUTHORIZED',

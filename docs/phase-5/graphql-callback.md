@@ -9,7 +9,7 @@ Inclui:
 - parser baseado em AST oficial (`graphql.parse()`), sem regex;
 - políticas de resposta HTTP/GraphQL reutilizando `src/contracts/graphql.ts`;
 - correlação com runs recentes e persistência sanitizada em `graphql_callback`;
-- endpoint protegido por feature flag + segredo exclusivo do simulador;
+- endpoint protegido por feature flag + modo de autenticação configurável;
 - health/configuração/documentação.
 
 **Fora de escopo:** Tarefa 5.0 (Named Credential / External Credential /
@@ -59,11 +59,30 @@ Esse wrapper é útil para testes locais; o contrato real continua sendo
 
 - `GRAPHQL_CALLBACK_ENABLED=false` por padrão;
 - só pode ser ligado com `ORCHESTRATION_ENABLED=true`;
-- quando ligado, exige `GRAPHQL_CALLBACK_SHARED_SECRET` (mín. 32 caracteres);
-- o header é `Authorization: Bearer <GRAPHQL_CALLBACK_SHARED_SECRET>`;
-- a comparação é feita em tempo constante e o segredo nunca é logado,
-  persistido ou retornado;
+- o operador escolhe o modo via `GRAPHQL_CALLBACK_AUTH_MODE`, sem trocar
+  código:
+  - `SHARED_SECRET` (default): mantém o comportamento original com
+    `GRAPHQL_CALLBACK_SHARED_SECRET` (mín. 32 caracteres), comparação em tempo
+    constante e segredo exclusivo do simulador;
+  - `AZURE_BEARER_STRUCTURAL`: existe porque a org `mrv-devDan` decidiu
+    reaproveitar a Named Credential compartilhada `VFlexMsClientes` apontando
+    para o simulador, enquanto o Apex `MSClienteService.atualizarCliente`
+    continua enviando manualmente `Authorization: Bearer <token>` com um token
+    OAuth real do Azure AD obtido pela Named Credential separada
+    `callout:ServicoClientes`; como esse token muda a cada chamada, ele nunca
+    bateria com um segredo estático dedicado;
+- no modo `AZURE_BEARER_STRUCTURAL`, o simulador aceita apenas Bearers que
+  parecem um JWT Azure AD bem formado: prefixo `Bearer `, 3 segmentos
+  base64url, payload JSON, `exp` futuro e `iss` contendo
+  `microsoftonline.com` ou `sts.windows.net`;
+- essa checagem é **estrutural/heurística**, não criptográfica: não valida
+  assinatura, `aud`, `tid`, `appid` nem JWKS;
+- tokens/headers/payloads brutos nunca são logados, persistidos ou retornados;
 - com a feature desligada, o endpoint responde `503` sem tocar banco.
+
+Se o uso compartilhado da org crescer no futuro e o callback puder voltar a
+usar uma Named Credential dedicada, o modo `SHARED_SECRET` continua documentado
+como a alternativa mais segura.
 
 O health público expõe somente o resumo:
 

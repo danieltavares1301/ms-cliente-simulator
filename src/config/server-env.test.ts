@@ -110,7 +110,55 @@ describe('parseServerEnvironment', () => {
     ).toMatchObject({
       ORCHESTRATION_ENABLED: true,
       GRAPHQL_CALLBACK_ENABLED: true,
+      GRAPHQL_CALLBACK_AUTH_MODE: 'SHARED_SECRET',
     });
+  });
+
+  it('does not require a shared secret in AZURE_BEARER_STRUCTURAL mode', () => {
+    expect(
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        GRAPHQL_CALLBACK_ENABLED: 'true',
+        GRAPHQL_CALLBACK_AUTH_MODE: 'AZURE_BEARER_STRUCTURAL',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        GRAPHQL_CALLBACK_SHARED_SECRET: 'short-and-ignored',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      }),
+    ).toMatchObject({
+      ORCHESTRATION_ENABLED: true,
+      GRAPHQL_CALLBACK_ENABLED: true,
+      GRAPHQL_CALLBACK_AUTH_MODE: 'AZURE_BEARER_STRUCTURAL',
+    });
+  });
+
+  it('rejects an invalid GraphQL callback auth mode when the callback is enabled', () => {
+    expect(() =>
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        GRAPHQL_CALLBACK_ENABLED: 'true',
+        GRAPHQL_CALLBACK_AUTH_MODE: 'INVALID_MODE',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      }),
+    ).toThrowError('GRAPHQL_CALLBACK_AUTH_MODE');
   });
 
   it('requires orchestration when real Salesforce dispatch is enabled', () => {
