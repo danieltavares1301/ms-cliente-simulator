@@ -15,6 +15,9 @@ export function createHealthResponse(
     orchestration: configuration.ORCHESTRATION_ENABLED
       ? 'configured'
       : 'disabled',
+    azureTokenSimulator: configuration.AZURE_TOKEN_SIMULATOR_ENABLED
+      ? 'configured'
+      : 'disabled',
     graphqlCallback: configuration.GRAPHQL_CALLBACK_ENABLED
       ? 'configured'
       : 'disabled',

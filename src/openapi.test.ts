@@ -83,6 +83,7 @@ describe('OpenAPI document', () => {
       }
     }
     expect(openApiDocument.paths['/api/ms-clientes/graphql']).toBeUndefined();
+    expect(openApiDocument.paths['/api/ms-clientes/token']).toBeUndefined();
   });
 
   it('matches authentication exactly to implemented public and future handlers', () => {

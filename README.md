@@ -4,12 +4,15 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.5.1**. A Fase 5 entrega a infraestrutura do callback GraphQL
+Versão **0.5.2**. A Fase 5 entrega a infraestrutura do callback GraphQL
 simulado no lado do simulador: parser com AST oficial (`graphql`), políticas de
 resposta, correlação com runs recentes por `id`/`idProspectSalesforce`,
 persistência sanitizada em `graphql_callback`, feature flag dedicada e endpoint
-interno protegido por autenticação configurável. O target fake continua default;
-o dispatch real e o Test Data Adapter da Fase 4 permanecem disponíveis.
+interno protegido por autenticação configurável. Esta versão também adiciona um
+endpoint fake de emissão de token OAuth2 para redirecionamento temporário da
+Named Credential compartilhada `ServicoClientes` na sandbox pessoal
+autorizada. O target fake continua default; o dispatch real e o Test Data
+Adapter da Fase 4 permanecem disponíveis.
 Nenhum cenário atual do catálogo dispara esse callback em round-trip real ainda:
 os quatro cenários `CORE` seguem com `expectedCallbacks.max = 0`, então esta
 fase deixa a infraestrutura pronta e testada para expansões futuras das Fases
@@ -52,8 +55,31 @@ curl http://localhost:3000/api/v1/scenarios/match-id-cliente
 | `POST /api/v1/runs/{runId}/retries`       | Implementado | Nova tentativa somente para steps `FAILED`, com histórico preservado.                |
 
 Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
-`phase-2` ou `future`. Endpoints internos/protegidos (`/api/v1/internal/dispatches`
-e `/api/ms-clientes/graphql`) não são publicados no OpenAPI público.
+`phase-2` ou `future`. Endpoints internos/protegidos (`/api/v1/internal/dispatches`,
+`/api/ms-clientes/graphql` e `/api/ms-clientes/token`) não são publicados no
+OpenAPI público.
+
+### Emissor fake de token OAuth2
+
+O endpoint `POST /api/ms-clientes/token` existe **somente para desenvolvimento**
+e simula uma resposta Client Credentials OAuth2 para viabilizar o
+redirecionamento temporário da Named Credential compartilhada
+`ServicoClientes` em `mrv-devDan`.
+
+- aceita `application/x-www-form-urlencoded` e tolera corpo ausente/parcial;
+- ignora `client_id` e `client_secret` por decisão explícita do fluxo de dev;
+- responde `200` com
+  `{"access_token":"<GRAPHQL_CALLBACK_SHARED_SECRET>","token_type":"Bearer","expires_in":3600}`;
+- fica desligado por padrão e retorna `503 AZURE_TOKEN_SIMULATOR_DISABLED`
+  quando `AZURE_TOKEN_SIMULATOR_ENABLED=false`.
+
+> **Risco crítico:** não há autenticação própria além da feature flag. Enquanto
+> esse endpoint estiver habilitado, qualquer requisição pública que o atingir
+> recebe o valor de `GRAPHQL_CALLBACK_SHARED_SECRET`; isso torna o segredo
+> efetivamente público e reduz o modo `SHARED_SECRET` do callback GraphQL a uma
+> trava operacional/liga-desliga, não a uma proteção real de segredo. Detalhes
+> operacionais, impactos colaterais e rollback estão em
+> [`docs/phase-5/servico-clientes-redirect-risks.md`](docs/phase-5/servico-clientes-redirect-risks.md).
 
 ### Callback GraphQL simulado
 
@@ -155,13 +181,18 @@ nenhuma credencial Salesforce é necessária enquanto
 - `ORCHESTRATION_ENABLED`: `false` por padrão. Quando `true`, exige os segredos
   server-only e a URL pública HTTPS descritos em
   [database-and-feature-gate.md](docs/phase-3/database-and-feature-gate.md).
+- `AZURE_TOKEN_SIMULATOR_ENABLED`: `false` por padrão. Só pode ser `true`
+  quando `ORCHESTRATION_ENABLED=true` e `GRAPHQL_CALLBACK_SHARED_SECRET` está
+  configurado com pelo menos 32 caracteres. Serve apenas para o endpoint fake
+  `POST /api/ms-clientes/token`.
 - `GRAPHQL_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`.
 - `GRAPHQL_CALLBACK_AUTH_MODE`: opcional; default `SHARED_SECRET`. O operador
   escolhe entre `SHARED_SECRET` e `AZURE_BEARER_STRUCTURAL` por variável de
   ambiente, sem trocar código.
 - `GRAPHQL_CALLBACK_SHARED_SECRET`: exigido somente quando
-  `GRAPHQL_CALLBACK_ENABLED=true` e o modo é `SHARED_SECRET`; mínimo de 32
+  `AZURE_TOKEN_SIMULATOR_ENABLED=true`, e também quando
+  `GRAPHQL_CALLBACK_ENABLED=true` com modo `SHARED_SECRET`; mínimo de 32
   caracteres e exclusivo do simulador.
 - `AZURE_BEARER_STRUCTURAL`: existe para o cenário em que a org `mrv-devDan`
   reaproveita a Named Credential compartilhada `VFlexMsClientes` apontando para
@@ -188,10 +219,11 @@ nenhuma credencial Salesforce é necessária enquanto
 As URLs HTTPS têm a barra final removida durante a normalização. O health valida
 a configuração a cada requisição, falha de forma fechada quando ela é inválida
 e responde com `dependencies.configuration: "ok"`,
-`orchestration: disabled|configured`, `graphqlCallback: disabled|configured` e
-`testData: disabled|configured` quando válida, sem retornar valores de ambiente
-nem testar conexão. `npm run build` não exige configuração real nem acessa
-integrações.
+`orchestration: disabled|configured`,
+`azureTokenSimulator: disabled|configured`,
+`graphqlCallback: disabled|configured` e `testData: disabled|configured`
+quando válida, sem retornar valores de ambiente nem testar conexão.
+`npm run build` não exige configuração real nem acessa integrações.
 O `Client` e o `Receiver` QStash são construídos de forma lazy somente durante
 agendamento ou recepção com a feature habilitada. Quando o dispatch real é
 ligado, requests Salesforce não seguem redirects, expiram em 30 segundos, e o

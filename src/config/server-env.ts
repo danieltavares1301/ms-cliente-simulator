@@ -16,6 +16,7 @@ const serverEnvironmentKeys = [
   'DATABASE_URL',
   'QSTASH_URL',
   'ORCHESTRATION_ENABLED',
+  'AZURE_TOKEN_SIMULATOR_ENABLED',
   'GRAPHQL_CALLBACK_ENABLED',
   'GRAPHQL_CALLBACK_AUTH_MODE',
   'SALESFORCE_DISPATCH_ENABLED',
@@ -202,6 +203,10 @@ const serverEnvironmentSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    AZURE_TOKEN_SIMULATOR_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     GRAPHQL_CALLBACK_ENABLED: z
       .enum(['true', 'false'])
       .default('false')
@@ -230,6 +235,17 @@ const serverEnvironmentSchema = z
     const graphqlCallbackAuthMode = parseGraphqlCallbackAuthMode(
       configuration.GRAPHQL_CALLBACK_AUTH_MODE,
     );
+
+    if (
+      configuration.AZURE_TOKEN_SIMULATOR_ENABLED &&
+      !configuration.ORCHESTRATION_ENABLED
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['AZURE_TOKEN_SIMULATOR_ENABLED'],
+        message: 'Azure token simulator requires ORCHESTRATION_ENABLED=true',
+      });
+    }
 
     if (
       configuration.GRAPHQL_CALLBACK_ENABLED &&
@@ -310,8 +326,9 @@ const serverEnvironmentSchema = z
     }
 
     if (
-      configuration.GRAPHQL_CALLBACK_ENABLED &&
-      graphqlCallbackAuthMode === 'SHARED_SECRET' &&
+      (configuration.AZURE_TOKEN_SIMULATOR_ENABLED ||
+        (configuration.GRAPHQL_CALLBACK_ENABLED &&
+          graphqlCallbackAuthMode === 'SHARED_SECRET')) &&
       configuration.GRAPHQL_CALLBACK_SHARED_SECRET !== undefined &&
       configuration.GRAPHQL_CALLBACK_SHARED_SECRET.length < 32
     ) {
@@ -319,6 +336,18 @@ const serverEnvironmentSchema = z
         code: 'custom',
         path: ['GRAPHQL_CALLBACK_SHARED_SECRET'],
         message: 'Secret is too short',
+      });
+    }
+
+    if (
+      configuration.AZURE_TOKEN_SIMULATOR_ENABLED &&
+      (configuration.GRAPHQL_CALLBACK_SHARED_SECRET === undefined ||
+        configuration.GRAPHQL_CALLBACK_SHARED_SECRET === '')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['GRAPHQL_CALLBACK_SHARED_SECRET'],
+        message: 'Required when Azure token simulator is enabled',
       });
     }
 
@@ -418,6 +447,7 @@ const serverEnvironmentSchema = z
         DATABASE_URL: configuration.DATABASE_URL,
         QSTASH_URL: configuration.QSTASH_URL,
         ORCHESTRATION_ENABLED: false as const,
+        AZURE_TOKEN_SIMULATOR_ENABLED: false as const,
         GRAPHQL_CALLBACK_ENABLED: false as const,
         SALESFORCE_DISPATCH_ENABLED: false as const,
         SALESFORCE_TEST_DATA_ENABLED: false as const,
@@ -428,6 +458,8 @@ const serverEnvironmentSchema = z
       return {
         ...configuration,
         ORCHESTRATION_ENABLED: true as const,
+        AZURE_TOKEN_SIMULATOR_ENABLED:
+          configuration.AZURE_TOKEN_SIMULATOR_ENABLED,
         GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
         GRAPHQL_CALLBACK_AUTH_MODE: graphqlCallbackAuthMode,
         SALESFORCE_DISPATCH_ENABLED: false as const,
@@ -448,6 +480,8 @@ const serverEnvironmentSchema = z
     return {
       ...configuration,
       ORCHESTRATION_ENABLED: true as const,
+      AZURE_TOKEN_SIMULATOR_ENABLED:
+        configuration.AZURE_TOKEN_SIMULATOR_ENABLED,
       GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
       GRAPHQL_CALLBACK_AUTH_MODE: graphqlCallbackAuthMode,
       SALESFORCE_DISPATCH_ENABLED: true as const,
@@ -481,12 +515,14 @@ export type ServerEnvironment = BaseServerEnvironment &
   (
     | {
         ORCHESTRATION_ENABLED: false;
+        AZURE_TOKEN_SIMULATOR_ENABLED: false;
         GRAPHQL_CALLBACK_ENABLED: false;
         SALESFORCE_DISPATCH_ENABLED: false;
         SALESFORCE_TEST_DATA_ENABLED: false;
       }
     | {
         ORCHESTRATION_ENABLED: true;
+        AZURE_TOKEN_SIMULATOR_ENABLED: boolean;
         GRAPHQL_CALLBACK_ENABLED: boolean;
         GRAPHQL_CALLBACK_AUTH_MODE: GraphqlCallbackAuthMode;
         SALESFORCE_DISPATCH_ENABLED: false;
@@ -501,6 +537,7 @@ export type ServerEnvironment = BaseServerEnvironment &
       }
     | {
         ORCHESTRATION_ENABLED: true;
+        AZURE_TOKEN_SIMULATOR_ENABLED: boolean;
         GRAPHQL_CALLBACK_ENABLED: boolean;
         GRAPHQL_CALLBACK_AUTH_MODE: GraphqlCallbackAuthMode;
         SALESFORCE_DISPATCH_ENABLED: true;

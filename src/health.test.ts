@@ -20,6 +20,7 @@ describe('createHealthResponse', () => {
       status: 'ok',
       version: packageJson.version,
       orchestration: 'disabled',
+      azureTokenSimulator: 'disabled',
       graphqlCallback: 'disabled',
       testData: 'disabled',
       dependencies: {
@@ -42,6 +43,7 @@ describe('createHealthResponse', () => {
       'status',
       'version',
       'orchestration',
+      'azureTokenSimulator',
       'graphqlCallback',
       'testData',
       'dependencies',
@@ -69,6 +71,7 @@ describe('createHealthResponse', () => {
     });
 
     expect(response.orchestration).toBe('configured');
+    expect(response.azureTokenSimulator).toBe('disabled');
     expect(response.graphqlCallback).toBe('disabled');
     expect(response.testData).toBe('disabled');
     expect(JSON.stringify(response)).not.toContain('admin-api-key');
@@ -79,6 +82,7 @@ describe('createHealthResponse', () => {
     const response = createHealthResponse({
       ...validEnvironment,
       ORCHESTRATION_ENABLED: 'true',
+      AZURE_TOKEN_SIMULATOR_ENABLED: 'true',
       GRAPHQL_CALLBACK_ENABLED: 'true',
       SALESFORCE_DISPATCH_ENABLED: 'true',
       SALESFORCE_TEST_DATA_ENABLED: 'true',
@@ -100,6 +104,7 @@ describe('createHealthResponse', () => {
         'https://example.my.salesforce.com/services/oauth2/token',
     });
 
+    expect(response.azureTokenSimulator).toBe('configured');
     expect(response.graphqlCallback).toBe('configured');
     expect(response.testData).toBe('configured');
     expect(JSON.stringify(response)).not.toContain('salesforce-client');
