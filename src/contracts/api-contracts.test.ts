@@ -286,17 +286,28 @@ describe('Event Grid contracts', () => {
     }
   });
 
-  it('rejects divergent data.id and data.idcliente values', () => {
+  it('accepts payloads sem data.id e usa apenas idcliente como identificador de negócio', () => {
     expect(() =>
-      eventGridEnvelopeSchema.parse([
-        {
-          ...commonEvent,
-          ...variants[0],
-          data: { ...variants[0].data, id: 'DIFFERENT-ID' },
-        },
-      ]),
-    ).toThrow();
+      eventGridEnvelopeSchema.parse([{ ...commonEvent, ...variants[0] }]),
+    ).not.toThrow();
   });
+
+  it.each(variants)(
+    'rejects populated data.id for $eventType because Apex requires fallback to data.idcliente',
+    (variant) => {
+      for (const id of [commonData.idcliente, 'DIFFERENT-ID']) {
+        expect(() =>
+          eventGridEnvelopeSchema.parse([
+            {
+              ...commonEvent,
+              ...variant,
+              data: { ...variant.data, id },
+            },
+          ]),
+        ).toThrow();
+      }
+    },
+  );
 });
 
 describe('GraphQL atualizarCliente response contracts', () => {

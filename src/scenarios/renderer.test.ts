@@ -104,6 +104,15 @@ describe('renderScenarioFixture', () => {
     },
   );
 
+  it.each(scenarioKeys)(
+    'never emits data.id inside the Event Grid payload for %s',
+    (scenarioKey) => {
+      const fixture = renderScenarioFixture({ ...input, scenarioKey });
+
+      expect(fixture.steps[0].envelope[0].data).not.toHaveProperty('id');
+    },
+  );
+
   it('is byte-logically deterministic for identical input', () => {
     const first = renderScenarioFixture({
       ...input,
@@ -241,7 +250,6 @@ describe('renderScenarioFixture', () => {
     expect(Object.keys(matched.steps[0].envelope[0].data).sort()).toStrictEqual(
       [
         'dataalteracao',
-        'id',
         'idcliente',
         'idprospectsalesforce',
         'nomecompleto',
@@ -249,7 +257,7 @@ describe('renderScenarioFixture', () => {
       ],
     );
     expect(Object.keys(noMatch.steps[0].envelope[0].data).sort()).toStrictEqual(
-      ['dataalteracao', 'id', 'idcliente', 'nomecompleto', 'numerocpf'],
+      ['dataalteracao', 'idcliente', 'nomecompleto', 'numerocpf'],
     );
   });
 });

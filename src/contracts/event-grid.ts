@@ -30,25 +30,23 @@ const commonEventDataShape = {
   dataalteracao: apexCompatibleUtcDateTimeSchema.optional(),
 };
 
-function requireConsistentClientIds<T extends z.ZodObject<z.ZodRawShape>>(
-  schema: T,
-) {
+function forbidDataId<T extends z.ZodObject<z.ZodRawShape>>(schema: T) {
   return schema.superRefine((data, context) => {
     const eventData = data as {
       id?: string;
-      idcliente?: string;
     };
-    if (eventData.id && eventData.id !== eventData.idcliente) {
+    if (eventData.id) {
       context.addIssue({
         code: 'custom',
-        message: 'data.id must equal data.idcliente when both are present',
+        message:
+          'data.id must be omitted; Apex only populates IdCliente when it falls back to data.idcliente',
         path: ['id'],
       });
     }
   });
 }
 
-const clienteDataSchema = requireConsistentClientIds(
+const clienteDataSchema = forbidDataId(
   z
     .object({
       ...commonEventDataShape,
@@ -73,7 +71,7 @@ const clienteDataSchema = requireConsistentClientIds(
     .strict(),
 );
 
-const contatoDataSchema = requireConsistentClientIds(
+const contatoDataSchema = forbidDataId(
   z
     .object({
       ...commonEventDataShape,
@@ -83,7 +81,7 @@ const contatoDataSchema = requireConsistentClientIds(
     .strict(),
 );
 
-const enderecoDataSchema = requireConsistentClientIds(
+const enderecoDataSchema = forbidDataId(
   z
     .object({
       ...commonEventDataShape,

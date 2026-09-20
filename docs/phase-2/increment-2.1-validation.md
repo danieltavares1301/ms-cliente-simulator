@@ -19,7 +19,7 @@ O código Apex e seus testes prevalecem sobre exemplos antigos. Por isso:
 
 - o simulador aceita exatamente um evento por envelope, embora `EventGrid`
   percorra lotes;
-- `idcliente` é obrigatório e `data.id`, quando enviado, deve ter o mesmo valor;
+- `idcliente` é obrigatório e `data.id` deve ser omitido para que o Apex use o fallback correto para `data.idcliente`;
 - `dataalteracao` permanece opcional como no Apex, mas, quando presente, usa UTC
   sem fração ou com `.000`; outras frações não são prometidas;
 - contato usa somente `Email`, `Celular` ou `Telefone`, com `descricao`;

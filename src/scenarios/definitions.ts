@@ -61,7 +61,6 @@ function clientPayload(
       metadataVersion: '1',
       topic: '/simulator/ms-clientes',
       data: {
-        id: generated('CLIENT_ID'),
         idcliente: generated('CLIENT_ID'),
         ...(includeProspect
           ? { idprospectsalesforce: generated('PROSPECT_ID') }
