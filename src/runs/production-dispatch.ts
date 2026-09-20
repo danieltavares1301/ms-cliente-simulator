@@ -10,7 +10,7 @@ import {
   FakeSalesforceDispatchTarget,
 } from './dispatch';
 
-function createProductionDispatchTarget(
+export function createProductionDispatchTarget(
   environment: Record<string, string | undefined>,
 ) {
   let target: DispatchTarget | null = null;
