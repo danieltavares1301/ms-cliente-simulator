@@ -243,6 +243,103 @@ describe('Salesforce lifecycle service', () => {
     expect(testDataAdapter.cleanup).not.toHaveBeenCalled();
   });
 
+  it('preserves replayed records when an expired setup worker loses fencing and cleans them once terminally', async () => {
+    const workerAClaim = claimed('SETUP');
+    workerAClaim.claimId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    workerAClaim.step.lifecycleClaimId = workerAClaim.claimId;
+    const workerBClaim = claimed('SETUP');
+    workerBClaim.claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    workerBClaim.step.lifecycleClaimId = workerBClaim.claimId;
+    const repository = repositoryWithClaims([
+      workerAClaim,
+      workerBClaim,
+      claimed('VERIFY'),
+      claimed('CLEANUP'),
+    ]);
+    vi.mocked(repository.completeLifecycleStep).mockImplementation(
+      async ({ claimId }) =>
+        claimId === workerAClaim.claimId
+          ? { outcome: 'STALE' }
+          : { outcome: 'COMPLETED' },
+    );
+    vi.mocked(repository.listSteps).mockResolvedValue({
+      items: [
+        {
+          ...workerBClaim.step,
+          status: 'SUCCEEDED',
+          responseRedacted: { recordIds: ['001000000000001AAA'] },
+        },
+      ],
+      total: 1,
+      hasMore: false,
+    });
+
+    let releaseWorkerA!: () => void;
+    const workerABlocked = new Promise<void>((resolve) => {
+      releaseWorkerA = resolve;
+    });
+    const setup = vi
+      .fn<SalesforceTestDataAdapter['setup']>()
+      .mockImplementationOnce(async () => {
+        await workerABlocked;
+        return {
+          status: 'CREATED',
+          createdCount: 1,
+          replayedCount: 0,
+          recordIds: ['001000000000001AAA'],
+        };
+      })
+      .mockResolvedValueOnce({
+        status: 'REPLAY',
+        createdCount: 0,
+        replayedCount: 1,
+        recordIds: ['001000000000001AAA'],
+      });
+    const testDataAdapter = adapter({ setup });
+    const workerA = createSalesforceLifecycleService({
+      repository,
+      adapter: testDataAdapter,
+      actor: 'worker-a',
+      now: () => now,
+    });
+    const workerB = createSalesforceLifecycleService({
+      repository,
+      adapter: testDataAdapter,
+      actor: 'worker-b',
+      now: () => now,
+    });
+
+    const expiredCompletion = workerA.setup(runId);
+    await vi.waitFor(() => expect(setup).toHaveBeenCalledTimes(1));
+    await expect(workerB.setup(runId)).resolves.toStrictEqual({
+      outcome: 'SUCCEEDED',
+    });
+    expect(repository.completeLifecycleStep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimId: workerBClaim.claimId,
+        responseRedacted: expect.objectContaining({
+          status: 'REPLAY',
+          recordIds: ['001000000000001AAA'],
+        }),
+      }),
+    );
+
+    releaseWorkerA();
+    await expect(expiredCompletion).resolves.toStrictEqual({
+      outcome: 'STALE',
+    });
+    expect(testDataAdapter.cleanup).not.toHaveBeenCalled();
+
+    await expect(workerB.afterDispatch(runId)).resolves.toStrictEqual({
+      outcome: 'COMPLETED',
+      status: 'SUCCEEDED',
+    });
+    expect(testDataAdapter.cleanup).toHaveBeenCalledOnce();
+    expect(testDataAdapter.cleanup).toHaveBeenCalledWith(expect.any(Object), [
+      '001000000000001AAA',
+    ]);
+  });
+
   it('immediately compensates owned setup records when cancellation rejects completion', async () => {
     const repository = repositoryWithClaims([claimed('SETUP')]);
     vi.mocked(repository.completeLifecycleStep).mockResolvedValue({
@@ -263,6 +360,72 @@ describe('Salesforce lifecycle service', () => {
       '001000000000001AAA',
     ]);
     expect(repository.recordLifecycleCompensation).not.toHaveBeenCalled();
+  });
+
+  it('lets only the current setup claim compensate records during concurrent cancellation', async () => {
+    const workerAClaim = claimed('SETUP');
+    workerAClaim.claimId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    workerAClaim.step.lifecycleClaimId = workerAClaim.claimId;
+    const workerBClaim = claimed('SETUP');
+    workerBClaim.claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    workerBClaim.step.lifecycleClaimId = workerBClaim.claimId;
+    const repository = repositoryWithClaims([workerAClaim, workerBClaim]);
+    vi.mocked(repository.completeLifecycleStep).mockImplementation(
+      async ({ claimId }) =>
+        claimId === workerBClaim.claimId
+          ? { outcome: 'CANCELLED' }
+          : { outcome: 'STALE' },
+    );
+
+    let releaseWorkerA!: () => void;
+    const workerABlocked = new Promise<void>((resolve) => {
+      releaseWorkerA = resolve;
+    });
+    const setup = vi
+      .fn<SalesforceTestDataAdapter['setup']>()
+      .mockImplementationOnce(async () => {
+        await workerABlocked;
+        return {
+          status: 'CREATED',
+          createdCount: 1,
+          replayedCount: 0,
+          recordIds: ['001000000000001AAA'],
+        };
+      })
+      .mockResolvedValueOnce({
+        status: 'REPLAY',
+        createdCount: 0,
+        replayedCount: 1,
+        recordIds: ['001000000000001AAA'],
+      });
+    const testDataAdapter = adapter({ setup });
+    const workerA = createSalesforceLifecycleService({
+      repository,
+      adapter: testDataAdapter,
+      actor: 'worker-a',
+      now: () => now,
+    });
+    const workerB = createSalesforceLifecycleService({
+      repository,
+      adapter: testDataAdapter,
+      actor: 'worker-b',
+      now: () => now,
+    });
+
+    const expiredCompletion = workerA.setup(runId);
+    await vi.waitFor(() => expect(setup).toHaveBeenCalledTimes(1));
+    await expect(workerB.setup(runId)).resolves.toStrictEqual({
+      outcome: 'CANCELLED',
+    });
+    releaseWorkerA();
+    await expect(expiredCompletion).resolves.toStrictEqual({
+      outcome: 'STALE',
+    });
+
+    expect(testDataAdapter.cleanup).toHaveBeenCalledOnce();
+    expect(testDataAdapter.cleanup).toHaveBeenCalledWith(expect.any(Object), [
+      '001000000000001AAA',
+    ]);
   });
 
   it('lets only one concurrent redelivery execute verify and cleanup', async () => {

@@ -40,11 +40,20 @@ Claims `RUNNING` de lifecycle podem ser retomados após 60 segundos e recebem
 um UUID novo a cada aquisição. A conclusão usa CAS com esse UUID e com o
 estado não terminal do run; um worker expirado não pode concluir o claim do
 sucessor. Requests Salesforce abortam após 30 segundos e não seguem redirects.
-Um step
+`STALE` representa perda de ownership e nunca dispara cleanup destrutivo: os
+IDs retornados por `CREATED` ou `REPLAY` são persistidos somente pelo worker
+que vence o fencing e permanecem disponíveis para o cleanup terminal. Um step
 `SUCCEEDED` não chama o adapter novamente. Se o processo cair depois de
 `completeDispatch` e antes de verify, a reentrega terminal retoma apenas o
 lifecycle pendente e não reenvia o target. Duas reentregas concorrentes
 convergem por CAS; somente a vencedora acessa Salesforce.
+
+Cancelamento é distinto de `STALE`. Ao concluir durante `CANCELLING` ou
+`CANCELLED`, o repository confirma por CAS que o UUID ainda é o claim
+persistido, grava os IDs retornados e somente então responde `CANCELLED`.
+Assim, apenas o worker ainda proprietário pode compensar imediatamente; um
+worker expirado retorna `STALE`. O serviço de cancelamento continua responsável
+pelo cleanup dos IDs duráveis e o cleanup terminal permanece idempotente.
 
 `dispatch_mode` e `test_data_enabled` são snapshots da criação. Flags atuais
 atuam somente como kill switches: desligá-las retorna `503` recuperável sem
@@ -60,8 +69,8 @@ Salesforce brutas não são persistidos.
 - O lifecycle assíncrono após callbacks ainda não está implementado; os
   cenários atuais usam `expectedCallbacks.max = 0`.
 - Se Salesforce confirmar DML mas a conexão cair antes da resposta, existe
-  uma janela residual inevitável até a próxima compensação; IDs confirmados
-  são persistidos e compensados imediatamente quando o CAS de completion
-  perde a corrida.
+  uma janela residual inevitável até a próxima compensação. Perda de fencing
+  não autoriza apagar IDs; cancelamento explícito compensa apenas o claim
+  corrente e o fluxo terminal usa os IDs persistidos pelo vencedor.
 - A validação automatizada usa PGlite e doubles de Salesforce/QStash; não há
   smoke test contra a org real.

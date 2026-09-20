@@ -11,9 +11,16 @@ Versão 0.4.3.
 - IDs Salesforce retornados por setup/verify são persistidos como metadados
   técnicos. Cleanup consulta e remove somente esses IDs e valida o marcador
   `CLI-SIM-` quando `Id__c` estiver preenchido.
-- A política `ALWAYS` compensa setup rejeitado por CAS, falha de setup,
-  scheduling, dispatch, verify e cancelamento. Falha de cleanup resulta em
-  `PARTIAL` e pode ser retomada.
+- `STALE` significa perda do claim e nunca autoriza cleanup destrutivo. Em
+  reclaim, somente o vencedor persiste IDs de `CREATED`/`REPLAY`; o worker
+  expirado não remove a fixture que o sucessor adotou.
+- Cancelamento explícito permanece sem órfãos: o repository só retorna
+  `CANCELLED` ao UUID ainda persistido, grava seus IDs antes da compensação e
+  trata qualquer claim substituído como `STALE`. O serviço de cancelamento e o
+  cleanup terminal continuam responsáveis pelos IDs duráveis.
+- A política `ALWAYS` compensa falha de setup, scheduling, dispatch, verify e
+  cancelamento seguro. Falha de cleanup resulta em `PARTIAL` e pode ser
+  retomada.
 - Runs preservam `FAKE|SALESFORCE` e `test_data_enabled` da criação. Flags
   atuais são kill switches; nunca promovem run fake nem pulam lifecycle.
 - Verificação de Account exige `IsPersonAccount`, nome e CPF compatíveis com o

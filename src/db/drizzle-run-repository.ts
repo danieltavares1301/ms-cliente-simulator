@@ -455,7 +455,6 @@ export class DrizzleRunRepository<
       .set({
         status: 'CANCELLED',
         finishedAt: new Date(),
-        lifecycleClaimId: null,
       })
       .where(
         and(
@@ -1771,9 +1770,31 @@ export class DrizzleRunRepository<
         .from(scenarioRun)
         .where(eq(scenarioRun.id, input.runId))
         .limit(1);
-      return current?.status === 'CANCELLING' || current?.status === 'CANCELLED'
-        ? { outcome: 'CANCELLED' }
-        : { outcome: 'STALE' };
+      if (current?.status !== 'CANCELLING' && current?.status !== 'CANCELLED') {
+        return { outcome: 'STALE' };
+      }
+      const [cancelled] = await this.database
+        .update(scenarioRunStep)
+        .set({
+          status: 'CANCELLED',
+          finishedAt: input.finishedAt,
+          responseRedacted: input.responseRedacted,
+          errorCode: input.errorCode,
+          lifecycleClaimId: null,
+        })
+        .where(
+          and(
+            eq(scenarioRunStep.id, input.stepId),
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.stepKind, input.stepKind),
+            inArray(scenarioRunStep.status, ['RUNNING', 'CANCELLED']),
+            eq(scenarioRunStep.lifecycleClaimId, input.claimId),
+          ),
+        )
+        .returning({ id: scenarioRunStep.id });
+      return cancelled === undefined
+        ? { outcome: 'STALE' }
+        : { outcome: 'CANCELLED' };
     }
 
     await this.appendAuditEvent({

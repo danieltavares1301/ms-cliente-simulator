@@ -2066,6 +2066,92 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ).resolves.toStrictEqual({ outcome: 'CANCELLED' });
   });
 
+  it('distinguishes an expired lifecycle claim from the current claim during cancellation', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'VERIFYING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+        ],
+      }),
+    );
+    const workerA = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'VERIFY',
+      claimedAt: currentTime,
+      actor: 'worker-a',
+    });
+    if (workerA.outcome !== 'CLAIMED') throw new Error('worker A not claimed');
+
+    currentTime = new Date('2026-08-22T12:01:01.000Z');
+    const workerB = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'VERIFY',
+      claimedAt: currentTime,
+      actor: 'worker-b',
+    });
+    if (workerB.outcome !== 'CLAIMED') throw new Error('worker B not claimed');
+    await repository.beginCancellation({ runId: created.run.id, actor });
+    await repository.finalizeCancellation({
+      runId: created.run.id,
+      actor,
+      expectedAffectedStepCount: 1,
+    });
+
+    await expect(
+      repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: workerA.step.id,
+        stepKind: 'VERIFY',
+        claimId: workerA.claimId,
+        succeeded: true,
+        responseRedacted: { worker: 'a' },
+        errorCode: null,
+        actor: 'worker-a',
+        finishedAt: currentTime,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'STALE' });
+    await expect(
+      repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: workerB.step.id,
+        stepKind: 'VERIFY',
+        claimId: workerB.claimId,
+        succeeded: true,
+        responseRedacted: { worker: 'b' },
+        errorCode: null,
+        actor: 'worker-b',
+        finishedAt: currentTime,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'CANCELLED' });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items.find(
+        ({ stepKind }) => stepKind === 'VERIFY',
+      ),
+    ).toMatchObject({
+      status: 'CANCELLED',
+      lifecycleClaimId: null,
+      responseRedacted: { worker: 'b' },
+    });
+  });
+
   it('audits setup lifecycle transitions with technical metadata only', async () => {
     const created = await repository.createRun(
       createInput({

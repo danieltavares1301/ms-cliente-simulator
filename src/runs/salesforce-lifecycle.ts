@@ -207,8 +207,7 @@ export function createSalesforceLifecycleService(
             null,
           );
           if (
-            (completion.outcome === 'STALE' ||
-              completion.outcome === 'CANCELLED') &&
+            completion.outcome === 'CANCELLED' &&
             result.recordIds.length > 0
           ) {
             try {
