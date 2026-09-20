@@ -19,23 +19,28 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import {
   auditEvent,
   deliveryAttempt,
+  graphqlCallback,
   scenarioRun,
   scenarioRunStep,
 } from './schema';
 import type {
   AuditEvent,
   ClaimLifecycleStepResult,
+  CorrelatableRunMatch,
   CreateRunInput,
   CreateRunResult,
   DeliveryAttempt,
   DispatchClaimResult,
+  GraphqlCallbackRecord,
   ClaimInitialSchedulingResult,
-  NewRunStep,
   LifecycleStepKind,
+  NewRunStep,
+  RecordGraphqlCallbackInput,
   Run,
   RunFilters,
   RunPage,
   RunRepository,
+  RunStatus,
   RunStep,
   RunStepPage,
   ReserveRetriesResult,
@@ -105,6 +110,21 @@ function asDeliveryAttempt(
   row: typeof deliveryAttempt.$inferSelect,
 ): DeliveryAttempt {
   return row;
+}
+
+function asGraphqlCallback(
+  row: typeof graphqlCallback.$inferSelect,
+): GraphqlCallbackRecord {
+  return row;
+}
+
+function normalizeCorrelationIdentifier(
+  value: string | null | undefined,
+): string | null {
+  const normalized = value?.trim().toUpperCase();
+  return normalized === undefined || normalized.length === 0
+    ? null
+    : normalized;
 }
 
 export class DrizzleRunRepository<
@@ -196,6 +216,66 @@ export class DrizzleRunRepository<
       .limit(1);
 
     return run === undefined ? null : asRun(run);
+  }
+
+  async findCorrelatableRun(input: {
+    idClienteUpper?: string | null;
+    idProspectUpper?: string | null;
+    limit: number;
+  }): Promise<CorrelatableRunMatch | null> {
+    assertLimit(input.limit);
+
+    const requestedIdCliente = normalizeCorrelationIdentifier(
+      input.idClienteUpper,
+    );
+    const requestedIdProspect = normalizeCorrelationIdentifier(
+      input.idProspectUpper,
+    );
+    if (requestedIdCliente === null && requestedIdProspect === null) {
+      return null;
+    }
+
+    const rows = await this.database
+      .select()
+      .from(scenarioRun)
+      .where(
+        and(
+          eq(scenarioRun.dryRun, false),
+          sql`${scenarioRun.fixtureSnapshot} is not null`,
+        ),
+      )
+      .orderBy(desc(scenarioRun.createdAt), desc(scenarioRun.id))
+      .limit(input.limit);
+
+    let fallback: CorrelatableRunMatch | null = null;
+
+    for (const row of rows) {
+      const fixture = row.fixtureSnapshot;
+      if (fixture === null) continue;
+
+      const runIdCliente = normalizeCorrelationIdentifier(
+        fixture.identifiers.accountIdCliente,
+      );
+      const runIdProspect = normalizeCorrelationIdentifier(
+        fixture.identifiers.accountIdProspect,
+      );
+      const matchIdCliente =
+        requestedIdCliente !== null && runIdCliente === requestedIdCliente;
+      const matchIdProspect =
+        requestedIdProspect !== null && runIdProspect === requestedIdProspect;
+
+      if (matchIdCliente && matchIdProspect) {
+        return { run: asRun(row), matchedBy: 'both' };
+      }
+      if (fallback === null && matchIdCliente) {
+        fallback = { run: asRun(row), matchedBy: 'idCliente' };
+      }
+      if (fallback === null && matchIdProspect) {
+        fallback = { run: asRun(row), matchedBy: 'idProspect' };
+      }
+    }
+
+    return fallback;
   }
 
   async listRuns(page: {
@@ -1339,6 +1419,101 @@ export class DrizzleRunRepository<
       .limit(1);
 
     return step?.eventEnvelope ?? null;
+  }
+
+  async recordGraphqlCallback(input: RecordGraphqlCallbackInput): Promise<{
+    callback: GraphqlCallbackRecord;
+    runStatus: RunStatus | null;
+  }> {
+    const [inserted] = await this.database
+      .insert(graphqlCallback)
+      .values({
+        runId: input.runId,
+        requestId: input.requestId,
+        operationName: input.operationName,
+        idClienteHash: input.idClienteHash,
+        idProspectHash: input.idProspectHash,
+        normalizedCorrelationKeyHash: input.normalizedCorrelationKeyHash,
+        policy: input.policy,
+        httpStatus: input.httpStatus,
+        requestRedacted: input.requestRedacted,
+        responseRedacted: input.responseRedacted,
+        durationMs: input.durationMs,
+        createdAt: input.receivedAt,
+      })
+      .returning();
+
+    if (inserted === undefined) {
+      throw new Error('GraphQL callback was not persisted');
+    }
+
+    if (input.runId === null) {
+      return { callback: asGraphqlCallback(inserted), runStatus: null };
+    }
+
+    let runStatus: RunStatus | null = null;
+    const [currentRun] = await this.database
+      .select({
+        status: scenarioRun.status,
+        expectedCallbackMin: scenarioRun.expectedCallbackMin,
+        asyncWaitDeadline: scenarioRun.asyncWaitDeadline,
+      })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, input.runId))
+      .limit(1);
+
+    if (currentRun !== undefined) {
+      runStatus = currentRun.status;
+      const withinDeadline =
+        currentRun.asyncWaitDeadline === null ||
+        input.receivedAt.getTime() <= currentRun.asyncWaitDeadline.getTime();
+      if (
+        currentRun.status === 'WAITING_ASYNC' &&
+        currentRun.expectedCallbackMin > 0 &&
+        withinDeadline
+      ) {
+        const [countRow] = await this.database
+          .select({ total: count() })
+          .from(graphqlCallback)
+          .where(eq(graphqlCallback.runId, input.runId));
+        const callbackCount = countRow?.total ?? 0;
+
+        if (callbackCount >= currentRun.expectedCallbackMin) {
+          const [advanced] = await this.database
+            .update(scenarioRun)
+            .set({
+              status: 'VERIFYING',
+              finishedAt: null,
+            })
+            .where(
+              and(
+                eq(scenarioRun.id, input.runId),
+                eq(scenarioRun.status, 'WAITING_ASYNC'),
+              ),
+            )
+            .returning({ status: scenarioRun.status });
+
+          if (advanced !== undefined) {
+            runStatus = advanced.status;
+            await this.appendAuditEvent({
+              actor: input.actor,
+              action: 'GRAPHQL_CALLBACK_THRESHOLD_REACHED',
+              resourceType: 'scenario_run',
+              resourceId: input.runId,
+              metadataRedacted: {
+                callbackCount,
+                status: 'VERIFYING',
+              },
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      callback: asGraphqlCallback(inserted),
+      runStatus,
+    };
   }
 
   async completeDispatch(input: {

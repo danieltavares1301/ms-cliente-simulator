@@ -21,7 +21,11 @@ export function createIdempotencyKeyHash(
   idempotencyKey: string,
   pepper: string,
 ): string {
-  return createHmac('sha256', pepper).update(idempotencyKey).digest('hex');
+  return createPepperedHash(idempotencyKey, pepper);
+}
+
+export function createPepperedHash(value: string, pepper: string): string {
+  return createHmac('sha256', pepper).update(value).digest('hex');
 }
 
 export function createRequestFingerprint(body: unknown): string {

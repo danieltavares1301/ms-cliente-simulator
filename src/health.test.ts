@@ -20,6 +20,7 @@ describe('createHealthResponse', () => {
       status: 'ok',
       version: packageJson.version,
       orchestration: 'disabled',
+      graphqlCallback: 'disabled',
       testData: 'disabled',
       dependencies: {
         application: 'ok',
@@ -41,6 +42,7 @@ describe('createHealthResponse', () => {
       'status',
       'version',
       'orchestration',
+      'graphqlCallback',
       'testData',
       'dependencies',
     ]);
@@ -67,6 +69,7 @@ describe('createHealthResponse', () => {
     });
 
     expect(response.orchestration).toBe('configured');
+    expect(response.graphqlCallback).toBe('disabled');
     expect(response.testData).toBe('disabled');
     expect(JSON.stringify(response)).not.toContain('admin-api-key');
     expect(JSON.stringify(response)).not.toContain('qstash-token');
@@ -76,10 +79,13 @@ describe('createHealthResponse', () => {
     const response = createHealthResponse({
       ...validEnvironment,
       ORCHESTRATION_ENABLED: 'true',
+      GRAPHQL_CALLBACK_ENABLED: 'true',
       SALESFORCE_DISPATCH_ENABLED: 'true',
       SALESFORCE_TEST_DATA_ENABLED: 'true',
       SIMULATOR_ADMIN_API_KEY:
         'admin-api-key-with-at-least-thirty-two-characters',
+      GRAPHQL_CALLBACK_SHARED_SECRET:
+        'graphql-callback-secret-with-at-least-32-characters',
       IDEMPOTENCY_HASH_PEPPER:
         'idempotency-pepper-with-at-least-thirty-two-characters',
       PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
@@ -94,6 +100,7 @@ describe('createHealthResponse', () => {
         'https://example.my.salesforce.com/services/oauth2/token',
     });
 
+    expect(response.graphqlCallback).toBe('configured');
     expect(response.testData).toBe('configured');
     expect(JSON.stringify(response)).not.toContain('salesforce-client');
   });

@@ -1,4 +1,8 @@
-import type { EventGridEnvelope, RenderedScenarioFixture } from '../contracts';
+import type {
+  EventGridEnvelope,
+  GraphqlResponsePolicy,
+  RenderedScenarioFixture,
+} from '../contracts';
 
 export const runStatuses = [
   'CREATED',
@@ -109,6 +113,43 @@ export interface DeliveryAttempt {
   responseRedacted: RedactedMetadata;
   errorCode: string | null;
   createdAt: Date;
+}
+
+export interface GraphqlCallbackRecord {
+  id: string;
+  runId: string | null;
+  requestId: string;
+  operationName: string;
+  idClienteHash: string;
+  idProspectHash: string;
+  normalizedCorrelationKeyHash: string;
+  policy: string;
+  httpStatus: number;
+  requestRedacted: RedactedMetadata;
+  responseRedacted: RedactedMetadata;
+  durationMs: number;
+  createdAt: Date;
+}
+
+export type CorrelatableRunMatch = {
+  run: Run;
+  matchedBy: 'idCliente' | 'idProspect' | 'both';
+};
+
+export interface RecordGraphqlCallbackInput {
+  runId: string | null;
+  requestId: string;
+  operationName: string;
+  idClienteHash: string;
+  idProspectHash: string;
+  normalizedCorrelationKeyHash: string;
+  policy: GraphqlResponsePolicy;
+  httpStatus: number;
+  requestRedacted: RedactedMetadata;
+  responseRedacted: RedactedMetadata;
+  durationMs: number;
+  actor: string;
+  receivedAt: Date;
 }
 
 export type DispatchClaimResult =
@@ -269,6 +310,11 @@ export type ReserveRetriesResult =
 export interface RunRepository {
   createRun(input: CreateRunInput): Promise<CreateRunResult>;
   findRun(runId: string): Promise<Run | null>;
+  findCorrelatableRun(input: {
+    idClienteUpper?: string | null;
+    idProspectUpper?: string | null;
+    limit: number;
+  }): Promise<CorrelatableRunMatch | null>;
   listRuns(page: {
     limit: number;
     offset?: number;
@@ -357,6 +403,10 @@ export interface RunRepository {
     runId: string;
     stepId: string;
   }): Promise<EventGridEnvelope | null>;
+  recordGraphqlCallback(input: RecordGraphqlCallbackInput): Promise<{
+    callback: GraphqlCallbackRecord;
+    runStatus: RunStatus | null;
+  }>;
   completeDispatch(input: {
     runId: string;
     stepId: string;

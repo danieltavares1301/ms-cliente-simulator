@@ -74,6 +74,7 @@ export const healthResponseSchema = z
     status: z.literal('ok'),
     version: z.string().min(1),
     orchestration: z.enum(['disabled', 'configured']),
+    graphqlCallback: z.enum(['disabled', 'configured']),
     testData: z.enum(['disabled', 'configured']),
     dependencies: z
       .object({

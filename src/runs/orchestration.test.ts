@@ -116,6 +116,18 @@ class MemoryRunRepository implements RunRepository {
     throw new Error('not used');
   }
 
+  async findCorrelatableRun(): Promise<
+    Awaited<ReturnType<RunRepository['findCorrelatableRun']>>
+  > {
+    return null;
+  }
+
+  async recordGraphqlCallback(): Promise<
+    Awaited<ReturnType<RunRepository['recordGraphqlCallback']>>
+  > {
+    throw new Error('not used');
+  }
+
   beginCancellation(): never {
     throw new Error('not used');
   }

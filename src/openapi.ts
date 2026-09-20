@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import packageJson from '../package.json';
 import {
   atualizarClienteInputSchema,
   cancelRunRequestSchema,
@@ -229,7 +230,7 @@ export const openApiDocument: OpenApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'API Simuladora do MS Clientes',
-    version: '0.4.3',
+    version: packageJson.version,
     description:
       'Contrato público contract-first para a Unificação 2.2. A extensão x-implementation-status distingue operações disponíveis de contratos planejados.',
   },
@@ -248,11 +249,6 @@ export const openApiDocument: OpenApiDocument = {
     {
       name: 'Runs',
       description: 'Criação idempotente e consulta protegida de execuções.',
-    },
-    {
-      name: 'GraphQL callback',
-      description:
-        'Contrato futuro do callback application/graphql atualizarCliente.',
     },
   ],
   paths: {
@@ -534,55 +530,6 @@ export const openApiDocument: OpenApiDocument = {
         responses: {
           '202': response('Retry aceito.', 'RunActionResponse'),
           ...runActionErrorResponses,
-        },
-      },
-    },
-    '/api/ms-clientes/graphql': {
-      post: {
-        summary: 'Receber callback atualizarCliente',
-        description:
-          'Somente contrato futuro. O request chega como texto GraphQL; parser, autenticação, correlação e políticas ainda não estão implementados.',
-        operationId: 'atualizarClienteCallback',
-        tags: ['GraphQL callback'],
-        security: bearerSecurity,
-        'x-implementation-status': 'future',
-        requestBody: {
-          required: true,
-          content: {
-            'application/graphql': {
-              schema: {
-                type: 'string',
-                minLength: 1,
-                description:
-                  'Mutation atualizarCliente(cliente: {...}) { id }.',
-              },
-            },
-          },
-        },
-        responses: {
-          '200': {
-            description: 'Sucesso ou erro GraphQL simulado.',
-            content: {
-              'application/json': {
-                schema: {
-                  oneOf: [
-                    {
-                      $ref: '#/components/schemas/GraphqlSuccessResponse',
-                    },
-                    { $ref: '#/components/schemas/GraphqlErrorResponse' },
-                  ],
-                },
-              },
-            },
-          },
-          '201': response(
-            'Sucesso alternativo aceito pelo Apex.',
-            'GraphqlSuccessResponse',
-          ),
-          '400': response('Falha simulada HTTP 400.', 'RestErrorResponse'),
-          '401': response('Falha simulada HTTP 401.', 'RestErrorResponse'),
-          '429': response('Falha simulada HTTP 429.', 'RestErrorResponse'),
-          '500': response('Falha simulada HTTP 500.', 'RestErrorResponse'),
         },
       },
     },

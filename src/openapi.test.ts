@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { GET as getHealth } from '../app/api/v1/health/route';
 import { GET as getOpenApi } from '../app/api/v1/openapi/route';
+import packageJson from '../package.json';
 import { restErrorResponseSchema } from './contracts';
 import { openApiDocument } from './openapi';
 
@@ -17,7 +18,6 @@ const publicPaths = [
   '/api/v1/runs/{runId}/steps',
   '/api/v1/runs/{runId}/cancellations',
   '/api/v1/runs/{runId}/retries',
-  '/api/ms-clientes/graphql',
 ] as const;
 
 describe('OpenAPI document', () => {
@@ -31,7 +31,7 @@ describe('OpenAPI document', () => {
 
   it('is OpenAPI 3.1 and documents every planned public endpoint', () => {
     expect(openApiDocument.openapi).toBe('3.1.0');
-    expect(openApiDocument.info.version).toBe('0.4.3');
+    expect(openApiDocument.info.version).toBe(packageJson.version);
     expect(openApiDocument.info.title).toBeTruthy();
 
     for (const path of publicPaths) {
@@ -82,11 +82,7 @@ describe('OpenAPI document', () => {
         expect(operation?.responses).toHaveProperty(status);
       }
     }
-    expect(
-      openApiDocument.paths['/api/ms-clientes/graphql']?.post?.[
-        'x-implementation-status'
-      ],
-    ).toBe('future');
+    expect(openApiDocument.paths['/api/ms-clientes/graphql']).toBeUndefined();
   });
 
   it('matches authentication exactly to implemented public and future handlers', () => {

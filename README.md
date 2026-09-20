@@ -4,16 +4,17 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.4.3**. A Fase 4 (núcleo) mantém o target fake por padrão, mas agora
-persiste o envelope Event Grid de cada step `DISPATCH` e permite habilitar o
-dispatch real para a sandbox autorizada via OAuth2 Client Credentials. O guard
-de segurança valida host, org e `IsSandbox` antes do `POST
-/services/apexrest/Cliente`. Um Test Data Adapter isolado e allowlisted executa
-setup, verificação e cleanup de `Account` para os quatro cenários `CORE`.
-Com `SALESFORCE_TEST_DATA_ENABLED=true`, a fixture renderizada é persistida no
-run, o setup ocorre antes da publicação QStash e verify/cleanup são retomáveis
-após o dispatch. Callback e objetos Lead/Proponente/PAC/Opportunity continuam
-fora deste incremento.
+Versão **0.5.0**. A Fase 5 entrega a infraestrutura do callback GraphQL
+simulado no lado do simulador: parser com AST oficial (`graphql`), políticas de
+resposta, correlação com runs recentes por `id`/`idProspectSalesforce`,
+persistência sanitizada em `graphql_callback`, feature flag dedicada e endpoint
+interno protegido por segredo exclusivo do simulador. O target fake continua
+default; o dispatch real e o Test Data Adapter da Fase 4 permanecem disponíveis.
+Nenhum cenário atual do catálogo dispara esse callback em round-trip real ainda:
+os quatro cenários `CORE` seguem com `expectedCallbacks.max = 0`, então esta
+fase deixa a infraestrutura pronta e testada para expansões futuras das Fases
+6/7. A Tarefa 5.0 (Named Credential/External Credential + alteração
+`MSClienteService.cls`) continua fora de escopo deste commit.
 
 ## Quick Start
 
@@ -49,11 +50,23 @@ curl http://localhost:3000/api/v1/scenarios/match-id-cliente
 | `GET /api/v1/runs/{runId}/steps`          | Implementado | Passos sanitizados, paginados e ordenados.                                           |
 | `POST /api/v1/runs/{runId}/cancellations` | Implementado | Cancelamento idempotente de mensagens pendentes; `RUNNING` não reabre o run.         |
 | `POST /api/v1/runs/{runId}/retries`       | Implementado | Nova tentativa somente para steps `FAILED`, com histórico preservado.                |
-| `POST /api/ms-clientes/graphql`           | Futuro       | Contrato `application/graphql`; parser e handler ainda não existem.                  |
 
 Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
-`phase-2` ou `future`. O endpoint interno de dispatch não é incluído no
-documento público.
+`phase-2` ou `future`. Endpoints internos/protegidos (`/api/v1/internal/dispatches`
+e `/api/ms-clientes/graphql`) não são publicados no OpenAPI público.
+
+### Callback GraphQL simulado
+
+O endpoint `POST /api/ms-clientes/graphql` recebe o contrato real confirmado do
+Apex via `application/graphql` (ou, opcionalmente, `application/json` com
+`{"query": "..."}`), autentica com um segredo exclusivo do simulador e nunca
+persiste o body bruto. O parser exige exatamente a mutation anônima
+`atualizarCliente(cliente:{...}){id}` e aceita campos em qualquer ordem,
+incluindo enums GraphQL sem aspas. A correlação com runs usa
+`trim()+uppercase()` sobre `cliente.id`/`cliente.idProspectSalesforce` e busca
+somente os **50 runs não-dry mais recentes**, o que é suficiente para o volume
+atual do simulador; detalhes e limitações estão em
+[`docs/phase-5/graphql-callback.md`](docs/phase-5/graphql-callback.md).
 
 ### Runs administrativos
 
@@ -142,6 +155,11 @@ nenhuma credencial Salesforce é necessária enquanto
 - `ORCHESTRATION_ENABLED`: `false` por padrão. Quando `true`, exige os segredos
   server-only e a URL pública HTTPS descritos em
   [database-and-feature-gate.md](docs/phase-3/database-and-feature-gate.md).
+- `GRAPHQL_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true` quando
+  `ORCHESTRATION_ENABLED=true`.
+- `GRAPHQL_CALLBACK_SHARED_SECRET`: exigido somente quando
+  `GRAPHQL_CALLBACK_ENABLED=true`; mínimo de 32 caracteres e exclusivo do
+  simulador.
 - `SALESFORCE_DISPATCH_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`. O valor é persistido por run; desligar a flag
   depois atua como kill switch (`503`) e nunca redireciona um run Salesforce
@@ -159,9 +177,10 @@ nenhuma credencial Salesforce é necessária enquanto
 As URLs HTTPS têm a barra final removida durante a normalização. O health valida
 a configuração a cada requisição, falha de forma fechada quando ela é inválida
 e responde com `dependencies.configuration: "ok"`,
-`orchestration: disabled|configured` e `testData: disabled|configured` quando
-válida, sem retornar valores de ambiente nem testar conexão. `npm run build`
-não exige configuração real nem acessa integrações.
+`orchestration: disabled|configured`, `graphqlCallback: disabled|configured` e
+`testData: disabled|configured` quando válida, sem retornar valores de ambiente
+nem testar conexão. `npm run build` não exige configuração real nem acessa
+integrações.
 O `Client` e o `Receiver` QStash são construídos de forma lazy somente durante
 agendamento ou recepção com a feature habilitada. Quando o dispatch real é
 ligado, requests Salesforce não seguem redirects, expiram em 30 segundos, e o
@@ -223,6 +242,7 @@ roda automaticamente no build/deploy.
 - [Test Data Adapter da Fase 4](docs/phase-4/test-data-adapter.md)
 - [Lifecycle do Test Data Adapter](docs/phase-4/lifecycle.md)
 - [Checkpoint parcial da Fase 4](docs/phase-4/checkpoint.md)
+- [Callback GraphQL simulado da Fase 5](docs/phase-5/graphql-callback.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
 - [Política de validação de dados de negócio](docs/decisions/0005-business-data-validation-policy.md)

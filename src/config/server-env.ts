@@ -8,9 +8,11 @@ const serverEnvironmentKeys = [
   'DATABASE_URL',
   'QSTASH_URL',
   'ORCHESTRATION_ENABLED',
+  'GRAPHQL_CALLBACK_ENABLED',
   'SALESFORCE_DISPATCH_ENABLED',
   'SALESFORCE_TEST_DATA_ENABLED',
   'SIMULATOR_ADMIN_API_KEY',
+  'GRAPHQL_CALLBACK_SHARED_SECRET',
   'IDEMPOTENCY_HASH_PEPPER',
   'PUBLIC_APP_BASE_URL',
   'QSTASH_TOKEN',
@@ -175,6 +177,10 @@ const serverEnvironmentSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    GRAPHQL_CALLBACK_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     SALESFORCE_DISPATCH_ENABLED: z
       .enum(['true', 'false'])
       .default('false')
@@ -184,6 +190,7 @@ const serverEnvironmentSchema = z
       .default('false')
       .transform((value) => value === 'true'),
     SIMULATOR_ADMIN_API_KEY: z.string().optional(),
+    GRAPHQL_CALLBACK_SHARED_SECRET: z.string().optional(),
     IDEMPOTENCY_HASH_PEPPER: z.string().optional(),
     PUBLIC_APP_BASE_URL: z.string().optional(),
     QSTASH_TOKEN: z.string().optional(),
@@ -194,6 +201,17 @@ const serverEnvironmentSchema = z
     SALESFORCE_TOKEN_URL: z.string().optional(),
   })
   .superRefine((configuration, context) => {
+    if (
+      configuration.GRAPHQL_CALLBACK_ENABLED &&
+      !configuration.ORCHESTRATION_ENABLED
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['GRAPHQL_CALLBACK_ENABLED'],
+        message: 'GraphQL callback requires ORCHESTRATION_ENABLED=true',
+      });
+    }
+
     if (
       configuration.SALESFORCE_DISPATCH_ENABLED &&
       !configuration.ORCHESTRATION_ENABLED
@@ -235,6 +253,7 @@ const serverEnvironmentSchema = z
 
     for (const variableName of [
       'SIMULATOR_ADMIN_API_KEY',
+      'GRAPHQL_CALLBACK_SHARED_SECRET',
       'IDEMPOTENCY_HASH_PEPPER',
       'QSTASH_TOKEN',
       'QSTASH_CURRENT_SIGNING_KEY',
@@ -248,6 +267,18 @@ const serverEnvironmentSchema = z
           message: 'Secret is too short',
         });
       }
+    }
+
+    if (
+      configuration.GRAPHQL_CALLBACK_ENABLED &&
+      (configuration.GRAPHQL_CALLBACK_SHARED_SECRET === undefined ||
+        configuration.GRAPHQL_CALLBACK_SHARED_SECRET === '')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['GRAPHQL_CALLBACK_SHARED_SECRET'],
+        message: 'Required when GraphQL callback is enabled',
+      });
     }
 
     if (
@@ -329,6 +360,7 @@ const serverEnvironmentSchema = z
         DATABASE_URL: configuration.DATABASE_URL,
         QSTASH_URL: configuration.QSTASH_URL,
         ORCHESTRATION_ENABLED: false as const,
+        GRAPHQL_CALLBACK_ENABLED: false as const,
         SALESFORCE_DISPATCH_ENABLED: false as const,
         SALESFORCE_TEST_DATA_ENABLED: false as const,
       };
@@ -338,17 +370,25 @@ const serverEnvironmentSchema = z
       return {
         ...configuration,
         ORCHESTRATION_ENABLED: true as const,
+        GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
         SALESFORCE_DISPATCH_ENABLED: false as const,
         SALESFORCE_TEST_DATA_ENABLED: false as const,
         PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
           configuration.PUBLIC_APP_BASE_URL,
         ),
+        ...(configuration.GRAPHQL_CALLBACK_ENABLED
+          ? {
+              GRAPHQL_CALLBACK_SHARED_SECRET:
+                configuration.GRAPHQL_CALLBACK_SHARED_SECRET!,
+            }
+          : {}),
       };
     }
 
     return {
       ...configuration,
       ORCHESTRATION_ENABLED: true as const,
+      GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
       SALESFORCE_DISPATCH_ENABLED: true as const,
       SALESFORCE_TEST_DATA_ENABLED: configuration.SALESFORCE_TEST_DATA_ENABLED,
       PUBLIC_APP_BASE_URL: securePublicUrlSchema.parse(
@@ -357,6 +397,12 @@ const serverEnvironmentSchema = z
       SALESFORCE_TOKEN_URL: salesforceTokenUrlSchema.parse(
         configuration.SALESFORCE_TOKEN_URL,
       ),
+      ...(configuration.GRAPHQL_CALLBACK_ENABLED
+        ? {
+            GRAPHQL_CALLBACK_SHARED_SECRET:
+              configuration.GRAPHQL_CALLBACK_SHARED_SECRET!,
+          }
+        : {}),
     };
   });
 
@@ -373,14 +419,17 @@ export type ServerEnvironment = BaseServerEnvironment &
   (
     | {
         ORCHESTRATION_ENABLED: false;
+        GRAPHQL_CALLBACK_ENABLED: false;
         SALESFORCE_DISPATCH_ENABLED: false;
         SALESFORCE_TEST_DATA_ENABLED: false;
       }
     | {
         ORCHESTRATION_ENABLED: true;
+        GRAPHQL_CALLBACK_ENABLED: boolean;
         SALESFORCE_DISPATCH_ENABLED: false;
         SALESFORCE_TEST_DATA_ENABLED: false;
         SIMULATOR_ADMIN_API_KEY: string;
+        GRAPHQL_CALLBACK_SHARED_SECRET?: string;
         IDEMPOTENCY_HASH_PEPPER: string;
         PUBLIC_APP_BASE_URL: string;
         QSTASH_TOKEN: string;
@@ -389,9 +438,11 @@ export type ServerEnvironment = BaseServerEnvironment &
       }
     | {
         ORCHESTRATION_ENABLED: true;
+        GRAPHQL_CALLBACK_ENABLED: boolean;
         SALESFORCE_DISPATCH_ENABLED: true;
         SALESFORCE_TEST_DATA_ENABLED: boolean;
         SIMULATOR_ADMIN_API_KEY: string;
+        GRAPHQL_CALLBACK_SHARED_SECRET?: string;
         IDEMPOTENCY_HASH_PEPPER: string;
         PUBLIC_APP_BASE_URL: string;
         QSTASH_TOKEN: string;

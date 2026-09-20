@@ -235,6 +235,131 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     });
   });
 
+  it('finds the newest non-dry run by normalized cliente/prospect identifiers', async () => {
+    const older = await repository.createRun(
+      createInput({
+        run: {
+          id: '00000000-0000-4000-8000-000000000010',
+          idempotencyKeyHash: 'd'.repeat(64),
+          requestFingerprint: 'e'.repeat(64),
+          fixtureSnapshot: {
+            ...fixtureSnapshot,
+            runId: 'run_old',
+            identifiers: {
+              ...fixtureSnapshot.identifiers,
+              accountIdCliente: ' CLI-001 ',
+              accountIdProspect: ' pro-001 ',
+              leadIdExterno: ' pro-001 ',
+            },
+          },
+        },
+      }),
+    );
+
+    currentTime = new Date('2026-08-22T12:05:00.000Z');
+    const newer = await repository.createRun(
+      createInput({
+        run: {
+          id: '00000000-0000-4000-8000-000000000011',
+          idempotencyKeyHash: 'f'.repeat(64),
+          requestFingerprint: 'g'.repeat(64),
+          fixtureSnapshot: {
+            ...fixtureSnapshot,
+            runId: 'run_new',
+            identifiers: {
+              ...fixtureSnapshot.identifiers,
+              accountIdCliente: 'CLI-001',
+              accountIdProspect: 'PRO-001',
+              leadIdExterno: 'PRO-001',
+            },
+          },
+        },
+      }),
+    );
+
+    const correlated = await repository.findCorrelatableRun({
+      idClienteUpper: '  cli-001  ',
+      idProspectUpper: ' pro-001 ',
+      limit: 10,
+    });
+
+    expect(older.outcome).toBe('CREATED');
+    expect(newer.outcome).toBe('CREATED');
+    expect(correlated).toMatchObject({
+      run: { id: '00000000-0000-4000-8000-000000000011' },
+      matchedBy: 'both',
+    });
+  });
+
+  it('persists sanitized GraphQL callbacks and advances waiting runs only after the minimum callback threshold', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          id: '00000000-0000-4000-8000-000000000020',
+          status: 'WAITING_ASYNC',
+          expectedCallbackMin: 1,
+          expectedCallbackMax: 2,
+          asyncWaitDeadline: new Date('2026-08-22T12:30:00.000Z'),
+          fixtureSnapshot: {
+            ...fixtureSnapshot,
+            identifiers: {
+              ...fixtureSnapshot.identifiers,
+              accountIdCliente: 'CLI-CB-001',
+              accountIdProspect: 'PRO-CB-001',
+              leadIdExterno: 'PRO-CB-001',
+            },
+          },
+        },
+      }),
+    );
+
+    const persisted = await repository.recordGraphqlCallback({
+      runId: created.run.id,
+      requestId: 'req-graphql-1',
+      operationName: 'atualizarCliente',
+      idClienteHash: 'a'.repeat(64),
+      idProspectHash: 'b'.repeat(64),
+      normalizedCorrelationKeyHash: 'c'.repeat(64),
+      policy: 'SUCCESS_200',
+      httpStatus: 200,
+      requestRedacted: {
+        source: 'application/graphql',
+        fieldNames: ['id', 'idProspectSalesforce'],
+      },
+      responseRedacted: {
+        kind: 'GRAPHQL_SUCCESS',
+      },
+      durationMs: 12,
+      actor: actor,
+      receivedAt: currentTime,
+    });
+
+    const callbackRows = await client.query<{
+      run_id: string | null;
+      request_redacted: Record<string, unknown>;
+      response_redacted: Record<string, unknown>;
+    }>(
+      "select run_id, request_redacted, response_redacted from graphql_callback where request_id = 'req-graphql-1'",
+    );
+    const advancedRun = await repository.findRun(created.run.id);
+
+    expect(persisted.runStatus).toBe('VERIFYING');
+    expect(callbackRows.rows).toStrictEqual([
+      {
+        run_id: created.run.id,
+        request_redacted: {
+          source: 'application/graphql',
+          fieldNames: ['id', 'idProspectSalesforce'],
+        },
+        response_redacted: {
+          kind: 'GRAPHQL_SUCCESS',
+        },
+      },
+    ]);
+    expect(JSON.stringify(callbackRows.rows[0])).not.toContain('CLI-CB-001');
+    expect(advancedRun?.status).toBe('VERIFYING');
+  });
+
   it('converges concurrent creates to one run and recovers missing steps on replay', async () => {
     const results = await Promise.all(
       Array.from({ length: 5 }, () => repository.createRun(createInput())),
