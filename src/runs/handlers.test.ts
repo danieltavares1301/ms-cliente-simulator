@@ -153,6 +153,7 @@ describe('protected runs API handlers', () => {
       status: 'CREATED',
       dryRun: true,
       createdAt: new Date('2026-08-22T12:00:00.000Z'),
+      fixtureSnapshot: { privateMarker: 'fixture-must-not-be-public' },
     };
     const createRun = vi
       .fn()
@@ -174,8 +175,10 @@ describe('protected runs API handlers', () => {
 
     const createdResponse = await handlers.createRun(makeRequest());
     expect(createdResponse.status).toBe(202);
-    expect(JSON.stringify(await createdResponse.json())).not.toContain(
-      adminKey,
+    const createdBody = await createdResponse.json();
+    expect(JSON.stringify(createdBody)).not.toContain(adminKey);
+    expect(JSON.stringify(createdBody)).not.toContain(
+      'fixture-must-not-be-public',
     );
     expect((await handlers.createRun(makeRequest())).status).toBe(202);
     expect((await handlers.createRun(makeRequest())).status).toBe(409);

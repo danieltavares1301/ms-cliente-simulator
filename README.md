@@ -4,14 +4,16 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.4.1**. A Fase 4 (núcleo) mantém o target fake por padrão, mas agora
+Versão **0.4.2**. A Fase 4 (núcleo) mantém o target fake por padrão, mas agora
 persiste o envelope Event Grid de cada step `DISPATCH` e permite habilitar o
 dispatch real para a sandbox autorizada via OAuth2 Client Credentials. O guard
 de segurança valida host, org e `IsSandbox` antes do `POST
 /services/apexrest/Cliente`. Um Test Data Adapter isolado e allowlisted executa
 setup, verificação e cleanup de `Account` para os quatro cenários `CORE`.
-A conexão do adapter ao ciclo de runs/QStash, callback e objetos
-Lead/Proponente/PAC/Opportunity continuam fora deste incremento.
+Com `SALESFORCE_TEST_DATA_ENABLED=true`, a fixture renderizada é persistida no
+run, o setup ocorre antes da publicação QStash e verify/cleanup são retomáveis
+após o dispatch. Callback e objetos Lead/Proponente/PAC/Opportunity continuam
+fora deste incremento.
 
 ## Quick Start
 
@@ -98,6 +100,14 @@ na qual uma republicação pode ocorrer. O claim idempotente do dispatch torna a
 duplicata segura. Mensagens publicadas nessa janela não podem ser canceladas por
 ID enquanto o ID não tiver sido persistido; late dispatch/cancel convergem pelo
 estado durável, sem reabrir steps terminais.
+
+O lifecycle Salesforce também usa claims CAS recuperáveis: `SETUP` precede o
+agendamento, e uma entrega terminal retoma `VERIFY`/`CLEANUP` sem reenviar o
+target. `ALWAYS` executa cleanup mesmo após verify negativo. O resultado final
+é `SUCCEEDED` quando dispatch, verify e cleanup passam; `FAILED` quando verify
+falha sem falha de cleanup; e `PARTIAL` quando cleanup falha. Runs legados sem
+`fixture_snapshot` falham fechados. A fixture nunca é exposta pelas respostas
+de listagem/detalhe.
 
 Os schemas Zod em `src/contracts/` são estritos na borda pública. O envelope
 Event Grid aceita exatamente um dos seis eventos de cliente, contato ou
@@ -208,6 +218,8 @@ roda automaticamente no build/deploy.
 - [Checkpoint preliminar da Fase 3](docs/phase-3/checkpoint.md)
 - [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
 - [Test Data Adapter da Fase 4](docs/phase-4/test-data-adapter.md)
+- [Lifecycle do Test Data Adapter](docs/phase-4/lifecycle.md)
+- [Checkpoint parcial da Fase 4](docs/phase-4/checkpoint.md)
 - [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
 - [Política de validação de dados de negócio](docs/decisions/0005-business-data-validation-policy.md)

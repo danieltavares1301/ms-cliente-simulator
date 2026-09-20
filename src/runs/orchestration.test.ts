@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
+  ClaimLifecycleStepResult,
   CreateRunInput,
   CreateRunResult,
   AuditEvent,
@@ -10,6 +11,7 @@ import type {
   RunStep,
   RunStepPage,
 } from '../db/run-repository';
+import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
 import { createRunOrchestrationService } from './orchestration';
 import type { Scheduler } from './scheduler';
 
@@ -209,15 +211,82 @@ class MemoryRunRepository implements RunRepository {
     throw new Error('not used');
   }
 
+  async claimLifecycleStep(input: {
+    runId: string;
+    stepKind: 'SETUP' | 'VERIFY' | 'CLEANUP';
+    claimedAt: Date;
+  }): Promise<ClaimLifecycleStepResult> {
+    const run = this.runs.find(({ id }) => id === input.runId);
+    const step = this.steps
+      .get(input.runId)
+      ?.find(({ stepKind }) => stepKind === input.stepKind);
+    if (run === undefined || step === undefined)
+      return { outcome: 'NOT_FOUND' };
+    if (step.status === 'SUCCEEDED' || step.status === 'FAILED') {
+      return {
+        outcome: 'TERMINAL',
+        runStatus: run.status,
+        stepStatus: step.status,
+      };
+    }
+    if (step.status === 'RUNNING') return { outcome: 'IN_PROGRESS' };
+    step.status = 'RUNNING';
+    step.startedAt = input.claimedAt;
+    return { outcome: 'CLAIMED', run, step };
+  }
+
+  async completeLifecycleStep(input: {
+    runId: string;
+    stepId: string;
+    succeeded: boolean;
+    responseRedacted: Record<string, unknown>;
+    errorCode: string | null;
+    finishedAt: Date;
+  }): Promise<boolean> {
+    const step = this.steps
+      .get(input.runId)
+      ?.find(({ id }) => id === input.stepId);
+    if (step?.status !== 'RUNNING') return false;
+    step.status = input.succeeded ? 'SUCCEEDED' : 'FAILED';
+    step.responseRedacted = input.responseRedacted;
+    step.errorCode = input.errorCode;
+    step.finishedAt = input.finishedAt;
+    return true;
+  }
+
+  async finalizeLifecycleRun(input: {
+    runId: string;
+    finishedAt: Date;
+  }): Promise<Run['status']> {
+    const run = this.runs.find(({ id }) => id === input.runId);
+    if (run === undefined) throw new Error('run missing');
+    const setupFailed = this.steps
+      .get(input.runId)
+      ?.some(
+        ({ stepKind, status }) => stepKind === 'SETUP' && status === 'FAILED',
+      );
+    run.status = setupFailed ? 'FAILED' : 'SUCCEEDED';
+    run.finishedAt = input.finishedAt;
+    return run.status;
+  }
+
   listDeliveryAttempts(): never {
     throw new Error('not used');
   }
 }
 
-function createService(repository: RunRepository, scheduler?: Scheduler) {
+function createService(
+  repository: RunRepository,
+  scheduler?: Scheduler,
+  options: {
+    testDataEnabled?: boolean;
+    testDataAdapter?: SalesforceTestDataAdapter;
+  } = {},
+) {
   return createRunOrchestrationService({
     repository,
     scheduler,
+    ...options,
     idempotencyPepper: 'p'.repeat(32),
     requestedBy: 'simulator-admin-api',
     now: () => now,
@@ -229,7 +298,15 @@ describe('run orchestration service', () => {
   it('renders and persists a dry run with sanitized metadata and the real dispatch envelope', async () => {
     const repository = new MemoryRunRepository();
     const scheduler = { schedule: vi.fn(), cancelPending: vi.fn() };
-    const result = await createService(repository, scheduler).createRun({
+    const testDataAdapter = {
+      setup: vi.fn(),
+      verify: vi.fn(),
+      cleanup: vi.fn(),
+    };
+    const result = await createService(repository, scheduler, {
+      testDataEnabled: true,
+      testDataAdapter,
+    }).createRun({
       idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
       request,
     });
@@ -243,6 +320,9 @@ describe('run orchestration service', () => {
       }),
     ]);
     expect(scheduler.schedule).not.toHaveBeenCalled();
+    expect(testDataAdapter.setup).not.toHaveBeenCalled();
+    expect(testDataAdapter.verify).not.toHaveBeenCalled();
+    expect(testDataAdapter.cleanup).not.toHaveBeenCalled();
     expect(repository.runs[0].variablesRedacted).toStrictEqual({
       keys: ['eventStartAt', 'seed'],
     });
@@ -355,6 +435,121 @@ describe('run orchestration service', () => {
         ?.filter(({ stepKind }) => stepKind !== 'DISPATCH')
         .every(({ status }) => status === 'SKIPPED'),
     ).toBe(true);
+  });
+
+  it('runs Salesforce setup before scheduling when test data is enabled', async () => {
+    const repository = new MemoryRunRepository();
+    const calls: string[] = [];
+    const testDataAdapter = {
+      setup: vi.fn().mockImplementation(async () => {
+        calls.push('setup');
+        return { status: 'CREATED', createdCount: 1, replayedCount: 0 };
+      }),
+      verify: vi.fn(),
+      cleanup: vi.fn(),
+    };
+    const scheduler = {
+      schedule: vi.fn().mockImplementation(async () => {
+        calls.push('schedule');
+      }),
+      cancelPending: vi.fn(),
+    };
+
+    const result = await createService(repository, scheduler, {
+      testDataEnabled: true,
+      testDataAdapter,
+    }).createRun({
+      idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+      request: {
+        ...request,
+        execution: { ...request.execution, dryRun: false },
+      },
+    });
+
+    expect(calls).toStrictEqual(['setup', 'schedule']);
+    expect(result.run.fixtureSnapshot).toStrictEqual(
+      repository.runs[0].fixtureSnapshot,
+    );
+    expect(
+      repository.steps
+        .get(runId)
+        ?.filter(({ stepKind }) => stepKind !== 'DISPATCH')
+        .map(({ status }) => status),
+    ).toStrictEqual(['SUCCEEDED', 'PENDING', 'PENDING']);
+  });
+
+  it('does not publish QStash when Salesforce setup fails', async () => {
+    const repository = new MemoryRunRepository();
+    const scheduler = {
+      schedule: vi.fn(),
+      cancelPending: vi.fn(),
+    };
+    const testDataAdapter = {
+      setup: vi.fn().mockRejectedValue(new Error('Salesforce unavailable')),
+      verify: vi.fn(),
+      cleanup: vi.fn(),
+    };
+
+    await expect(
+      createService(repository, scheduler, {
+        testDataEnabled: true,
+        testDataAdapter,
+      }).createRun({
+        idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+        request: {
+          ...request,
+          execution: { ...request.execution, dryRun: false },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'TEST_DATA_SETUP_FAILED' });
+
+    expect(scheduler.schedule).not.toHaveBeenCalled();
+    expect(repository.runs[0]).toMatchObject({ status: 'FAILED' });
+  });
+
+  it('does not repeat successful setup while recovering QStash scheduling', async () => {
+    const repository = new MemoryRunRepository();
+    const testDataAdapter = {
+      setup: vi.fn().mockResolvedValue({
+        status: 'CREATED',
+        createdCount: 1,
+        replayedCount: 0,
+      }),
+      verify: vi.fn(),
+      cleanup: vi.fn(),
+    };
+    const scheduler = {
+      schedule: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          repository.runs[0]!.status = 'FAILED';
+          repository.runs[0]!.schedulingKind = null;
+          throw new Error('QStash unavailable');
+        })
+        .mockImplementationOnce(async () => {
+          repository.runs[0]!.status = 'SCHEDULED';
+        }),
+      cancelPending: vi.fn(),
+    };
+    const service = createService(repository, scheduler, {
+      testDataEnabled: true,
+      testDataAdapter,
+    });
+    const input = {
+      idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+      request: {
+        ...request,
+        execution: { ...request.execution, dryRun: false },
+      },
+    };
+
+    await expect(service.createRun(input)).rejects.toMatchObject({
+      code: 'SCHEDULING_FAILED',
+    });
+    await service.createRun(input);
+
+    expect(testDataAdapter.setup).toHaveBeenCalledTimes(1);
+    expect(scheduler.schedule).toHaveBeenCalledTimes(2);
   });
 
   it('replays a partially scheduled creation and publishes only PENDING steps without message ids', async () => {

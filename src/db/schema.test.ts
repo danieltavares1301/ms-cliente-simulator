@@ -47,6 +47,7 @@ describe('persistence schema contract', () => {
       idempotencyKeyHash: 'idempotency_key_hash',
       requestFingerprint: 'request_fingerprint',
       variablesRedacted: 'variables_redacted',
+      fixtureSnapshot: 'fixture_snapshot',
       retentionExpiresAt: 'retention_expires_at',
     });
     expect(tableColumns(scenarioRunStep)).toMatchObject({

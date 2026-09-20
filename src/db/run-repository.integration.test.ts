@@ -7,10 +7,19 @@ import { DrizzleRunRepository } from './drizzle-run-repository';
 import type { CreateRunInput } from './run-repository';
 import * as schema from './schema';
 import { QStashRunScheduler } from '../runs/qstash-scheduler';
+import { createSalesforceLifecycleService } from '../runs/salesforce-lifecycle';
+import { renderScenarioFixture } from '../scenarios/renderer';
 
 const actor = 'integration-test';
 const idempotencyKeyHash = 'a'.repeat(64);
 const requestFingerprint = 'b'.repeat(64);
+const fixtureSnapshot = renderScenarioFixture({
+  scenarioKey: 'match-id-cliente',
+  version: 1,
+  seed: 'repository-test',
+  runId: 'run_00000000000040008000000000000001',
+  eventStartAt: '2026-08-21T10:00:00.000Z',
+});
 
 type CreateInputOverrides = {
   run?: Partial<CreateRunInput['run']>;
@@ -28,6 +37,7 @@ function createInput(overrides: CreateInputOverrides = {}): CreateRunInput {
       requestedBy: actor,
       seed: 42,
       variablesRedacted: {},
+      fixtureSnapshot,
       dryRun: false,
       stopOnFailure: true,
       expectedCallbackMin: 0,
@@ -96,7 +106,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     await client.close();
   });
 
-  it('applies migrations 0000 through the lease increment on an empty PostgreSQL-compatible database', async () => {
+  it('applies migrations 0000 through the fixture snapshot increment on an empty PostgreSQL-compatible database', async () => {
     const runColumns = await client.query<{
       column_name: string;
     }>(
@@ -116,6 +126,7 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     );
     expect(runColumns.rows.map(({ column_name }) => column_name)).toEqual(
       expect.arrayContaining([
+        'fixture_snapshot',
         'scheduling_kind',
         'scheduling_lease_expires_at',
       ]),
@@ -235,12 +246,25 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ).toHaveLength(2);
 
     await client.query('delete from scenario_run_step where ordinal = 1');
-    const recovered = await repository.createRun(createInput());
+    const recoveryInput = createInput();
+    const recovered = await repository.createRun({
+      ...recoveryInput,
+      steps: recoveryInput.steps.map((step) =>
+        step.stepKind === 'DISPATCH'
+          ? { ...step, stepKey: fixtureSnapshot.steps[0]!.key }
+          : step,
+      ),
+    });
 
     expect(recovered.outcome).toBe('REPLAY');
     expect(
       (await repository.listSteps(recovered.run.id, { limit: 100 })).items,
     ).toHaveLength(2);
+    expect(
+      (await repository.listSteps(recovered.run.id, { limit: 100 })).items.find(
+        ({ stepKind }) => stepKind === 'DISPATCH',
+      )?.eventEnvelope,
+    ).toStrictEqual(fixtureSnapshot.steps[0]?.envelope);
   });
 
   it('enforces repository pagination and database constraints', async () => {
@@ -1819,5 +1843,511 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     expect(
       (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
     ).toMatchObject({ status: 'SUCCEEDED', attemptCount: 2 });
+  });
+
+  it('persists the complete rendered fixture without exposing it through step payloads', async () => {
+    const created = await repository.createRun(createInput());
+
+    expect(
+      (await repository.findRun(created.run.id))?.fixtureSnapshot,
+    ).toStrictEqual(fixtureSnapshot);
+    expect(
+      (await repository.listRuns({ limit: 10 })).items[0].fixtureSnapshot,
+    ).toStrictEqual(fixtureSnapshot);
+  });
+
+  it('claims lifecycle work once and reclaims a stale running step', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          status: 'VERIFYING',
+          expectedCallbackMax: 0,
+        },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+          {
+            stepKey: 'cleanup',
+            ordinal: 2,
+            target: 'ACCOUNT',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'CLEANUP',
+          },
+        ],
+      }),
+    );
+
+    const claims = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        repository.claimLifecycleStep({
+          runId: created.run.id,
+          stepKind: 'VERIFY',
+          claimedAt: currentTime,
+          actor,
+        }),
+      ),
+    );
+    expect(claims.filter(({ outcome }) => outcome === 'CLAIMED')).toHaveLength(
+      1,
+    );
+    expect(
+      claims.filter(({ outcome }) => outcome === 'IN_PROGRESS'),
+    ).toHaveLength(1);
+
+    currentTime = new Date('2026-08-22T12:01:01.000Z');
+    await expect(
+      repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'VERIFY',
+        claimedAt: currentTime,
+        actor,
+      }),
+    ).resolves.toMatchObject({ outcome: 'CLAIMED' });
+  });
+
+  it('audits setup lifecycle transitions with technical metadata only', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          status: 'PROVISIONING',
+          schedulingKind: 'INITIAL',
+          schedulingLeaseExpiresAt: new Date('2026-08-22T12:01:00.000Z'),
+        },
+        steps: [
+          {
+            stepKey: 'setup',
+            ordinal: 0,
+            target: 'ACCOUNT',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'SETUP',
+          },
+          {
+            stepKey: 'dispatch',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const claim = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'SETUP',
+      claimedAt: currentTime,
+      actor,
+    });
+    if (claim.outcome !== 'CLAIMED') throw new Error('setup was not claimed');
+    await repository.completeLifecycleStep({
+      runId: created.run.id,
+      stepId: claim.step.id,
+      stepKind: 'SETUP',
+      succeeded: true,
+      responseRedacted: {
+        status: 'CREATED',
+        createdCount: 1,
+        replayedCount: 0,
+      },
+      errorCode: null,
+      actor,
+      finishedAt: currentTime,
+    });
+
+    const audits = await repository.listAuditEvents(created.run.id, 10);
+    expect(audits.map(({ action }) => action).sort()).toStrictEqual([
+      'SETUP_STARTED',
+      'SETUP_SUCCEEDED',
+    ]);
+    expect(JSON.stringify(audits)).not.toContain('access_token');
+  });
+
+  it('reclaims a stale setup step after the durable scheduling lease expires', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          status: 'PROVISIONING',
+          schedulingKind: 'INITIAL',
+          schedulingLeaseExpiresAt: new Date('2026-08-22T12:01:00.000Z'),
+        },
+        steps: [
+          {
+            stepKey: 'setup',
+            ordinal: 0,
+            target: 'ACCOUNT',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'SETUP',
+          },
+          {
+            stepKey: 'dispatch',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'SETUP',
+        claimedAt: currentTime,
+        actor,
+      }),
+    ).resolves.toMatchObject({ outcome: 'CLAIMED' });
+    await expect(
+      repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'SETUP',
+        claimedAt: currentTime,
+        actor,
+      }),
+    ).resolves.toStrictEqual({ outcome: 'IN_PROGRESS' });
+
+    currentTime = new Date('2026-08-22T12:01:01.000Z');
+    await expect(
+      repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'SETUP',
+        claimedAt: currentTime,
+        actor,
+      }),
+    ).resolves.toMatchObject({ outcome: 'CLAIMED' });
+  });
+
+  it('runs verify and cleanup through the real repository to SUCCEEDED', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: { status: 'VERIFYING', expectedCallbackMax: 0 },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+          {
+            stepKey: 'cleanup',
+            ordinal: 2,
+            target: 'ACCOUNT',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'CLEANUP',
+          },
+        ],
+      }),
+    );
+    const testDataAdapter = {
+      setup: vi.fn(),
+      verify: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
+      cleanup: vi
+        .fn()
+        .mockResolvedValue({ status: 'DELETED', deletedCount: 1 }),
+    };
+    const service = createSalesforceLifecycleService({
+      repository,
+      adapter: testDataAdapter,
+      actor,
+      now: () => currentTime,
+    });
+
+    await expect(service.afterDispatch(created.run.id)).resolves.toStrictEqual({
+      outcome: 'COMPLETED',
+      status: 'SUCCEEDED',
+    });
+    expect(testDataAdapter.verify).toHaveBeenCalledOnce();
+    expect(testDataAdapter.cleanup).toHaveBeenCalledOnce();
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'SUCCEEDED',
+    });
+  });
+
+  it.each([
+    {
+      verifySucceeded: true,
+      cleanupSucceeded: true,
+      expected: 'SUCCEEDED',
+    },
+    {
+      verifySucceeded: false,
+      cleanupSucceeded: true,
+      expected: 'FAILED',
+    },
+    {
+      verifySucceeded: true,
+      cleanupSucceeded: false,
+      expected: 'PARTIAL',
+    },
+  ] as const)(
+    'finalizes verify=$verifySucceeded cleanup=$cleanupSucceeded as $expected',
+    async ({ verifySucceeded, cleanupSucceeded, expected }) => {
+      const created = await repository.createRun(
+        createInput({
+          run: { status: 'VERIFYING', expectedCallbackMax: 0 },
+          steps: [
+            {
+              stepKey: 'dispatch',
+              ordinal: 0,
+              target: 'CLIENTE',
+              status: 'SUCCEEDED',
+              requestRedacted: {},
+              responseRedacted: {},
+              stepKind: 'DISPATCH',
+            },
+            {
+              stepKey: 'verify',
+              ordinal: 1,
+              target: 'SALESFORCE',
+              status: 'PENDING',
+              requestRedacted: {},
+              responseRedacted: {},
+              stepKind: 'VERIFY',
+            },
+            {
+              stepKey: 'cleanup',
+              ordinal: 2,
+              target: 'ACCOUNT',
+              status: 'PENDING',
+              requestRedacted: {},
+              responseRedacted: {},
+              stepKind: 'CLEANUP',
+            },
+          ],
+        }),
+      );
+      const verifyClaim = await repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'VERIFY',
+        claimedAt: currentTime,
+        actor,
+      });
+      if (verifyClaim.outcome !== 'CLAIMED') {
+        throw new Error('verify was not claimed');
+      }
+      await repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: verifyClaim.step.id,
+        stepKind: 'VERIFY',
+        succeeded: verifySucceeded,
+        responseRedacted: { status: verifySucceeded ? 'PASSED' : 'FAILED' },
+        errorCode: verifySucceeded ? null : 'VERIFICATION_FAILED',
+        actor,
+        finishedAt: currentTime,
+      });
+      const cleanupClaim = await repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'CLEANUP',
+        claimedAt: currentTime,
+        actor,
+      });
+      if (cleanupClaim.outcome !== 'CLAIMED') {
+        throw new Error('cleanup was not claimed');
+      }
+      await repository.completeLifecycleStep({
+        runId: created.run.id,
+        stepId: cleanupClaim.step.id,
+        stepKind: 'CLEANUP',
+        succeeded: cleanupSucceeded,
+        responseRedacted: {
+          status: cleanupSucceeded ? 'DELETED' : 'FAILED',
+        },
+        errorCode: cleanupSucceeded ? null : 'OWNERSHIP_MISMATCH',
+        actor,
+        finishedAt: currentTime,
+      });
+
+      await expect(
+        repository.finalizeLifecycleRun({
+          runId: created.run.id,
+          actor,
+          finishedAt: currentTime,
+        }),
+      ).resolves.toBe(expected);
+      expect(await repository.findRun(created.run.id)).toMatchObject({
+        status: expected,
+      });
+    },
+  );
+
+  it('fails a legacy run closed when its fixture snapshot is null', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          status: 'VERIFYING',
+          expectedCallbackMax: 0,
+          fixtureSnapshot: null,
+        },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+          {
+            stepKey: 'cleanup',
+            ordinal: 2,
+            target: 'ACCOUNT',
+            status: 'PENDING',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'CLEANUP',
+          },
+        ],
+      }),
+    );
+    const claim = await repository.claimLifecycleStep({
+      runId: created.run.id,
+      stepKind: 'VERIFY',
+      claimedAt: currentTime,
+      actor,
+    });
+    if (claim.outcome !== 'CLAIMED') throw new Error('verify was not claimed');
+    await repository.completeLifecycleStep({
+      runId: created.run.id,
+      stepId: claim.step.id,
+      stepKind: 'VERIFY',
+      succeeded: false,
+      responseRedacted: { status: 'FAILED' },
+      errorCode: 'FIXTURE_SNAPSHOT_MISSING',
+      actor,
+      finishedAt: currentTime,
+    });
+
+    await expect(
+      repository.finalizeLifecycleRun({
+        runId: created.run.id,
+        actor,
+        finishedAt: currentTime,
+      }),
+    ).resolves.toBe('FAILED');
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepKind: 'CLEANUP',
+          status: 'SKIPPED',
+        }),
+      ]),
+    );
+  });
+
+  it('fails closed and audits a legacy run whose lifecycle steps were skipped', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          status: 'VERIFYING',
+          expectedCallbackMax: 0,
+          fixtureSnapshot: null,
+        },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SUCCEEDED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'verify',
+            ordinal: 1,
+            target: 'SALESFORCE',
+            status: 'SKIPPED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'VERIFY',
+          },
+          {
+            stepKey: 'cleanup',
+            ordinal: 2,
+            target: 'ACCOUNT',
+            status: 'SKIPPED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'CLEANUP',
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      repository.claimLifecycleStep({
+        runId: created.run.id,
+        stepKind: 'VERIFY',
+        claimedAt: currentTime,
+        actor,
+      }),
+    ).resolves.toStrictEqual({
+      outcome: 'TERMINAL',
+      runStatus: 'FAILED',
+      stepStatus: 'FAILED',
+    });
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'FAILED',
+    });
+    expect(await repository.listAuditEvents(created.run.id, 10)).toEqual([
+      expect.objectContaining({
+        action: 'VERIFY_FAILED',
+        metadataRedacted: {
+          status: 'FAILED',
+          errorCode: 'FIXTURE_SNAPSHOT_MISSING',
+        },
+      }),
+    ]);
   });
 });

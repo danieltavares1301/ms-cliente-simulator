@@ -13,7 +13,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import type { EventGridEnvelope } from '../contracts';
+import type { EventGridEnvelope, RenderedScenarioFixture } from '../contracts';
 
 const redactedJson = (name: string) =>
   jsonb(name).$type<Record<string, unknown>>().notNull().default({});
@@ -75,6 +75,7 @@ export const scenarioRun = pgTable(
     requestedBy: text('requested_by').notNull(),
     seed: integer().notNull(),
     variablesRedacted: redactedJson('variables_redacted'),
+    fixtureSnapshot: jsonb('fixture_snapshot').$type<RenderedScenarioFixture>(),
     dryRun: boolean('dry_run').notNull().default(false),
     stopOnFailure: boolean('stop_on_failure').notNull().default(true),
     expectedCallbackMin: integer('expected_callback_min').notNull().default(0),

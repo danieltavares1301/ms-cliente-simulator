@@ -2,10 +2,11 @@
 
 ## Estado
 
-O incremento 0.4.1 entrega o adapter isolado. Ele ainda não participa do state
-machine de runs nem de mensagens QStash. Sua ativação futura exige
+O incremento 0.4.1 entregou o adapter isolado. No incremento 0.4.2 ele passa a
+participar do state machine de runs e das entregas QStash quando
 `SALESFORCE_TEST_DATA_ENABLED=true`, que por sua vez exige orchestration e
-dispatch Salesforce habilitados.
+dispatch Salesforce habilitados. O lifecycle durável está detalhado em
+[lifecycle.md](lifecycle.md).
 
 O health informa somente `testData: disabled|configured`; não abre conexão com
 Salesforce.
@@ -73,7 +74,6 @@ telefone ou outros dados de negócio.
 
 ## Limitações conhecidas
 
-- O adapter não é invocado automaticamente por runs.
 - Não há teste contra org real; os testes usam clientes/fetch mocks.
 - `NO_OTHER_ACCOUNT_UPDATED` limita a observação ao conjunto localizado pelos
   identificadores fortes da fixture (`Id__c` e `CPF__pc`).

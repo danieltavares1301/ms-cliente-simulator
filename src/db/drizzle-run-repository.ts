@@ -22,12 +22,14 @@ import {
 } from './schema';
 import type {
   AuditEvent,
+  ClaimLifecycleStepResult,
   CreateRunInput,
   CreateRunResult,
   DeliveryAttempt,
   DispatchClaimResult,
   ClaimInitialSchedulingResult,
   NewRunStep,
+  LifecycleStepKind,
   Run,
   RunFilters,
   RunPage,
@@ -53,10 +55,12 @@ export class RunRecoveryError extends Error {
 
 const DISPATCH_CLAIM_RECOVERY_MS = 1_000;
 const DEFAULT_SCHEDULING_LEASE_MS = 60_000;
+const DEFAULT_LIFECYCLE_CLAIM_RECOVERY_MS = 60_000;
 
 type DrizzleRunRepositoryOptions = {
   now?: () => Date;
   schedulingLeaseMs?: number;
+  lifecycleClaimRecoveryMs?: number;
 };
 
 function assertLimit(limit: number): void {
@@ -152,7 +156,29 @@ export class DrizzleRunRepository<
       return { outcome: 'CONFLICT', run: asRun(existing) };
     }
 
-    await this.ensureSteps(existing.id, input.steps);
+    const persistedFixture =
+      inserted === undefined ? existing.fixtureSnapshot : null;
+    const steps =
+      persistedFixture === null
+        ? input.steps
+        : input.steps.map((step) => {
+            if (step.stepKind !== 'DISPATCH') return step;
+            const fixtureStep = persistedFixture.steps.find(
+              ({ key }) => key === step.stepKey,
+            );
+            return fixtureStep === undefined
+              ? step
+              : {
+                  ...step,
+                  eventType: fixtureStep.eventType,
+                  eventEnvelope: fixtureStep.envelope,
+                  requestRedacted: {
+                    eventId: fixtureStep.envelope[0].id,
+                    eventType: fixtureStep.eventType,
+                  },
+                };
+          });
+    await this.ensureSteps(existing.id, steps);
 
     return {
       outcome: inserted === undefined ? 'REPLAY' : 'CREATED',
@@ -1437,6 +1463,335 @@ export class DrizzleRunRepository<
       .limit(1);
     if (reconciledRun === undefined) throw new Error('Dispatch run not found');
     return { runStatus: reconciledRun.status };
+  }
+
+  async claimLifecycleStep(input: {
+    runId: string;
+    stepKind: LifecycleStepKind;
+    claimedAt: Date;
+    actor: string;
+  }): Promise<ClaimLifecycleStepResult> {
+    const [run] = await this.database
+      .select()
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, input.runId))
+      .limit(1);
+    if (run === undefined) return { outcome: 'NOT_FOUND' };
+    if (run.status === 'CANCELLING' || run.status === 'CANCELLED') {
+      return { outcome: 'CANCELLED' };
+    }
+    if (['SUCCEEDED', 'FAILED', 'PARTIAL'].includes(run.status)) {
+      const [terminalStep] = await this.database
+        .select({ status: scenarioRunStep.status })
+        .from(scenarioRunStep)
+        .where(
+          and(
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.stepKind, input.stepKind),
+          ),
+        )
+        .orderBy(asc(scenarioRunStep.ordinal))
+        .limit(1);
+      return terminalStep === undefined
+        ? { outcome: 'NOT_FOUND' }
+        : {
+            outcome: 'TERMINAL',
+            runStatus: run.status,
+            stepStatus: terminalStep.status,
+          };
+    }
+    const expectedRunStatus =
+      input.stepKind === 'SETUP' ? 'PROVISIONING' : 'VERIFYING';
+    if (run.status !== expectedRunStatus) return { outcome: 'NOT_READY' };
+
+    const [step] = await this.database
+      .select()
+      .from(scenarioRunStep)
+      .where(
+        and(
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, input.stepKind),
+        ),
+      )
+      .orderBy(asc(scenarioRunStep.ordinal))
+      .limit(1);
+    if (step === undefined) return { outcome: 'NOT_FOUND' };
+    if (['SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED'].includes(step.status)) {
+      if (
+        run.fixtureSnapshot === null &&
+        (run.status === 'PROVISIONING' || run.status === 'VERIFYING')
+      ) {
+        const [failedRun] = await this.database
+          .update(scenarioRun)
+          .set({
+            status: 'FAILED',
+            finishedAt: input.claimedAt,
+            schedulingKind: null,
+            schedulingLeaseExpiresAt: null,
+          })
+          .where(
+            and(
+              eq(scenarioRun.id, input.runId),
+              eq(scenarioRun.status, run.status),
+            ),
+          )
+          .returning({ id: scenarioRun.id });
+        if (failedRun !== undefined) {
+          await this.appendAuditEvent({
+            actor: input.actor,
+            action: `${input.stepKind}_FAILED`,
+            resourceType: 'scenario_run',
+            resourceId: input.runId,
+            metadataRedacted: {
+              status: 'FAILED',
+              errorCode: 'FIXTURE_SNAPSHOT_MISSING',
+            },
+          });
+        }
+        return {
+          outcome: 'TERMINAL',
+          runStatus: 'FAILED',
+          stepStatus: 'FAILED',
+        };
+      }
+      return {
+        outcome: 'TERMINAL',
+        runStatus: run.status,
+        stepStatus: step.status,
+      };
+    }
+
+    if (input.stepKind !== 'SETUP') {
+      const requiredKind = input.stepKind === 'VERIFY' ? 'DISPATCH' : 'VERIFY';
+      const [blocked] = await this.database
+        .select({ id: scenarioRunStep.id })
+        .from(scenarioRunStep)
+        .where(
+          and(
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.stepKind, requiredKind),
+            input.stepKind === 'VERIFY'
+              ? sql`${scenarioRunStep.status} <> 'SUCCEEDED'`
+              : sql`${scenarioRunStep.status} not in ('SUCCEEDED', 'FAILED', 'SKIPPED')`,
+          ),
+        )
+        .limit(1);
+      if (blocked !== undefined) return { outcome: 'NOT_READY' };
+    }
+
+    let claimed: { id: string } | undefined;
+    if (step.status === 'PENDING') {
+      [claimed] = await this.database
+        .update(scenarioRunStep)
+        .set({ status: 'RUNNING', startedAt: input.claimedAt })
+        .where(
+          and(
+            eq(scenarioRunStep.id, step.id),
+            eq(scenarioRunStep.runId, input.runId),
+            eq(scenarioRunStep.status, 'PENDING'),
+            sql`exists (
+              select 1 from ${scenarioRun}
+              where ${scenarioRun.id} = ${input.runId}
+                and ${scenarioRun.status} = ${expectedRunStatus}
+            )`,
+          ),
+        )
+        .returning({ id: scenarioRunStep.id });
+    } else if (step.status === 'RUNNING') {
+      const recoveryMs =
+        this.options.lifecycleClaimRecoveryMs ??
+        DEFAULT_LIFECYCLE_CLAIM_RECOVERY_MS;
+      const recoveryBefore = new Date(input.claimedAt.getTime() - recoveryMs);
+      if (
+        step.startedAt !== null &&
+        step.startedAt.getTime() > recoveryBefore.getTime()
+      ) {
+        return { outcome: 'IN_PROGRESS' };
+      }
+      [claimed] = await this.database
+        .update(scenarioRunStep)
+        .set({ startedAt: input.claimedAt })
+        .where(
+          and(
+            eq(scenarioRunStep.id, step.id),
+            eq(scenarioRunStep.status, 'RUNNING'),
+            step.startedAt === null
+              ? isNull(scenarioRunStep.startedAt)
+              : eq(scenarioRunStep.startedAt, step.startedAt),
+          ),
+        )
+        .returning({ id: scenarioRunStep.id });
+    }
+    if (claimed === undefined) return { outcome: 'IN_PROGRESS' };
+
+    await this.appendAuditEvent({
+      actor: input.actor,
+      action: `${input.stepKind}_STARTED`,
+      resourceType: 'scenario_run',
+      resourceId: input.runId,
+      metadataRedacted: {
+        status: 'RUNNING',
+        recovery: step.status === 'RUNNING',
+      },
+    });
+    return {
+      outcome: 'CLAIMED',
+      run: asRun(run),
+      step: asRunStep({
+        ...step,
+        status: 'RUNNING',
+        startedAt: input.claimedAt,
+      }),
+    };
+  }
+
+  async completeLifecycleStep(input: {
+    runId: string;
+    stepId: string;
+    stepKind: LifecycleStepKind;
+    succeeded: boolean;
+    responseRedacted: Record<string, unknown>;
+    errorCode: string | null;
+    actor: string;
+    finishedAt: Date;
+  }): Promise<boolean> {
+    const nextStatus = input.succeeded ? 'SUCCEEDED' : 'FAILED';
+    const [completed] = await this.database
+      .update(scenarioRunStep)
+      .set({
+        status: nextStatus,
+        finishedAt: input.finishedAt,
+        responseRedacted: input.responseRedacted,
+        errorCode: input.errorCode,
+      })
+      .where(
+        and(
+          eq(scenarioRunStep.id, input.stepId),
+          eq(scenarioRunStep.runId, input.runId),
+          eq(scenarioRunStep.stepKind, input.stepKind),
+          eq(scenarioRunStep.status, 'RUNNING'),
+        ),
+      )
+      .returning({ id: scenarioRunStep.id });
+    if (completed === undefined) return false;
+
+    await this.appendAuditEvent({
+      actor: input.actor,
+      action: `${input.stepKind}_${nextStatus}`,
+      resourceType: 'scenario_run',
+      resourceId: input.runId,
+      metadataRedacted: {
+        status: nextStatus,
+        ...input.responseRedacted,
+        ...(input.errorCode === null ? {} : { errorCode: input.errorCode }),
+      },
+    });
+    return true;
+  }
+
+  async finalizeLifecycleRun(input: {
+    runId: string;
+    actor: string;
+    finishedAt: Date;
+  }): Promise<Run['status']> {
+    const [run] = await this.database
+      .select({
+        status: scenarioRun.status,
+        fixtureSnapshot: scenarioRun.fixtureSnapshot,
+      })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, input.runId))
+      .limit(1);
+    if (run === undefined) throw new Error('Lifecycle run not found');
+    if (
+      run.status === 'CANCELLING' ||
+      run.status === 'CANCELLED' ||
+      run.status === 'SUCCEEDED' ||
+      run.status === 'FAILED' ||
+      run.status === 'PARTIAL'
+    ) {
+      return run.status;
+    }
+
+    const steps = await this.database
+      .select({
+        kind: scenarioRunStep.stepKind,
+        status: scenarioRunStep.status,
+        errorCode: scenarioRunStep.errorCode,
+      })
+      .from(scenarioRunStep)
+      .where(eq(scenarioRunStep.runId, input.runId));
+    const statuses = (kind: LifecycleStepKind | 'DISPATCH') =>
+      steps.filter((step) => step.kind === kind).map((step) => step.status);
+    const setup = statuses('SETUP');
+    const dispatch = statuses('DISPATCH');
+    const verify = statuses('VERIFY');
+    const cleanup = statuses('CLEANUP');
+    const setupFailed = setup.includes('FAILED');
+    const cleanupTerminal =
+      cleanup.length > 0 &&
+      cleanup.every((status) =>
+        ['SUCCEEDED', 'FAILED', 'SKIPPED'].includes(status),
+      );
+    const missingFixture =
+      run.fixtureSnapshot === null &&
+      steps.some(({ errorCode }) => errorCode === 'FIXTURE_SNAPSHOT_MISSING');
+
+    let nextStatus: Run['status'] | null = null;
+    if (missingFixture) {
+      await this.database
+        .update(scenarioRunStep)
+        .set({ status: 'SKIPPED', finishedAt: input.finishedAt })
+        .where(
+          and(
+            eq(scenarioRunStep.runId, input.runId),
+            inArray(scenarioRunStep.stepKind, ['SETUP', 'VERIFY', 'CLEANUP']),
+            eq(scenarioRunStep.status, 'PENDING'),
+          ),
+        );
+      nextStatus = 'FAILED';
+    } else if (setupFailed && !dispatch.includes('SUCCEEDED')) {
+      nextStatus = 'FAILED';
+    } else if (run.status === 'VERIFYING' && cleanupTerminal) {
+      nextStatus = cleanup.includes('FAILED')
+        ? 'PARTIAL'
+        : verify.includes('FAILED')
+          ? 'FAILED'
+          : dispatch.every((status) => status === 'SUCCEEDED') &&
+              verify.every((status) =>
+                ['SUCCEEDED', 'SKIPPED'].includes(status),
+              )
+            ? 'SUCCEEDED'
+            : 'PARTIAL';
+    }
+    if (nextStatus === null) return run.status;
+
+    const [updated] = await this.database
+      .update(scenarioRun)
+      .set({
+        status: nextStatus,
+        finishedAt: input.finishedAt,
+        schedulingKind: null,
+        schedulingLeaseExpiresAt: null,
+      })
+      .where(
+        and(
+          eq(scenarioRun.id, input.runId),
+          eq(scenarioRun.status, run.status),
+        ),
+      )
+      .returning({ status: scenarioRun.status });
+    if (updated === undefined) {
+      return (await this.findRun(input.runId))?.status ?? run.status;
+    }
+    await this.appendAuditEvent({
+      actor: input.actor,
+      action: 'RUN_LIFECYCLE_FINALIZED',
+      resourceType: 'scenario_run',
+      resourceId: input.runId,
+      metadataRedacted: { status: updated.status },
+    });
+    return updated.status;
   }
 
   async listDeliveryAttempts(

@@ -1,4 +1,4 @@
-import type { EventGridEnvelope } from '../contracts';
+import type { EventGridEnvelope, RenderedScenarioFixture } from '../contracts';
 
 export const runStatuses = [
   'CREATED',
@@ -45,6 +45,7 @@ export interface Run {
   requestedBy: string;
   seed: number;
   variablesRedacted: RedactedMetadata;
+  fixtureSnapshot: RenderedScenarioFixture | null;
   dryRun: boolean;
   stopOnFailure: boolean;
   expectedCallbackMin: number;
@@ -114,6 +115,22 @@ export type DispatchClaimResult =
         | 'OUT_OF_ORDER'
         | 'ATTEMPT_CONFLICT'
         | 'NOT_FOUND';
+    };
+
+export type LifecycleStepKind = Extract<
+  StepKind,
+  'SETUP' | 'VERIFY' | 'CLEANUP'
+>;
+
+export type ClaimLifecycleStepResult =
+  | { outcome: 'CLAIMED'; run: Run; step: RunStep }
+  | {
+      outcome: 'TERMINAL';
+      runStatus: RunStatus;
+      stepStatus: StepStatus;
+    }
+  | {
+      outcome: 'IN_PROGRESS' | 'NOT_READY' | 'NOT_FOUND' | 'CANCELLED';
     };
 
 export type NewRun = Omit<
@@ -336,6 +353,27 @@ export interface RunRepository {
     errorCode: string | null;
     finishedAt: Date;
   }): Promise<{ runStatus: RunStatus }>;
+  claimLifecycleStep(input: {
+    runId: string;
+    stepKind: LifecycleStepKind;
+    claimedAt: Date;
+    actor: string;
+  }): Promise<ClaimLifecycleStepResult>;
+  completeLifecycleStep(input: {
+    runId: string;
+    stepId: string;
+    stepKind: LifecycleStepKind;
+    succeeded: boolean;
+    responseRedacted: RedactedMetadata;
+    errorCode: string | null;
+    actor: string;
+    finishedAt: Date;
+  }): Promise<boolean>;
+  finalizeLifecycleRun(input: {
+    runId: string;
+    actor: string;
+    finishedAt: Date;
+  }): Promise<RunStatus>;
   listDeliveryAttempts(
     stepId: string,
     limit: number,

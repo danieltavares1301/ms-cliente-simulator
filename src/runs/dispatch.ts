@@ -6,6 +6,11 @@ import { z } from 'zod';
 import type { EventGridEnvelope } from '../contracts';
 import { restErrorResponseSchema } from '../contracts';
 import type { RunRepository } from '../db/run-repository';
+import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
+import {
+  createSalesforceLifecycleService,
+  type PostDispatchLifecycleResult,
+} from './salesforce-lifecycle';
 
 const REQUEST_BODY_LIMIT_BYTES = 16_384;
 
@@ -67,6 +72,15 @@ type DispatchHandlerDependencies = {
   repositoryFactory: () => RunRepository;
   receiverFactory: () => DispatchReceiver;
   target: DispatchTarget;
+  testDataAdapter?: SalesforceTestDataAdapter;
+  lifecycleServiceFactory?: (dependencies: {
+    repository: RunRepository;
+    adapter: SalesforceTestDataAdapter;
+    actor: string;
+    now: () => Date;
+  }) => {
+    afterDispatch(runId: string): Promise<PostDispatchLifecycleResult>;
+  };
   now?: () => Date;
   requestIdFactory?: () => string;
 };
@@ -152,6 +166,48 @@ export function createDispatchHandler(
     }
 
     const repository = dependencies.repositoryFactory();
+    const resumeLifecycle =
+      async (): Promise<PostDispatchLifecycleResult | null> => {
+        if (dependencies.environment.SALESFORCE_TEST_DATA_ENABLED !== 'true') {
+          return null;
+        }
+        if (dependencies.testDataAdapter === undefined) {
+          throw new Error('Salesforce test data adapter is not configured');
+        }
+        const factory =
+          dependencies.lifecycleServiceFactory ??
+          createSalesforceLifecycleService;
+        return factory({
+          repository,
+          adapter: dependencies.testDataAdapter,
+          actor: 'qstash-dispatch',
+          now,
+        }).afterDispatch(parsed.data.runId);
+      };
+    const lifecycleRetryResponse = (
+      lifecycle: PostDispatchLifecycleResult | null,
+    ): Response | null => {
+      if (
+        lifecycle?.outcome === 'IN_PROGRESS' ||
+        lifecycle?.outcome === 'NOT_READY'
+      ) {
+        return errorResponse(
+          409,
+          'LIFECYCLE_IN_PROGRESS',
+          'Salesforce test data lifecycle is still running',
+          { 'Retry-After': '60' },
+        );
+      }
+      if (lifecycle?.outcome === 'NOT_FOUND') {
+        return errorResponse(
+          503,
+          'LIFECYCLE_PERSISTENCE_FAILED',
+          'Salesforce test data lifecycle persistence failed',
+          { 'Retry-After': '1' },
+        );
+      }
+      return null;
+    };
     const claimedAt = now();
     let claim: Awaited<ReturnType<RunRepository['claimDispatch']>>;
     try {
@@ -169,6 +225,17 @@ export function createDispatchHandler(
     }
 
     if (claim.outcome === 'TERMINAL') {
+      try {
+        const retry = lifecycleRetryResponse(await resumeLifecycle());
+        if (retry !== null) return retry;
+      } catch {
+        return errorResponse(
+          503,
+          'LIFECYCLE_PERSISTENCE_FAILED',
+          'Salesforce test data lifecycle persistence failed',
+          { 'Retry-After': '1' },
+        );
+      }
       return Response.json(
         { accepted: true, noop: true },
         { headers: { 'Cache-Control': 'no-store' } },
@@ -244,8 +311,9 @@ export function createDispatchHandler(
       };
     }
 
+    let completion: Awaited<ReturnType<RunRepository['completeDispatch']>>;
     try {
-      await repository.completeDispatch({
+      completion = await repository.completeDispatch({
         ...parsed.data,
         requestId,
         httpStatus: result.httpStatus,
@@ -261,6 +329,20 @@ export function createDispatchHandler(
         'Dispatch result persistence failed',
         { 'Retry-After': '1' },
       );
+    }
+
+    if (completion.runStatus === 'VERIFYING') {
+      try {
+        const retry = lifecycleRetryResponse(await resumeLifecycle());
+        if (retry !== null) return retry;
+      } catch {
+        return errorResponse(
+          503,
+          'LIFECYCLE_PERSISTENCE_FAILED',
+          'Salesforce test data lifecycle persistence failed',
+          { 'Retry-After': '1' },
+        );
+      }
     }
 
     if (targetFailed) {

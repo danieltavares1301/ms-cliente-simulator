@@ -17,6 +17,7 @@ import {
   runStepsQuerySchema,
 } from '../contracts';
 import type { Run, RunRepository, RunStep } from '../db/run-repository';
+import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
 import type { Scheduler } from './scheduler';
 import { hasValidAdminAuthorization } from './auth';
 import {
@@ -56,11 +57,14 @@ type HandlerDependencies = {
   repositoryFactory: () => RunRepository;
   scheduler?: Scheduler;
   schedulerFactory?: (repository: RunRepository) => Scheduler;
+  testDataAdapter?: SalesforceTestDataAdapter;
   serviceFactory?: (dependencies: {
     repository: RunRepository;
     scheduler?: Scheduler;
     idempotencyPepper: string;
     requestedBy: string;
+    testDataEnabled?: boolean;
+    testDataAdapter?: SalesforceTestDataAdapter;
   }) => RunService;
   administrationServiceFactory?: (dependencies: {
     repository: RunRepository;
@@ -267,6 +271,9 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
           scheduler,
           idempotencyPepper: pepper,
           requestedBy,
+          testDataEnabled:
+            dependencies.environment.SALESFORCE_TEST_DATA_ENABLED === 'true',
+          testDataAdapter: dependencies.testDataAdapter,
         });
         const result = await service.createRun({
           idempotencyKey: idempotency.data,
@@ -297,6 +304,13 @@ export function createRunApiHandlers(dependencies: HandlerDependencies) {
               503,
               code,
               'Run persisted with auditable scheduling failure',
+            );
+          }
+          if (code === 'TEST_DATA_SETUP_FAILED') {
+            return errorResponse(
+              503,
+              code,
+              'Salesforce test data setup failed',
             );
           }
           if (code === 'SCENARIO_NOT_READY' || code === 'INVALID_VARIABLES') {

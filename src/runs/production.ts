@@ -3,6 +3,7 @@ import { Client } from '@upstash/qstash';
 import { parseServerEnvironment } from '../config/server-env';
 import { createRunRepository } from '../db/runtime';
 import type { RunRepository } from '../db/run-repository';
+import { productionSalesforceServices } from '../salesforce/production';
 import { createRunApiHandlers } from './handlers';
 import { QStashRunScheduler } from './qstash-scheduler';
 
@@ -27,4 +28,5 @@ export const productionRunApiHandlers = createRunApiHandlers({
   environment: process.env,
   repositoryFactory: () => createRunRepository(process.env),
   schedulerFactory: createProductionScheduler,
+  testDataAdapter: productionSalesforceServices.testDataAdapter,
 });

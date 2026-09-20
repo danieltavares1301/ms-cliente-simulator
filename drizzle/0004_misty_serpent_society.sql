@@ -1,0 +1,1 @@
+ALTER TABLE "scenario_run" ADD COLUMN "fixture_snapshot" jsonb;

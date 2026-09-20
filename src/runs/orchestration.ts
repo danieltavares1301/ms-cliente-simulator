@@ -11,16 +11,19 @@ import {
   createRequestFingerprint,
 } from '../db/idempotency';
 import type { NewRunStep, Run, RunRepository } from '../db/run-repository';
+import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
 import { scenarioCatalog } from '../scenarios/catalog';
 import { renderScenarioFixture } from '../scenarios/renderer';
 import type { Scheduler } from './scheduler';
+import { createSalesforceLifecycleService } from './salesforce-lifecycle';
 
 export type RunServiceErrorCode =
   | 'IDEMPOTENCY_CONFLICT'
   | 'INVALID_VARIABLES'
   | 'SCENARIO_NOT_READY'
   | 'SCHEDULER_NOT_CONFIGURED'
-  | 'SCHEDULING_FAILED';
+  | 'SCHEDULING_FAILED'
+  | 'TEST_DATA_SETUP_FAILED';
 
 export class RunServiceError extends Error {
   constructor(
@@ -45,6 +48,8 @@ type ServiceDependencies = {
   requestedBy: string;
   now?: () => Date;
   generateRunId?: () => string;
+  testDataEnabled?: boolean;
+  testDataAdapter?: SalesforceTestDataAdapter;
 };
 
 function isDeclaredValueValid(
@@ -112,9 +117,11 @@ function deriveSteps(
   fixture: ReturnType<typeof renderScenarioFixture>,
   dryRun: boolean,
   speed: number,
+  testDataEnabled: boolean,
 ): NewRunStep[] {
   const eventStart = Date.parse(fixture.eventStartAt);
-  const nonDispatchStatus = 'SKIPPED' as const;
+  const nonDispatchStatus =
+    testDataEnabled && !dryRun ? ('PENDING' as const) : ('SKIPPED' as const);
   const dispatchStatus = dryRun ? ('SKIPPED' as const) : ('PENDING' as const);
   let ordinal = 0;
   const setup = fixture.setup.map((instruction, index) => ({
@@ -219,6 +226,16 @@ export function createRunOrchestrationService(
           'Scheduler is not configured',
         );
       }
+      if (
+        !input.request.execution.dryRun &&
+        dependencies.testDataEnabled === true &&
+        dependencies.testDataAdapter === undefined
+      ) {
+        throw new RunServiceError(
+          'TEST_DATA_SETUP_FAILED',
+          'Salesforce test data adapter is not configured',
+        );
+      }
 
       const definition = scenarioCatalog.get(
         input.request.scenarioKey,
@@ -260,6 +277,7 @@ export function createRunOrchestrationService(
         fixture,
         input.request.execution.dryRun,
         input.request.execution.speed,
+        dependencies.testDataEnabled === true,
       );
       const createdAt = now();
       const normalizedRequest = {
@@ -284,6 +302,7 @@ export function createRunOrchestrationService(
           variablesRedacted: {
             keys: Object.keys(input.request.variables).sort(),
           },
+          fixtureSnapshot: fixture,
           dryRun: input.request.execution.dryRun,
           stopOnFailure: input.request.execution.stopOnFailure,
           expectedCallbackMin: fixture.asyncPolicy.expectedCallbacks.min,
@@ -324,6 +343,32 @@ export function createRunOrchestrationService(
           recovery: result.outcome === 'REPLAY',
         });
         if (claim.outcome === 'CLAIMED') {
+          if (
+            dependencies.testDataEnabled === true &&
+            dependencies.testDataAdapter !== undefined
+          ) {
+            const setup = await createSalesforceLifecycleService({
+              repository: dependencies.repository,
+              adapter: dependencies.testDataAdapter,
+              actor: dependencies.requestedBy,
+              now,
+            }).setup(result.run.id);
+            if (
+              setup.outcome === 'FAILED' ||
+              (setup.outcome === 'TERMINAL' && !setup.succeeded)
+            ) {
+              throw new RunServiceError(
+                'TEST_DATA_SETUP_FAILED',
+                'Salesforce test data setup failed',
+              );
+            }
+            if (setup.outcome !== 'SUCCEEDED' && setup.outcome !== 'TERMINAL') {
+              responseRun =
+                (await dependencies.repository.findRun(result.run.id)) ??
+                result.run;
+              return { outcome: result.outcome, run: responseRun };
+            }
+          }
           const persistedSteps = (
             await dependencies.repository.listSteps(result.run.id, {
               limit: 100,
