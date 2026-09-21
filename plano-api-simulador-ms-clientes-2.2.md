@@ -609,7 +609,7 @@ documentado como evidencia, nao assumido a priori.
 | O05 | PAC aprovada reentregue | — (a definir na Fase 7) | Fase 7. |
 | O06 | Intervencao manual pos-PAC | — (a definir na Fase 7) | Fase 7. |
 | O07 | Corrida Queueable vs PAC | `maquina-estado-atual-corrida` (parcial) | Fase 7. |
-| O08 | Parciais com identidade antiga (`contato-insert(IDCLI-X, PROS-X)` antes de `cliente-insert(IDCLI-Y, PROS-X)`) | `cpf-divergente-identidade-antiga` (nova chave, a criar) | Pendente de implementacao e execucao real. |
+| O08 | Parciais com identidade antiga (`contato-insert(IDCLI-X, PROS-X)` antes de `cliente-insert(IDCLI-Y, PROS-X)`) | `cpf-divergente-identidade-antiga` | Implementado e validado ao vivo contra `mrv-devDan`: os dois `contato-insert` atualizam a Account X com C/D; o `cliente-insert` final cria Y e um Lead novo de Y, ambos sem contatos. |
 | O09 | Ordem composta Clarice (caso real complementar) | — | Fora do MVP atual; requer PAC + intervencao manual combinados. |
 | O10 | Rajada concorrente Cliente/PAC | — | Fora de escopo (stress tecnico, nao e ordem funcional). |
 | O11 | Jornada sem `idCliente` antes do carimbo | `maquina-estado-sem-id-cliente` (parcial) | Fase 7. |
@@ -1624,14 +1624,10 @@ segredos ou payload bruto persistido.
     Test Data Adapter para aceitar `endereco-insert`/`endereco-update` como
     eventos de dispatch (hoje so `cliente-insert`, `cliente-update` e
     `contato-insert` sao suportados).
-  - [ ] `cpf-divergente-identidade-antiga` (novo, perfil **O08** do catalogo
-    de referencia) — `contato-insert(idcliente=IDCLI-X, PROS-X)` (identidade
-    **existente** de X, nao de Y) antes de `cliente-insert(idcliente=IDCLI-Y,
-    PROS-X)`. Diferente de O01: aqui a Account alvo do contato ja existe, o
-    que evita a suspeita de descarte por Person Account sem `LastName` —
-    precisa ser executado para confirmar se o Apex aplica os contatos em X
-    normalmente e se X permanece intacta apos o `cliente-insert` divergente
-    criar Y separadamente.
+  - [x] `cpf-divergente-identidade-antiga` — perfil **O08** validado ao vivo:
+    `contato-insert(idcliente=IDCLI-X, PROS-X)` atualiza a propria Account X
+    com C/D; o `cliente-insert(idcliente=IDCLI-Y, PROS-X)` posterior cria Y e
+    um Lead novo de Y, mas nao transfere os contatos para Y.
 - [x] Outcomes esperados implementados como assertions allowlisted.
 
 **Verificacao:** testes de fixtures e execucao controlada com assertions na `mrv-devDan`.
