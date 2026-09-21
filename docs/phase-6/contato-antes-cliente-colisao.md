@@ -215,8 +215,8 @@ orquestrador, para inspecionar o resultado com precisão antes do cleanup):
 
 ## Limitações conhecidas
 
-- `endereco-insert` ainda não é suportado como step renderizado; fica para um
-  incremento futuro;
+- este incremento não validou `endereco-insert`; o suporte ao step renderizado
+  e a validação ao vivo de endereço foram concluídos depois no incremento O03;
 - o cenário continua verificando apenas os campos de negócio relevantes para a
   regressão atual;
 - o callback assíncrono permanece esperado, mas sua ausência continua sendo

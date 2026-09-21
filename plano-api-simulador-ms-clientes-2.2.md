@@ -604,7 +604,7 @@ documentado como evidencia, nao assumido a priori.
 |---|---|---|---|
 | O01 | Parciais antes (`contato-insert` com `IDCLI-Y` ainda inexistente, `PROS-X`) | `cpf-divergente-contato-primeiro` | Implementado e validado ao vivo contra `mrv-devDan`: os dois `contato-insert` retornam HTTP 200, mas sao descartados sem DML; o `cliente-insert` final cria Account/Lead Y sem contatos e preserva X intacta. |
 | O02 | Cliente antes (contato chega durante/apos o Queueable) | `contato-antes-cliente-colisao` (Fase 6, incremento 3) | Implementado e validado ao vivo contra `mrv-devDan` (9/9 checks, `run SUCCEEDED`). |
-| O03 | Mesmo `eventTime` | `ordem-invertida-completa` (variante de mesmo timestamp) | Pendente (Tarefa 6.3). |
+| O03 | Mesmo `eventTime` | `ordem-mesmo-eventtime-cliente-primeiro`, `ordem-mesmo-eventtime-contato-primeiro`, `ordem-mesmo-eventtime-endereco-primeiro` | Implementado e validado ao vivo contra `mrv-devDan`: as 3 permutacoes fisicas retornaram HTTP 200 em todos os dispatches e convergiram para o mesmo padrao final na Account (nome/CPF do `cliente-insert`, e-mail do `contato-email`, celular do `contato-celular`, logradouro do `endereco-insert`), sem depender da ordem de entrega. |
 | O04 | PAC mutavel | `pac-atrasada-nao-restaura-prospect` (parcial) | Fase 7 (depende de `/PAC`). |
 | O05 | PAC aprovada reentregue | — (a definir na Fase 7) | Fase 7. |
 | O06 | Intervencao manual pos-PAC | — (a definir na Fase 7) | Fase 7. |
@@ -1671,16 +1671,19 @@ segredos ou payload bruto persistido.
 
 **Criterios de aceite:**
 
-- [ ] Ordem invertida, duplicidade e obsolescencia cobertas:
+- [x] Ordem invertida, duplicidade e obsolescencia cobertas:
   - [x] `evento-duplicado` — perfil **O14** (reentrega generica): reenviar o
     mesmo envelope (`id`, `eventTime`, payload identicos) e confirmar
     idempotencia (nenhuma duplicidade, nenhum vinculo novo).
   - [x] `evento-obsoleto` — `dataalteracao` anterior ao valor ja persistido;
     confirmar que o evento nao sobrescreve o estado mais novo.
-  - [ ] `ordem-invertida-completa` — perfil **O03** (mesmo `eventTime`):
-    publicar `cliente-*`, `contato-*` (email/celular) e `endereco-*` com o
-    mesmo `eventTime` em ao menos 3 permutacoes de ordem fisica distintas,
-    confirmando que o resultado final nao depende da ordem de chegada nem de
+  - [x] `ordem-mesmo-eventtime-cliente-primeiro`,
+    `ordem-mesmo-eventtime-contato-primeiro`,
+    `ordem-mesmo-eventtime-endereco-primeiro` — perfil **O03** (mesmo
+    `eventTime`): publicados `cliente-*`, `contato-*` (email/celular) e
+    `endereco-*` com o mesmo `eventTime` em 3 permutacoes de ordem fisica
+    distintas; as 3 execucoes reais em `mrv-devDan` convergiram para o mesmo
+    padrao final na Account, sem dependencia observada de ordem de chegada ou
     `CreatedDate`.
 - [ ] Falhas GraphQL cobertas: `graphql-erro-500`, `graphql-resposta-invalida`,
   `graphql-timeout` (ja modeladas na secao 11.5, pendentes de implementacao).
