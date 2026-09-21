@@ -540,6 +540,67 @@ describe('run orchestration service', () => {
     ).toStrictEqual(['SUCCEEDED', 'PENDING', 'PENDING']);
   });
 
+  it('derives exactly one SETUP and one CLEANUP step regardless of how many setup/cleanup instructions the fixture declares', async () => {
+    // Regression: cliente-insert-prospect-divergente renders 3 setup
+    // instructions and 2 cleanup instructions. claimLifecycleStep only ever
+    // claims the lowest-ordinal row of a given stepKind, so deriving one row
+    // per instruction left every row after the first permanently PENDING,
+    // which then blocked the DISPATCH step forever via the OUT_OF_ORDER
+    // guard (found via a real run against mrv-devDan in Phase 6).
+    const repository = new MemoryRunRepository();
+    const calls: string[] = [];
+    const testDataAdapter = {
+      setup: vi.fn().mockImplementation(async () => {
+        calls.push('setup');
+        return {
+          status: 'CREATED',
+          createdCount: 1,
+          replayedCount: 0,
+          recordIds: ['001000000000001AAA'],
+        };
+      }),
+      verify: vi.fn(),
+      cleanup: vi.fn().mockResolvedValue({
+        status: 'DELETED',
+        deletedCount: 2,
+      }),
+    };
+    const scheduler = {
+      schedule: vi.fn().mockImplementation(async () => {
+        calls.push('schedule');
+      }),
+      cancelPending: vi.fn(),
+    };
+
+    const result = await createService(repository, scheduler, {
+      testDataEnabled: true,
+      dispatchMode: 'SALESFORCE',
+      testDataAdapter,
+    }).createRun({
+      idempotencyKey: '223e4567-e89b-12d3-a456-426614174000',
+      request: {
+        scenarioKey: 'cliente-insert-prospect-divergente',
+        scenarioVersion: 1,
+        variables: {
+          seed: 'TC-PROSPECT-DIVERGENTE',
+          eventStartAt: '2026-08-21T10:00:00Z',
+        },
+        execution: { dryRun: false, speed: 1, stopOnFailure: true },
+      },
+    });
+
+    expect(calls).toStrictEqual(['setup', 'schedule']);
+    expect(result.run.status).not.toBe('FAILED');
+    const stepsByKind = repository.steps
+      .get(result.run.id)!
+      .reduce<Record<string, number>>((counts, step) => {
+        counts[step.stepKind] = (counts[step.stepKind] ?? 0) + 1;
+        return counts;
+      }, {});
+    expect(stepsByKind.SETUP).toBe(1);
+    expect(stepsByKind.CLEANUP).toBe(1);
+  });
+
   it('does not publish QStash when Salesforce setup fails', async () => {
     const repository = new MemoryRunRepository();
     const scheduler = {

@@ -127,18 +127,27 @@ function deriveSteps(
     testDataEnabled && !dryRun ? ('PENDING' as const) : ('SKIPPED' as const);
   const dispatchStatus = dryRun ? ('SKIPPED' as const) : ('PENDING' as const);
   let ordinal = 0;
-  const setup = fixture.setup.map((instruction, index) => ({
-    stepKey: `setup-${index + 1}`,
-    ordinal: ordinal++,
-    target: 'ACCOUNT',
-    status: nonDispatchStatus,
-    requestRedacted: {
-      operation: instruction.operation,
+  // The Salesforce test data adapter processes every fixture.setup
+  // instruction atomically in a single adapter.setup() call, so a single
+  // "setup" lifecycle step is claimed/completed regardless of how many
+  // setup instructions the fixture declares. Deriving one row per
+  // instruction here would leave every row after the first permanently
+  // PENDING (only the lowest-ordinal row of a given stepKind is ever
+  // claimed), which blocks all later steps via the OUT_OF_ORDER guard.
+  const setup: NewRunStep[] = [
+    {
+      stepKey: 'setup-1',
+      ordinal: ordinal++,
       target: 'ACCOUNT',
+      status: nonDispatchStatus,
+      requestRedacted: {
+        operations: fixture.setup.map(({ operation }) => operation),
+        target: 'ACCOUNT',
+      },
+      responseRedacted: {},
+      stepKind: 'SETUP' as const,
     },
-    responseRedacted: {},
-    stepKind: 'SETUP' as const,
-  }));
+  ];
   const dispatch = fixture.steps.map((step) => ({
     stepKey: step.key,
     ordinal: ordinal++,
@@ -166,18 +175,25 @@ function deriveSteps(
     responseRedacted: {},
     stepKind: 'VERIFY' as const,
   }));
-  const cleanup = fixture.cleanup.map((instruction, index) => ({
-    stepKey: `cleanup-${index + 1}`,
-    ordinal: ordinal++,
-    target: instruction.target,
-    status: nonDispatchStatus,
-    requestRedacted: {
-      operation: instruction.operation,
-      target: instruction.target,
+  // Same reasoning as setup above: adapter.cleanup() processes every
+  // fixture.cleanup instruction atomically in a single call, so it must be
+  // represented as a single lifecycle step regardless of instruction count.
+  const cleanup: NewRunStep[] = [
+    {
+      stepKey: 'cleanup-1',
+      ordinal: ordinal++,
+      target: fixture.cleanup[0]!.target,
+      status: nonDispatchStatus,
+      requestRedacted: {
+        operations: fixture.cleanup.map(({ operation, target }) => ({
+          operation,
+          target,
+        })),
+      },
+      responseRedacted: {},
+      stepKind: 'CLEANUP' as const,
     },
-    responseRedacted: {},
-    stepKind: 'CLEANUP' as const,
-  }));
+  ];
   return [...setup, ...dispatch, ...verify, ...cleanup];
 }
 
