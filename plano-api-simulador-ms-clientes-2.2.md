@@ -1699,16 +1699,53 @@ segredos ou payload bruto persistido.
 
 ### Checkpoint 6: MVP
 
-- [ ] Catalogo core completo.
-- [ ] Account, Lead e Proponente__c validados sem dependencia de staging.
-- [ ] Celular/e-mail efetivos do Proponente__c alimentam a criacao do Lead quando esperado.
-- [ ] `Proponente__c.IdProponente__c` corresponde ao Guid do Lead final.
-- [ ] Opportunity e PropostaAnaliseCredito__c sao provisionados e removidos apenas como scaffolding.
-- [ ] Setup, verificacao e cleanup automatizados por REST/Composite allowlisted.
-- [ ] Runs aguardam Queueable/callback antes das assertions finais.
-- [ ] Testes automatizados, build e auditoria verdes.
-- [ ] Runbook operacional revisado.
-- [ ] Aprovacao do QA para uso controlado.
+- [x] Catalogo core completo (4 basicos + 13 EXTENDED cobrindo O01/O02/O03/O08/
+  O10/O14, colisao de contato/Regra 6.6, falhas GraphQL e echo de prospect —
+  17 cenarios publicados e validados ao vivo contra `mrv-devDan`).
+- [x] Account e Lead validados sem dependencia de staging (setup/verify/cleanup
+  automatizados, executados repetidamente contra `mrv-devDan` real).
+- [ ] **Proponente__c nao foi implementado no MVP** — decisao de escopo tomada
+  implicitamente durante a execucao da Fase 6: nenhum cenario criou/consultou
+  `Proponente__c`, porque `insertLeadQueueable` usa Proponente__c apenas como
+  fonte OPCIONAL de contatos aprovados (com fallback automatico para os
+  campos da propria Account quando `Proponente__c` nao existe — confirmado em
+  `insertLeadQueueable.cls`). Todos os cenarios de Regra 6.6/colisao desta
+  fase exercitaram o caminho de fallback (Account), nao o caminho primario
+  via `Proponente__c`. Isso diverge da secao 4.1 original (que previa
+  Proponente__c dentro do MVP). Pendente de decisao explicita: manter
+  deferido para a Fase 7 (onde `Proponente__c` naturalmente aparece via PAC)
+  ou implementar agora como incremento adicional da Fase 6.
+- [ ] Celular/e-mail efetivos do Proponente__c e sincronizacao do
+  `IdProponente__c` — nao aplicavel sem o item acima.
+- [ ] Opportunity e PropostaAnaliseCredito__c como scaffolding — nao
+  implementado (mesma decisao de escopo acima).
+- [x] Setup, verificacao e cleanup automatizados por REST/Composite allowlisted
+  (Account e Lead).
+- [x] Runs aguardam Queueable/callback antes das assertions finais
+  (`WAITING_ASYNC`/`VERIFYING`, validado ao vivo em multiplos cenarios).
+- [x] Testes automatizados, build e auditoria verdes (534/534 testes, 38
+  arquivos; `npm run build` limpo; 17 fixtures validadas; org `mrv-devDan`
+  sem registros orfaos confirmados por consulta direta).
+- [x] Runbook operacional revisado (secao 29 e generico o suficiente para
+  cobrir os cenarios novos; nenhuma alteracao estrutural necessaria).
+- [ ] Aprovacao do QA para uso controlado — pendente de decisao humana, fora
+  do escopo de codigo.
+
+**Achado adicional (governanca de acesso, fora do codigo do simulador):** o
+Permission Set `AcessoDeAPI`
+(`force-app/main/default/permissionsets/AcessoDeAPI.permissionset-meta.xml`,
+repositorio Salesforce) concede CRUD apenas a `Account`/`Contact`, sem
+nenhuma permissao de objeto/campo para `Lead` — apesar de o simulador criar,
+consultar e apagar `Lead` extensivamente desde o incremento 1 da Fase 6. As
+execucoes reais funcionaram porque o usuario de API por tras de
+`SALESFORCE_CLIENT_ID` aparentemente tem acesso a `Lead` por outro caminho
+(perfil ou outro Permission Set), nao documentado neste Permission Set
+especifico. Alem disso, o arquivo local desse Permission Set nunca foi
+commitado no repositorio Salesforce (`git status` mostra `??`, apesar de já
+ter sido implantado em `mrv-devDan` em fase anterior) — ha tambem outros
+arquivos nao relacionados a este trabalho (`ClienteService-conflito.cls`,
+`CHANGELOG_CONTESTACAO_PAC_2026-07-31.md`, `coverage/`, `scripts/apex/`) no
+mesmo `git status`, que NAO pertencem a este projeto e nao devem ser tocados.
 
 ### Fase 7: Extensao PAC, Maquina de Estado e Opportunity
 
