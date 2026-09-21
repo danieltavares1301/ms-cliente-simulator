@@ -903,7 +903,7 @@ export const basicScenarioDefinitions = [
     version: 1,
     name: 'Cliente insert com echo de prospect igual ao cliente',
     description:
-      'Publica um cliente-insert cujo idprospectsalesforce replica o idcliente para comprovar que o Apex cria a Person Account, mas n?o carimba o IdProspectSalesforce__c com esse echo inv?lido.',
+      'Publica um cliente-insert cujo identificador de prospect replica o identificador do cliente para comprovar que o Apex cria a Person Account, mas n?o carimba esse eco inv?lido no campo final de prospect.',
     scope: 'EXTENDED',
     tags: ['regression', 'prospect', 'echo', 'id-cliente'],
     availability: 'READY',
@@ -952,7 +952,7 @@ export const basicScenarioDefinitions = [
         kind: 'BUSINESS_RESULT',
         result: 'PERSON_ACCOUNT_CREATED',
         description:
-          'A Person Account nasce com os dados do evento, mas o Apex n?o deve gravar IdProspectSalesforce__c quando o MS ecoa o mesmo valor do Id Cliente.',
+          'A Person Account nasce com os dados do evento, mas o Apex n?o deve gravar o valor ecoado quando o identificador de prospect repete o Id Cliente.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
           'ACCOUNT_IS_PERSON_ACCOUNT',

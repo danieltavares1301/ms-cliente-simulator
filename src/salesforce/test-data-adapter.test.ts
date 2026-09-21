@@ -1253,6 +1253,23 @@ describe('Salesforce test data adapter verify', () => {
     expect(client.query).not.toHaveBeenCalled();
   });
 
+  it('accepts fixtures where idProspectSalesforce echoes the same idCliente', async () => {
+    const rendered = idProspectIgualIdClienteFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({ totalSize: 0, done: true, records: [] });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        idProspectIgualIdClienteInput(rendered),
+      ),
+    ).resolves.toMatchObject({
+      status: 'READY',
+      createdCount: 0,
+      replayedCount: 0,
+      recordIds: [],
+    });
+  });
+
   it('rejects unknown fixture operations and targets before querying', async () => {
     const candidate = JSON.parse(JSON.stringify(input())) as Record<
       string,
@@ -1636,6 +1653,56 @@ describe('Salesforce test data adapter verify', () => {
         { check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
         { check: 'LEAD_EMAIL_EXCLUDED', passed: true },
         { check: 'LEAD_MOBILE_EXCLUDED', passed: true },
+      ]),
+    );
+  });
+
+  it('passes ACCOUNT_PROSPECT_ID_NOT_STAMPED when the Account keeps the field blank', async () => {
+    const rendered = idProspectIgualIdClienteFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          IdProspectSalesforce__c: null,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(idProspectIgualIdClienteInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_PROSPECT_ID_NOT_STAMPED', passed: true },
+      ]),
+    );
+  });
+
+  it('fails ACCOUNT_PROSPECT_ID_NOT_STAMPED when the Account persists the echoed prospect id', async () => {
+    const rendered = idProspectIgualIdClienteFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          IdProspectSalesforce__c: rendered.identifiers.accountIdCliente,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(idProspectIgualIdClienteInput(rendered));
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_PROSPECT_ID_NOT_STAMPED', passed: false },
       ]),
     );
   });

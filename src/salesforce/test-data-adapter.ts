@@ -237,6 +237,10 @@ const adapterInputSchema = z
           (!requiresClientFields &&
             fixture.identifiers.controlAccountIdCliente !== undefined &&
             event.idcliente === fixture.identifiers.controlAccountIdCliente));
+      const allowsEchoedClientId =
+        requiresClientFields &&
+        event !== undefined &&
+        event.idprospectsalesforce === fixture.identifiers.accountIdCliente;
       if (
         event === undefined ||
         !usesAllowedIdentity ||
@@ -262,7 +266,8 @@ const adapterInputSchema = z
           event.idprospectsalesforce !==
             fixture.identifiers.accountIdProspect &&
           event.idprospectsalesforce !==
-            fixture.identifiers.controlAccountIdProspect)
+            fixture.identifiers.controlAccountIdProspect &&
+          !allowsEchoedClientId)
       ) {
         context.addIssue({
           code: 'custom',
