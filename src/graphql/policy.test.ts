@@ -70,6 +70,10 @@ describe('createGraphqlPolicyResponse', () => {
     }
   });
 
+  it('documents the delayed-response cap used by timeout scenarios', () => {
+    expect(MAX_DELAYED_RESPONSE_MS).toBe(8_000);
+  });
+
   it('caps delayed responses below the Apex timeout and Vercel budget', async () => {
     vi.useFakeTimers();
 

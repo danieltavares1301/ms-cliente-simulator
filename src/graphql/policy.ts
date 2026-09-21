@@ -10,7 +10,7 @@ import {
 
 export { DEFAULT_DELAYED_RESPONSE_MS, DEFAULT_GRAPHQL_RESPONSE_POLICY };
 
-export const MAX_DELAYED_RESPONSE_MS = 4_000;
+export const MAX_DELAYED_RESPONSE_MS = 8_000;
 
 type GraphqlPolicyResult = {
   response: Response;
