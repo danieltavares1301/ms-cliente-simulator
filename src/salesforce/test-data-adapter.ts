@@ -514,6 +514,26 @@ function accountLookupQuery(
   );
 }
 
+function sameInstant(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return a === b;
+  }
+  // Salesforce echoes datetime fields with a numeric UTC offset (e.g.
+  // "...+0000") instead of the "...Z" suffix we send when rendering
+  // fixtures. Comparing the parsed instant (instead of the raw string)
+  // avoids false SETUP_CONFLICT results on replay/retry of an already
+  // created Account.
+  const parsedA = Date.parse(a);
+  const parsedB = Date.parse(b);
+  if (Number.isNaN(parsedA) || Number.isNaN(parsedB)) {
+    return a === b;
+  }
+  return parsedA === parsedB;
+}
+
 function normalizePhoneDigits(value: string | null | undefined) {
   if (value === undefined || value === null) {
     return undefined;
@@ -764,7 +784,7 @@ export function createSalesforceTestDataAdapter(
           existing.CPF__pc === account.cpf &&
           existing.LastName === account.name &&
           existing.IsPersonAccount &&
-          existing.DataAlteracaoEvento__c === account.dataAlteracao;
+          sameInstant(existing.DataAlteracaoEvento__c, account.dataAlteracao);
 
         if (matchesFixture) {
           replayedCount += 1;

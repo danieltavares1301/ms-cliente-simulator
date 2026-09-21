@@ -424,6 +424,43 @@ describe('Salesforce test data adapter setup', () => {
     expect(client.composite).not.toHaveBeenCalled();
   });
 
+  it('returns REPLAY when Salesforce echoes DataAlteracaoEvento__c with a numeric offset instead of Z', async () => {
+    // Regression: real Salesforce REST responses format datetimes as
+    // "...+0000" instead of the "...Z" suffix we send, which previously broke
+    // the raw string comparison and produced a false SETUP_CONFLICT on any
+    // retry/replay of an already-created Account (found via a real run against
+    // mrv-devDan in Phase 6).
+    const rendered = fixture();
+    const setupAccount = createSetup(rendered).account;
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        {
+          Id: accountId,
+          Id__c: setupAccount.idCliente,
+          IdProspectSalesforce__c: setupAccount.idProspect,
+          CPF__pc: setupAccount.cpf,
+          LastName: setupAccount.name,
+          IsPersonAccount: true,
+          DataAlteracaoEvento__c: setupAccount.dataAlteracao.replace(
+            'Z',
+            '+0000',
+          ),
+        },
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).setup(input());
+
+    expect(result.status).toBe('REPLAY');
+    expect(result.recordIds).toStrictEqual([accountId]);
+    expect(client.composite).not.toHaveBeenCalled();
+  });
+
   it('fails with SETUP_CONFLICT without mutating an incompatible Account', async () => {
     const client = restClient();
     client.query.mockResolvedValue({
