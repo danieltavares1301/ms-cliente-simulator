@@ -24,7 +24,7 @@
     "db:migrate:check": "drizzle-kit check",
     "sanitize:export": "node scripts/sanitize-export.ts",
     "validate:fixtures": "node scripts/validate-fixtures.ts",
-    "stress:o10": "node scripts/run-stress-o10-concurrent-cliente-update.cjs"
+    "stress:o10": "node scripts/run-stress-o10-concurrent-events.cjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
