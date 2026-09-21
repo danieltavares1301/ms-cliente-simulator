@@ -587,6 +587,46 @@ Os cenarios desta secao incluem Proponente__c no MVP, porque `NotificacaoCliente
 | `maquina-estado-obsoleto-sem-cliente` | Evento antigo nao resolve cliente | Responde sucesso sem fila manual. |
 | `maquina-estado-atual-corrida` | Evento atual chega antes do cliente | Falha para permitir reentrega legitima. |
 
+### 11.7 Rastreamento com o catalogo de ordens de eventos (referencia)
+
+O arquivo `catalogo-ordens-eventos-ms-cliente-pos-pac.md` (skill
+`salesforce-unificacao-clientes`) descreve 15 perfis formais de ordem de
+eventos (`O01`-`O15`) observados ou inferidos do comportamento real do MS
+Cliente/Apex. Esta tabela mantém o rastreamento vivo entre esses perfis e as
+chaves de cenario deste plano. **Principio de execucao:** nenhum perfil deve
+ser descartado do plano por analise estatica do codigo Apex antecipando o
+resultado. O simulador existe para publicar a ordem de eventos real e deixar
+o Apex real (`mrv-devDan`) reagir; o resultado observado (mesmo que seja "o
+evento e descartado sem nenhuma escrita") deve ser executado, capturado e
+documentado como evidencia, nao assumido a priori.
+
+| Perfil | Nome | Chave de cenario (planejada) | Status |
+|---|---|---|---|
+| O01 | Parciais antes (`contato-insert` com `IDCLI-Y` ainda inexistente, `PROS-X`) | `cpf-divergente-contato-primeiro` | Pendente de execucao real contra `mrv-devDan`; hipotese registrada no plano ("evento parcial e descartado") ainda nao confirmada por execucao. |
+| O02 | Cliente antes (contato chega durante/apos o Queueable) | `contato-antes-cliente-colisao` (Fase 6, incremento 3) | Implementado e validado ao vivo contra `mrv-devDan` (9/9 checks, `run SUCCEEDED`). |
+| O03 | Mesmo `eventTime` | `ordem-invertida-completa` (variante de mesmo timestamp) | Pendente (Tarefa 6.3). |
+| O04 | PAC mutavel | `pac-atrasada-nao-restaura-prospect` (parcial) | Fase 7 (depende de `/PAC`). |
+| O05 | PAC aprovada reentregue | — (a definir na Fase 7) | Fase 7. |
+| O06 | Intervencao manual pos-PAC | — (a definir na Fase 7) | Fase 7. |
+| O07 | Corrida Queueable vs PAC | `maquina-estado-atual-corrida` (parcial) | Fase 7. |
+| O08 | Parciais com identidade antiga (`contato-insert(IDCLI-X, PROS-X)` antes de `cliente-insert(IDCLI-Y, PROS-X)`) | `cpf-divergente-identidade-antiga` (nova chave, a criar) | Pendente de implementacao e execucao real. |
+| O09 | Ordem composta Clarice (caso real complementar) | — | Fora do MVP atual; requer PAC + intervencao manual combinados. |
+| O10 | Rajada concorrente Cliente/PAC | — | Fora de escopo (stress tecnico, nao e ordem funcional). |
+| O11 | Jornada sem `idCliente` antes do carimbo | `maquina-estado-sem-id-cliente` (parcial) | Fase 7. |
+| O12 | Contencao da Account Y apos insert | — | Avancado; exige worker de lock concorrente dedicado. Nao planejado ainda. |
+| O13 | Evento tardio do MS Cliente apos PAC aprovada | — | Fase 7. |
+| O14 | Reentrega generica do mesmo evento | `evento-duplicado` | Pendente (Tarefa 6.3). |
+| O15 | Ordem temporal invertida por fuso | — (a definir) | Baixa prioridade; nao planejado ainda. |
+
+**Observacao sobre O01/O08:** ambos exigem publicar `contato-insert`/
+`endereco-insert` como eventos de dispatch reais contra a org (ja suportado
+desde o incremento 3 da Fase 6 para `contato-insert`; `endereco-insert` ainda
+precisa do mesmo suporte de contrato/step). A diferenca entre eles esta
+apenas na identidade usada no payload (`IDCLI-Y` inexistente em O01 vs
+`IDCLI-X` existente em O08) — ambas devem ser implementadas e executadas
+contra `mrv-devDan` para documentar o comportamento real observado do Apex,
+nao inferido.
+
 ## 12. Modelo de dados
 
 ### 12.1 `scenario_run`
@@ -1570,9 +1610,31 @@ segredos ou payload bruto persistido.
 
 **Criterios de aceite:**
 
-- [ ] Cenarios dos ramos A e B disponiveis.
-- [ ] Contato/endereco primeiro disponiveis.
-- [ ] Outcomes esperados implementados como assertions allowlisted.
+- [x] Cenarios dos ramos A e B disponiveis (`cliente-insert-prospect-divergente`).
+- [ ] Contato/endereco primeiro disponiveis:
+  - [x] `contato-antes-cliente-colisao` — perfil real O02 (cliente antes,
+    contato depois); validado ao vivo contra `mrv-devDan`.
+  - [ ] `cpf-divergente-contato-primeiro` — perfil O01 genuino (`contato-insert`
+    com `IDCLI-Y` ainda inexistente, `PROS-X`). **Executar contra `mrv-devDan`
+    e documentar o resultado real observado, sem assumir o comportamento a
+    priori** — a hipotese registrada nesta secao ("evento parcial e
+    descartado") deve ser confirmada ou refutada por execucao real, nao por
+    leitura estatica do Apex.
+  - [ ] `cpf-divergente-endereco-primeiro` — mesma logica de
+    `cpf-divergente-contato-primeiro`, usando `endereco-insert`. Requer
+    estender o contrato de step renderizado (`renderedFixtureStepSchema`) e o
+    Test Data Adapter para aceitar `endereco-insert`/`endereco-update` como
+    eventos de dispatch (hoje so `cliente-insert`, `cliente-update` e
+    `contato-insert` sao suportados).
+  - [ ] `cpf-divergente-identidade-antiga` (novo, perfil **O08** do catalogo
+    de referencia) — `contato-insert(idcliente=IDCLI-X, PROS-X)` (identidade
+    **existente** de X, nao de Y) antes de `cliente-insert(idcliente=IDCLI-Y,
+    PROS-X)`. Diferente de O01: aqui a Account alvo do contato ja existe, o
+    que evita a suspeita de descarte por Person Account sem `LastName` —
+    precisa ser executado para confirmar se o Apex aplica os contatos em X
+    normalmente e se X permanece intacta apos o `cliente-insert` divergente
+    criar Y separadamente.
+- [x] Outcomes esperados implementados como assertions allowlisted.
 
 **Verificacao:** testes de fixtures e execucao controlada com assertions na `mrv-devDan`.
 
@@ -1584,10 +1646,10 @@ segredos ou payload bruto persistido.
 
 **Criterios de aceite:**
 
-- [ ] CPF forte, Caso C e fallback cobertos.
-- [ ] Colisoes de contato cobertas.
+- [x] CPF forte, Caso C e fallback cobertos (via `contato-antes-cliente-colisao`).
+- [x] Colisoes de contato cobertas (`LEAD_EMAIL_EXCLUDED`/`LEAD_MOBILE_EQUALS_EXPECTED`).
 - [ ] Lead sem Guid coberto.
-- [ ] Celular/e-mail efetivos do Proponente__c e sincronizacao do `IdProponente__c` cobertos.
+- [ ] Celular/e-mail efetivos do Proponente__c e sincronizacao do `IdProponente__c` cobertos (depende de Fase 7 — Proponente__c/PAC).
 
 **Verificacao:** testes parametrizados, assertions Salesforce e comparacao com asserts Apex existentes.
 
@@ -1599,9 +1661,20 @@ segredos ou payload bruto persistido.
 
 **Criterios de aceite:**
 
-- [ ] Ordem invertida, duplicidade e obsolescencia cobertas.
-- [ ] Falhas GraphQL cobertas.
-- [ ] Echo IdProspect igual IdCliente coberto.
+- [ ] Ordem invertida, duplicidade e obsolescencia cobertas:
+  - [ ] `evento-duplicado` — perfil **O14** (reentrega generica): reenviar o
+    mesmo envelope (`id`, `eventTime`, payload identicos) e confirmar
+    idempotencia (nenhuma duplicidade, nenhum vinculo novo).
+  - [ ] `evento-obsoleto` — `dataalteracao` anterior ao valor ja persistido;
+    confirmar que o evento nao sobrescreve o estado mais novo.
+  - [ ] `ordem-invertida-completa` — perfil **O03** (mesmo `eventTime`):
+    publicar `cliente-*`, `contato-*` (email/celular) e `endereco-*` com o
+    mesmo `eventTime` em ao menos 3 permutacoes de ordem fisica distintas,
+    confirmando que o resultado final nao depende da ordem de chegada nem de
+    `CreatedDate`.
+- [ ] Falhas GraphQL cobertas: `graphql-erro-500`, `graphql-resposta-invalida`,
+  `graphql-timeout` (ja modeladas na secao 11.5, pendentes de implementacao).
+- [ ] Echo IdProspect igual IdCliente coberto (`id-prospect-igual-id-cliente`).
 - [ ] Mesma seed em runs diferentes mantem valores logicos repetiveis e IDs persistidos isolados.
 
 **Verificacao:** execucoes repetidas com mesma seed produzem a mesma agenda sem reutilizar registros persistidos de outro `runId`.
