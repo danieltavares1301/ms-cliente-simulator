@@ -107,16 +107,59 @@ Configuração original relevante da Named Credential compartilhada:
 - **principalType:** `NamedUser`
 - **username / client_id:** preservado e **inalterado**
 
-Neste fluxo, **somente o endpoint é alterado** para apontar ao simulador.
-Nenhuma outra configuração da Named Credential precisa ser mexida.
+### Efeito colateral real encontrado durante a aplicação
+
+O PATCH via Tooling API no campo composto `Metadata` é **substituição completa**,
+não atualização parcial. Como o valor de `password` nunca é exposto por
+nenhuma consulta (mascarado por segurança), o primeiro PATCH foi enviado sem
+esse campo — e isso **zerou o `client_secret` real** armazenado na
+`ServicoClientes`. O sintoma foi o erro:
+
+```
+You don't have permission to view this data. Ask your administrator to set
+up authentication for the external data source.
+```
+
+Como o endpoint já está redirecionado ao simulador (que ignora completamente
+`client_id`/`client_secret` recebidos), a correção aplicada foi preencher o
+campo `password` com um **valor placeholder não sensível**
+(`simulador-dev-placeholder-nao-e-segredo-real`), apenas para satisfazer a
+exigência do Salesforce de que uma Named Credential do tipo `Password` tenha
+uma senha não vazia. Esse valor nunca é validado por ninguém.
+
+**Importante para rollback:** o `client_secret` real do Azure AD para essa
+credencial **foi perdido** neste processo. Reverter apenas o `endpoint` para
+`https://identity.mrv.com.br/connect/token` **não é suficiente** para restaurar
+o funcionamento real — será necessário também reconfigurar o `client_secret`
+verdadeiro (obtido no registro do aplicativo no Azure AD/Azure Portal) antes de
+qualquer teste real de Boletos, Contestações, Cupons, Documentos PAC, Lead
+GraphQL ou qualquer uma das ~22 integrações listadas acima.
+
+### Validação end-to-end confirmada (2026-09-21)
+
+Uma chamada isolada via Execute Anonymous (`MSClienteService.atualizarCliente`
+com uma Account sintética em memória, sem gravação em banco) confirmou o ciclo
+completo funcionando na `mrv-devDan`:
+
+```
+LogIntegracao__c EventType__c=Token                          Status2__c=success
+LogIntegracao__c EventType__c=MicroServicoCliente_ATUALIZAR_CLIENTE  Status2__c=success
+```
+
+O simulador emitiu o token fake (`Token-size: 64`, compatível com
+`GRAPHQL_CALLBACK_SHARED_SECRET`) e validou esse mesmo token no callback
+GraphQL usando o modo `SHARED_SECRET` (forte), confirmando que o ciclo
+token → callback está corretamente encadeado.
 
 ### Como reverter
 
-Para rollback, basta restaurar o `endpoint` original:
+Para rollback completo:
 
-`https://identity.mrv.com.br/connect/token`
-
-Nenhuma outra propriedade precisa ser revertida.
+1. Restaurar o `endpoint` original: `https://identity.mrv.com.br/connect/token`.
+2. Reconfigurar o `client_secret` real (não recuperável a partir do estado
+   atual; precisa ser obtido novamente na origem/Azure AD).
+3. Confirmar `username`/`client_id` (`6fbd5c46-4343-4c57-834c-d8cd60a12ac5`),
+   que permaneceu inalterado durante todo o processo.
 
 ## Escopo restrito à org pessoal
 
