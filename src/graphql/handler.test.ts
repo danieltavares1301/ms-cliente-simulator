@@ -316,4 +316,86 @@ describe('createGraphqlCallbackHandler', () => {
       JSON.stringify(recordGraphqlCallback.mock.calls[1]?.[0]),
     ).not.toContain('nomeCompleto');
   });
+
+  it('resumes verification when the callback advances the run to VERIFYING', async () => {
+    const run = runWithPolicy('SUCCESS_200');
+    const afterDispatch = vi.fn().mockResolvedValue({
+      outcome: 'COMPLETED',
+      status: 'SUCCEEDED',
+    });
+    const lifecycleServiceFactory = vi.fn(() => ({ afterDispatch }));
+    const repository = {
+      findCorrelatableRun: vi.fn().mockResolvedValue({
+        run,
+        matchedBy: 'both',
+      }),
+      recordGraphqlCallback: vi.fn().mockResolvedValue({
+        callback: {
+          id: 'cb-verify',
+          runId: run.id,
+        } as GraphqlCallbackRecord,
+        runStatus: 'VERIFYING',
+      }),
+    } as unknown as RunRepository;
+    const handler = createGraphqlCallbackHandler({
+      environment: validEnvironment,
+      repositoryFactory: () => repository,
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+      lifecycleServiceFactory,
+    } as Parameters<typeof createGraphqlCallbackHandler>[0]);
+
+    const response = await handler(createRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.clone().json()).toStrictEqual({
+      data: { atualizarCliente: { id: 'ABC123' } },
+    });
+    expect(lifecycleServiceFactory).toHaveBeenCalledOnce();
+    expect(afterDispatch).toHaveBeenCalledWith(run.id);
+  });
+
+  it('returns the GraphQL response even when resuming verification fails', async () => {
+    const run = runWithPolicy('SUCCESS_200');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const afterDispatch = vi
+      .fn()
+      .mockRejectedValue(new Error('resume lifecycle failed'));
+    const repository = {
+      findCorrelatableRun: vi.fn().mockResolvedValue({
+        run,
+        matchedBy: 'both',
+      }),
+      recordGraphqlCallback: vi.fn().mockResolvedValue({
+        callback: {
+          id: 'cb-verify-fail',
+          runId: run.id,
+        } as GraphqlCallbackRecord,
+        runStatus: 'VERIFYING',
+      }),
+    } as unknown as RunRepository;
+    const handler = createGraphqlCallbackHandler({
+      environment: validEnvironment,
+      repositoryFactory: () => repository,
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+      lifecycleServiceFactory: () => ({ afterDispatch }),
+    } as Parameters<typeof createGraphqlCallbackHandler>[0]);
+
+    const response = await handler(createRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.clone().json()).toStrictEqual({
+      data: { atualizarCliente: { id: 'ABC123' } },
+    });
+    expect(afterDispatch).toHaveBeenCalledWith(run.id);
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });

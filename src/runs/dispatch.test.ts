@@ -460,7 +460,7 @@ describe('internal QStash dispatch handler', () => {
     expect(afterDispatch).toHaveBeenCalledWith(payload.runId);
   });
 
-  it('compensates persisted test data after a non-2xx dispatch', async () => {
+  it('keeps persisted test data intact while waiting for async callbacks', async () => {
     const compensate = vi.fn().mockResolvedValue({ outcome: 'SUCCEEDED' });
     const raw = JSON.stringify(payload);
     const handler = createDispatchHandler({
@@ -471,18 +471,53 @@ describe('internal QStash dispatch handler', () => {
         }),
         claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
         getDispatchPayload: vi.fn().mockResolvedValue(eventEnvelope),
-        completeDispatch: vi.fn().mockResolvedValue({ runStatus: 'FAILED' }),
+        completeDispatch: vi
+          .fn()
+          .mockResolvedValue({ runStatus: 'WAITING_ASYNC' }),
       }),
       environment: {
         ORCHESTRATION_ENABLED: 'true',
         SALESFORCE_TEST_DATA_ENABLED: 'true',
       },
-      target: {
-        dispatch: vi.fn().mockResolvedValue({
-          httpStatus: 503,
-          durationMs: 1,
-          responseRedacted: { transport: 'FAKE_SALESFORCE' },
+      testDataAdapter: {
+        setup: vi.fn(),
+        verify: vi.fn(),
+        cleanup: vi.fn(),
+      },
+      lifecycleServiceFactory: () => ({
+        afterDispatch: vi.fn(),
+        compensate,
+      }),
+    });
+
+    const response = await handler(request(raw, sign(raw)));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toStrictEqual({
+      accepted: true,
+      noop: false,
+    });
+    expect(compensate).not.toHaveBeenCalled();
+  });
+
+  it.each(['FAILED', 'PARTIAL'] as const)(
+    'still compensates persisted test data when dispatch finishes as %s',
+    async (runStatus) => {
+    const compensate = vi.fn().mockResolvedValue({ outcome: 'SUCCEEDED' });
+    const raw = JSON.stringify(payload);
+    const handler = createDispatchHandler({
+      ...dependencies({
+        findRun: vi.fn().mockResolvedValue({
+          dispatchMode: 'FAKE',
+          testDataEnabled: true,
         }),
+        claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
+        getDispatchPayload: vi.fn().mockResolvedValue(eventEnvelope),
+        completeDispatch: vi.fn().mockResolvedValue({ runStatus }),
+      }),
+      environment: {
+        ORCHESTRATION_ENABLED: 'true',
+        SALESFORCE_TEST_DATA_ENABLED: 'true',
       },
       testDataAdapter: {
         setup: vi.fn(),
@@ -499,7 +534,8 @@ describe('internal QStash dispatch handler', () => {
 
     expect(response.status).toBe(200);
     expect(compensate).toHaveBeenCalledWith(payload.runId);
-  });
+    },
+  );
 
   it('reports a persistence failure after a successful target without relabeling or repeating the target', async () => {
     const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'CLAIMED' });

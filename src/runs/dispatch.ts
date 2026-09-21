@@ -397,7 +397,10 @@ export function createDispatchHandler(
           { 'Retry-After': '1' },
         );
       }
-    } else if (run.testDataEnabled) {
+    } else if (
+      run.testDataEnabled &&
+      (completion.runStatus === 'FAILED' || completion.runStatus === 'PARTIAL')
+    ) {
       try {
         if (dependencies.testDataAdapter === undefined) {
           throw new Error('Salesforce test data adapter is not configured');

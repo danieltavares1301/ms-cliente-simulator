@@ -10,6 +10,8 @@ import {
 } from '../config/server-env';
 import type { RunRepository } from '../db/run-repository';
 import { hasValidAdminAuthorization } from '../runs/auth';
+import { createSalesforceLifecycleService } from '../runs/salesforce-lifecycle';
+import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
 import { isStructurallyValidAzureBearerToken } from './azure-bearer';
 import {
   createGraphqlCorrelationHashes,
@@ -30,6 +32,10 @@ const actor = 'graphql-callback';
 type GraphqlCallbackHandlerDependencies = {
   environment: Record<string, string | undefined>;
   repositoryFactory: () => RunRepository;
+  testDataAdapter?: SalesforceTestDataAdapter;
+  lifecycleServiceFactory?: (
+    dependencies: Parameters<typeof createSalesforceLifecycleService>[0],
+  ) => Pick<ReturnType<typeof createSalesforceLifecycleService>, 'afterDispatch'>;
   now?: () => Date;
   requestIdFactory?: () => string;
 };
@@ -89,6 +95,35 @@ export function createGraphqlCallbackHandler(
 ): (request: Request) => Promise<Response> {
   const now = dependencies.now ?? (() => new Date());
   const requestIdFactory = dependencies.requestIdFactory ?? randomUUID;
+  const lifecycleServiceFactory =
+    dependencies.lifecycleServiceFactory ?? createSalesforceLifecycleService;
+
+  const resumeVerificationBestEffort = async (
+    repository: RunRepository,
+    persisted: Awaited<ReturnType<RunRepository['recordGraphqlCallback']>>,
+  ): Promise<void> => {
+    if (
+      persisted.runStatus !== 'VERIFYING' ||
+      persisted.callback.runId === null ||
+      dependencies.testDataAdapter === undefined
+    ) {
+      return;
+    }
+
+    try {
+      await lifecycleServiceFactory({
+        repository,
+        adapter: dependencies.testDataAdapter,
+        actor,
+        now,
+      }).afterDispatch(persisted.callback.runId);
+    } catch (error) {
+      console.error(
+        'Failed to resume Salesforce lifecycle after GraphQL callback',
+        error,
+      );
+    }
+  };
 
   return async (request: Request): Promise<Response> => {
     if (dependencies.environment.ORCHESTRATION_ENABLED !== 'true') {
@@ -211,7 +246,7 @@ export function createGraphqlCallbackHandler(
         delayedResponseMs: delayMs,
       });
 
-      await repository.recordGraphqlCallback({
+      const persisted = await repository.recordGraphqlCallback({
         runId: correlation?.run.id ?? null,
         requestId,
         operationName: parsed.operation.field,
@@ -230,6 +265,7 @@ export function createGraphqlCallbackHandler(
         actor,
         receivedAt: startedAt,
       });
+      await resumeVerificationBestEffort(repository, persisted);
 
       return response.response;
     } catch (error) {
@@ -244,7 +280,7 @@ export function createGraphqlCallbackHandler(
 
       const hashes = emptyCorrelationHashes(pepper);
       try {
-        await repository.recordGraphqlCallback({
+        const persisted = await repository.recordGraphqlCallback({
           runId: null,
           requestId,
           operationName: 'INVALID',
@@ -267,6 +303,7 @@ export function createGraphqlCallbackHandler(
           actor,
           receivedAt: startedAt,
         });
+        await resumeVerificationBestEffort(repository, persisted);
       } catch {
         return errorResponse(
           503,
