@@ -9,13 +9,52 @@ outras integrações que também dependem desse mesmo token OAuth real.
 
 Essa decisão **não** redireciona apenas `VFlexMsClientes`. O redirecionamento
 atinge a credencial compartilhada `ServicoClientes`, usada por um conjunto mais
-amplo de consumidores Apex fora do MS Cliente. A investigação da sessão
-identificou aproximadamente **19 classes** consumidoras de
-`NotificacaoHelper.autenticacao()` / `callout:ServicoClientes`.
+amplo de consumidores Apex fora do MS Cliente. Uma busca completa por
+`NotificacaoHelper.autenticacao()` / `NotificacaoHelper.getToken()` no
+repositório Salesforce (único ponto de acesso a `callout:ServicoClientes`,
+confirmado em `NotificacaoHelper.cls`) encontrou **27 classes** consumidoras.
+Descontando as 5 diretamente relacionadas ao domínio MS Cliente
+(`MSClienteService.cls`, `Ges_ClienteGraphQLHelper.cls`,
+`VG_MSClienteCriarAlteraRelacInvocable.cls`,
+`VG_MSClienteCriarAtualizarInvocable.cls`, `VG_MSClienteObterInvocable.cls`),
+restam **22 classes fora do MS Cliente** afetadas pelo redirecionamento.
+
+## Lista completa de consumidores confirmados (27 classes)
+
+```
+AS_ContratoCorretorService.cls
+AtualizarCupomDesconto.cls
+AtualizarDadosLeadController.cls
+BoletoHelper.cls
+CampanhasOportunidadeHandler.cls
+ClienteIntegration.cls
+ContestacaoTriggerHandler.cls
+ContratoAvaliacaoEspecialistaService.cls
+DAIntegracaoModeloCEI.cls
+DocumentosPACController.cls
+EnviaArquivosOportunidadeInvocable.cls
+EnvioCupomDesconto.cls
+GAK_ControleStatusLeadSchedulable.cls
+Ges_ClienteGraphQLHelper.cls                    (domínio MS Cliente)
+GestaoMotivosContestacaoSchedulable.cls
+ImprimirContratoPDFController.cls
+InterfaceEmpreendimentosController.cls
+LeadService.cls
+MSClienteService.cls                            (domínio MS Cliente)
+ReenviarContratoController.cls
+RegeracaoContratoController.cls
+VendaGenericaChamaPlataforma.cls
+VG_MSClienteCriarAlteraRelacInvocable.cls       (domínio MS Cliente)
+VG_MSClienteCriarAtualizarInvocable.cls         (domínio MS Cliente)
+VG_MSClienteObterInvocable.cls                  (domínio MS Cliente)
+VG_PropostaFlexService.cls
+VG_PropostaIntegracaoService.cls
+```
 
 ## Consumidores confirmados que usam o mesmo token para outros serviços reais
 
-Classes confirmadas na investigação e seus destinos reais:
+Três exemplos verificados linha a linha, com seus destinos reais confirmados
+no código:
 
 - `BoletoHelper.cls`
   - `EndpointBoleto__c`
@@ -26,9 +65,10 @@ Classes confirmadas na investigação e seus destinos reais:
   - `Endpoints__c.ContestacaoInsert__c`
   - `Endpoints__c.ContestacaoComDocumentos__c`
 
-Esses exemplos demonstram que a credencial é compartilhada por integrações
-reais **não relacionadas** ao MS Cliente. A lista completa dos consumidores
-levantados na sessão é mais ampla (~19 classes).
+Esses três são apenas exemplos verificados em detalhe; as demais 19 classes da
+lista acima (fora do domínio MS Cliente) também consomem o mesmo token para
+seus próprios destinos e devem ser consideradas igualmente afetadas até prova
+em contrário.
 
 ## Efeito concreto enquanto o redirecionamento estiver ativo
 
