@@ -29,8 +29,11 @@ type GeneratedValue =
   | 'EVENT_TIME'
   | 'BASELINE_TIME'
   | 'CLIENT_ID'
+  | 'CLIENT_ID_X'
   | 'PROSPECT_ID'
+  | 'PROSPECT_ID_X'
   | 'CPF'
+  | 'CPF_X'
   | 'PERSON_NAME'
   | 'BASE_PERSON_NAME';
 
@@ -88,6 +91,9 @@ export function renderScenarioFixture(
   const accountIdCliente = `CLI-SIM-${namespaceToken}-${seedToken}`;
   const accountIdProspect = `PRO-SIM-${namespaceToken}-${seedToken}`;
   const syntheticCpf = generateSyntheticCpf(input.seed, input.runId);
+  const controlAccountIdCliente = `CLI-SIM-X-${namespaceToken}-${seedToken}`;
+  const controlAccountIdProspect = `PRO-SIM-X-${namespaceToken}-${seedToken}`;
+  const controlSyntheticCpf = generateSyntheticCpf(`${input.seed}:x`, input.runId);
   const baseContext = {
     RUN_ID: input.runId,
     STEP_ID: '',
@@ -95,11 +101,20 @@ export function renderScenarioFixture(
     EVENT_TIME: eventStartAt,
     BASELINE_TIME: new Date(Date.parse(eventStartAt) - 1_000).toISOString(),
     CLIENT_ID: accountIdCliente,
+    CLIENT_ID_X: controlAccountIdCliente,
     PROSPECT_ID: accountIdProspect,
+    PROSPECT_ID_X: controlAccountIdProspect,
     CPF: syntheticCpf,
+    CPF_X: controlSyntheticCpf,
     PERSON_NAME: `Cliente Simulado ${seedToken}`,
     BASE_PERSON_NAME: `Cliente Simulado Base ${seedToken}`,
   } satisfies RenderContext;
+  const hasControlAccount =
+    definition.setup?.some(
+      (instruction) =>
+        instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
+        instruction.role === 'CONTROL',
+    ) ?? false;
 
   const setup = resolveTemplate(definition.setup ?? [], baseContext);
   const steps = definition.steps.map((step) => {
@@ -137,11 +152,27 @@ export function renderScenarioFixture(
       envelope: [event],
     };
   });
-  const cleanup = (definition.cleanup ?? []).map((instruction) => ({
-    operation: instruction.operation,
-    target: instruction.target,
-    ownership: { idCliente: accountIdCliente },
-  }));
+  const cleanup = (definition.cleanup ?? []).map((instruction) => {
+    if (instruction.target === 'LEAD') {
+      return {
+        operation: instruction.operation,
+        target: instruction.target,
+        ownership: { idExternoPrefix: 'LEAD-SIM-' as const },
+      };
+    }
+
+    return {
+      operation: instruction.operation,
+      target: instruction.target,
+      ownership:
+        instruction.target === 'ACCOUNT' && hasControlAccount
+          ? {
+              idCliente: accountIdCliente,
+              controlAccountIdCliente,
+            }
+          : { idCliente: accountIdCliente },
+    };
+  });
   const expectedOutcomes = definition.expectedOutcomes.map((outcome) => ({
     ...outcome,
     checks: [...outcome.checks],
@@ -160,6 +191,12 @@ export function renderScenarioFixture(
     identifiers: {
       accountIdCliente,
       accountIdProspect,
+      ...(hasControlAccount
+        ? {
+            controlAccountIdCliente,
+            controlAccountIdProspect,
+          }
+        : {}),
       leadIdExterno: accountIdProspect,
     },
     setup,

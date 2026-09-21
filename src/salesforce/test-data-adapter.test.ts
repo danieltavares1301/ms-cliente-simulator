@@ -12,6 +12,7 @@ import {
 } from './test-data-adapter';
 
 const accountId = '001000000000001AAA';
+const controlAccountId = '001000000000002AAA';
 const leadId = '00Q000000000001AAA';
 
 type CoreScenarioKey =
@@ -204,6 +205,143 @@ function leadFromFixture(
     Status: setup.status ?? 'Pendente de Distribuição',
     PermitirCriarLead__c: true,
     DescricaoOrigem__c: setup.descricaoOrigem ?? null,
+    ...overrides,
+  };
+}
+
+function prospectDivergenteFixture() {
+  const rendered = JSON.parse(
+    JSON.stringify(fixture('no-match-cliente-insert')),
+  ) as ReturnType<typeof fixture> & {
+    expectedOutcomes: Array<Record<string, unknown>>;
+    setup: Array<Record<string, unknown>>;
+    cleanup: Array<Record<string, unknown>>;
+    identifiers: ReturnType<typeof fixture>['identifiers'] & {
+      controlAccountIdCliente?: string;
+      controlAccountIdProspect?: string;
+    };
+  };
+  rendered.scenarioKey = 'cliente-insert-prospect-divergente';
+  rendered.identifiers.controlAccountIdCliente = 'CLI-SIM-X-phase-four';
+  rendered.identifiers.controlAccountIdProspect = 'PRO-SIM-X-phase-four';
+  rendered.steps[0].key = 'cliente-insert-divergente';
+  rendered.steps[0].envelope[0].data.idprospectsalesforce =
+    rendered.identifiers.controlAccountIdProspect;
+  rendered.setup = [
+    {
+      operation: 'CREATE_SYNTHETIC_ACCOUNT',
+      role: 'CONTROL',
+      matchBy: 'ID_CLIENTE',
+      account: {
+        idCliente: rendered.identifiers.controlAccountIdCliente,
+        idProspect: rendered.identifiers.controlAccountIdProspect,
+        cpf: '39095812030',
+        name: 'Cliente Controle',
+        dataAlteracao: '2026-09-20T16:29:59.000Z',
+      },
+    },
+    {
+      operation: 'ENSURE_ACCOUNT_ABSENT',
+      keys: {
+        idCliente: rendered.identifiers.accountIdCliente,
+        idProspect: rendered.identifiers.accountIdProspect,
+        cpf: rendered.steps[0].envelope[0].data.numerocpf,
+      },
+    },
+    {
+      operation: 'ENSURE_LEAD_ABSENT',
+      keys: {
+        idExterno: rendered.identifiers.controlAccountIdProspect,
+        cpf: rendered.steps[0].envelope[0].data.numerocpf,
+      },
+    },
+  ];
+  rendered.expectedOutcomes = [
+    {
+      kind: 'BUSINESS_RESULT',
+      result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      description:
+        'Cria a Account Y, gera Lead novo por CPF e preserva a Account de controle X.',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'CONTROL_ACCOUNT_UNCHANGED',
+        'LEAD_COUNT_BY_CPF_IS_ONE',
+        'LEAD_CPF_EQUALS_EVENT',
+      ],
+    },
+  ];
+  rendered.cleanup = [
+    {
+      operation: 'DELETE_OWNED_RECORDS',
+      target: 'ACCOUNT',
+      ownership: {
+        idCliente: rendered.identifiers.accountIdCliente,
+        controlAccountIdCliente: rendered.identifiers.controlAccountIdCliente,
+      },
+    },
+    {
+      operation: 'DELETE_OWNED_RECORDS',
+      target: 'LEAD',
+      ownership: { idExternoPrefix: 'LEAD-SIM-' },
+    },
+  ];
+  return rendered;
+}
+
+function prospectDivergenteInput(rendered = prospectDivergenteFixture()) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
+function controlAccountFromFixture(
+  rendered = prospectDivergenteFixture(),
+  overrides: Record<string, unknown> = {},
+) {
+  const setup = rendered.setup[0];
+  if (
+    setup.operation !== 'CREATE_SYNTHETIC_ACCOUNT' ||
+    setup.role !== 'CONTROL'
+  ) {
+    throw new Error('Expected CONTROL synthetic account fixture');
+  }
+  return {
+    Id: controlAccountId,
+    Id__c: setup.account.idCliente,
+    IdProspectSalesforce__c: setup.account.idProspect,
+    CPF__pc: setup.account.cpf,
+    LastName: setup.account.name,
+    IsPersonAccount: true,
+    DataAlteracaoEvento__c: setup.account.dataAlteracao,
+    ...overrides,
+  };
+}
+
+function createdLeadFromFixture(
+  rendered = prospectDivergenteFixture(),
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    Id: leadId,
+    Id__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+    FirstName: 'Cliente',
+    LastName: rendered.steps[0].envelope[0].data.nomecompleto,
+    CPF__c: rendered.steps[0].envelope[0].data.numerocpf,
+    MobilePhone: null,
+    CelularSemFormatacao__c: null,
+    Email: null,
+    CidadeInteresse__c: null,
+    Marca__c: '1',
+    RecordTypeId: '012000000000002AAA',
+    ManipularFase__c: true,
+    Status: 'Pendente de Distribuição',
+    PermitirCriarLead__c: true,
+    DescricaoOrigem__c: 'InsertClientePAC',
     ...overrides,
   };
 }
@@ -758,6 +896,77 @@ describe('Salesforce test data adapter verify', () => {
       actualCount: 0,
     });
   });
+
+  it('passes the divergent prospect checks and queries the control Account explicitly', async () => {
+    const rendered = prospectDivergenteFixture();
+    const primaryAccount = accountFromFixture(rendered, {
+      IdProspectSalesforce__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+    });
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 2,
+        done: true,
+        records: [primaryAccount, controlAccountFromFixture(rendered)],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [createdLeadFromFixture(rendered)],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(prospectDivergenteInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'CONTROL_ACCOUNT_UNCHANGED', passed: true },
+        {
+          check: 'LEAD_COUNT_BY_CPF_IS_ONE',
+          passed: true,
+          actualCount: 1,
+        },
+      ]),
+    );
+    const accountQuery = String(client.query.mock.calls[0][0] as AllowlistedQuery);
+    expect(accountQuery).toContain(rendered.identifiers.controlAccountIdCliente!);
+    expect(accountQuery).toContain('39095812030');
+  });
+
+  it('fails CONTROL_ACCOUNT_UNCHANGED when the control Account diverges', async () => {
+    const rendered = prospectDivergenteFixture();
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 2,
+        done: true,
+        records: [
+          accountFromFixture(rendered, {
+            IdProspectSalesforce__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+          }),
+          controlAccountFromFixture(rendered, {
+            LastName: 'Controle alterado indevidamente',
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [createdLeadFromFixture(rendered)],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(prospectDivergenteInput(rendered));
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual({
+      check: 'CONTROL_ACCOUNT_UNCHANGED',
+      passed: false,
+    });
+  });
 });
 
 describe('Salesforce test data adapter cleanup', () => {
@@ -833,6 +1042,43 @@ describe('Salesforce test data adapter cleanup', () => {
       ]),
     ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
     expect(client.deleteRecord).toHaveBeenCalledWith('Account', accountId);
+  });
+
+  it('deletes both the primary and control Accounts when both are simulator-owned', async () => {
+    const rendered = prospectDivergenteFixture();
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 2,
+        done: true,
+        records: [
+          accountFromFixture(rendered, { IdProspectSalesforce__c: null }),
+          controlAccountFromFixture(rendered),
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      });
+    client.deleteRecord.mockResolvedValue(undefined);
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        prospectDivergenteInput(rendered),
+        [accountId, controlAccountId],
+      ),
+    ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 2 });
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      1,
+      'Account',
+      accountId,
+    );
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      2,
+      'Account',
+      controlAccountId,
+    );
   });
 
   it('deletes setup Leads owned by the simulator prefix', async () => {

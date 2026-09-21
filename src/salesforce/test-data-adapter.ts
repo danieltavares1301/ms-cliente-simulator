@@ -36,8 +36,14 @@ const adapterInputSchema = z
       });
     }
 
-    const accountSetup = fixture.setup.find(
+    const accountSetups = fixture.setup.filter(
       (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
+    );
+    const accountSetup = accountSetups.find(
+      (instruction) => instruction.role === 'PRIMARY',
+    );
+    const controlAccountSetup = accountSetups.find(
+      (instruction) => instruction.role === 'CONTROL',
     );
     const absentAccountSetup = fixture.setup.find(
       (instruction) => instruction.operation === 'ENSURE_ACCOUNT_ABSENT',
@@ -49,10 +55,26 @@ const adapterInputSchema = z
       (instruction) => instruction.operation === 'ENSURE_LEAD_ABSENT',
     );
     const setupCpf =
+      fixtureEvent(fixture).numerocpf ??
       accountSetup?.account.cpf ??
       absentAccountSetup?.keys.cpf ??
       leadSetup?.lead.cpf ??
       absentLeadSetup?.keys.cpf;
+
+    if (accountSetups.filter((instruction) => instruction.role === 'PRIMARY').length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Fixture cannot declare more than one PRIMARY synthetic account',
+        path: ['fixture', 'setup'],
+      });
+    }
+    if (accountSetups.filter((instruction) => instruction.role === 'CONTROL').length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Fixture cannot declare more than one CONTROL synthetic account',
+        path: ['fixture', 'setup'],
+      });
+    }
 
     if (
       (accountSetup !== undefined || absentAccountSetup !== undefined) &&
@@ -78,6 +100,30 @@ const adapterInputSchema = z
           path: ['fixture', 'setup'],
         });
       }
+    }
+    if (controlAccountSetup !== undefined) {
+      const accountIdsMatch =
+        controlAccountSetup.account.idCliente ===
+          fixture.identifiers.controlAccountIdCliente &&
+        controlAccountSetup.account.idProspect ===
+          fixture.identifiers.controlAccountIdProspect;
+      if (!accountIdsMatch) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Fixture control Account setup identifiers are inconsistent',
+          path: ['fixture', 'setup'],
+        });
+      }
+    } else if (
+      fixture.identifiers.controlAccountIdCliente !== undefined ||
+      fixture.identifiers.controlAccountIdProspect !== undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Fixture control Account identifiers require a CONTROL synthetic account setup',
+        path: ['fixture', 'identifiers'],
+      });
     }
     if (absentAccountSetup !== undefined) {
       const accountIdsMatch =
@@ -115,7 +161,9 @@ const adapterInputSchema = z
     }
     if (
       absentLeadSetup?.keys.idExterno !== undefined &&
-      absentLeadSetup.keys.idExterno !== fixture.identifiers.leadIdExterno
+      absentLeadSetup.keys.idExterno !== fixture.identifiers.leadIdExterno &&
+      absentLeadSetup.keys.idExterno !==
+        fixture.identifiers.controlAccountIdProspect
     ) {
       context.addIssue({
         code: 'custom',
@@ -132,7 +180,9 @@ const adapterInputSchema = z
         (setupCpf !== undefined && event.numerocpf !== setupCpf) ||
         event.nomecompleto === undefined ||
         (event.idprospectsalesforce !== undefined &&
-          event.idprospectsalesforce !== fixture.identifiers.accountIdProspect)
+          event.idprospectsalesforce !== fixture.identifiers.accountIdProspect &&
+          event.idprospectsalesforce !==
+            fixture.identifiers.controlAccountIdProspect)
       ) {
         context.addIssue({
           code: 'custom',
@@ -151,6 +201,18 @@ const adapterInputSchema = z
         context.addIssue({
           code: 'custom',
           message: 'Fixture cleanup ownership is inconsistent',
+          path: ['fixture', 'cleanup'],
+        });
+      }
+      if (
+        cleanup.target === 'ACCOUNT' &&
+        cleanup.ownership.controlAccountIdCliente !==
+          fixture.identifiers.controlAccountIdCliente
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'Fixture control Account cleanup ownership is inconsistent',
           path: ['fixture', 'cleanup'],
         });
       }
@@ -198,8 +260,10 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_NAME_EQUALS_EVENT'
     | 'ACCOUNT_IS_PERSON_ACCOUNT'
     | 'ACCOUNT_CPF_EQUALS_EVENT'
+    | 'CONTROL_ACCOUNT_UNCHANGED'
     | 'NO_OTHER_ACCOUNT_UPDATED'
     | 'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE'
+    | 'LEAD_COUNT_BY_CPF_IS_ONE'
     | 'LEAD_CPF_EQUALS_EVENT'
     | 'LEAD_EMAIL_EQUALS_EXPECTED'
     | 'LEAD_MOBILE_EQUALS_EXPECTED'
@@ -361,20 +425,55 @@ function fixtureEvent(fixture: RenderedScenarioFixture) {
   return fixture.steps[0]!.envelope[0]!.data;
 }
 
+function primaryAccountSetup(fixture: RenderedScenarioFixture) {
+  return fixture.setup.find(
+    (instruction) =>
+      instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
+      instruction.role === 'PRIMARY',
+  );
+}
+
+function controlAccountSetup(fixture: RenderedScenarioFixture) {
+  return fixture.setup.find(
+    (instruction) =>
+      instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
+      instruction.role === 'CONTROL',
+  );
+}
+
 function fixtureCpf(fixture: RenderedScenarioFixture): string {
-  const setup = fixture.setup[0]!;
-  switch (setup.operation) {
-    case 'CREATE_SYNTHETIC_ACCOUNT':
-      return setup.account.cpf;
-    case 'ENSURE_ACCOUNT_ABSENT':
-      return setup.keys.cpf;
-    case 'CREATE_SYNTHETIC_LEAD':
-      return setup.lead.cpf;
-    case 'ENSURE_LEAD_ABSENT':
-      return setup.keys.cpf ?? fixtureEvent(fixture).numerocpf ?? '';
-    default:
-      return fixtureEvent(fixture).numerocpf ?? '';
+  const eventCpf = fixtureEvent(fixture).numerocpf;
+  if (eventCpf !== undefined) {
+    return eventCpf;
   }
+
+  const primarySetup = primaryAccountSetup(fixture);
+  if (primarySetup !== undefined) {
+    return primarySetup.account.cpf;
+  }
+
+  const absentAccountSetup = fixture.setup.find(
+    (instruction) => instruction.operation === 'ENSURE_ACCOUNT_ABSENT',
+  );
+  if (absentAccountSetup !== undefined) {
+    return absentAccountSetup.keys.cpf;
+  }
+
+  const leadSetup = fixture.setup.find(
+    (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
+  );
+  if (leadSetup !== undefined) {
+    return leadSetup.lead.cpf;
+  }
+
+  const absentLeadSetup = fixture.setup.find(
+    (instruction) => instruction.operation === 'ENSURE_LEAD_ABSENT',
+  );
+  return absentLeadSetup?.keys.cpf ?? '';
+}
+
+function controlFixtureCpf(fixture: RenderedScenarioFixture): string | undefined {
+  return controlAccountSetup(fixture)?.account.cpf;
 }
 
 function accountLookupQuery(
@@ -382,10 +481,16 @@ function accountLookupQuery(
   includeSetupDate = false,
 ) {
   const fields = includeSetupDate ? setupAccountFields : accountFields;
+  const controlId = fixture.identifiers.controlAccountIdCliente;
+  const controlCpf = controlFixtureCpf(fixture);
+  const clauses = [
+    `Id__c = ${literal(fixture.identifiers.accountIdCliente)}`,
+    `CPF__pc = ${literal(fixtureCpf(fixture))}`,
+    controlId !== undefined ? `Id__c = ${literal(controlId)}` : null,
+    controlCpf !== undefined ? `CPF__pc = ${literal(controlCpf)}` : null,
+  ].filter((clause): clause is string => clause !== null);
   return asAllowlistedQuery(
-    `SELECT ${fields} FROM Account WHERE Id__c = ${literal(
-      fixture.identifiers.accountIdCliente,
-    )} OR CPF__pc = ${literal(fixtureCpf(fixture))}`,
+    `SELECT ${fields} FROM Account WHERE ${clauses.join(' OR ')}`,
   );
 }
 
@@ -708,6 +813,7 @@ export function createSalesforceTestDataAdapter(
         const checkName = verificationCheckName(check);
         return (
           checkName.startsWith('ACCOUNT_') ||
+          checkName === 'CONTROL_ACCOUNT_UNCHANGED' ||
           checkName === 'NO_OTHER_ACCOUNT_UPDATED'
         );
       });
@@ -736,6 +842,13 @@ export function createSalesforceTestDataAdapter(
           : byCpf.length === 1
             ? byCpf[0]
             : undefined;
+      const controlTarget = fixture.identifiers.controlAccountIdCliente
+        ? accountRecords.find(
+            (record) =>
+              record.Id__c === fixture.identifiers.controlAccountIdCliente,
+          )
+        : undefined;
+      const expectedControlAccount = controlAccountSetup(fixture);
       const leadExternalId = getLeadExternalId(fixture);
       const leadByExternalId = leadRecords.filter(
         (record) => record.Id__c === leadExternalId,
@@ -800,6 +913,18 @@ export function createSalesforceTestDataAdapter(
                 accountTarget.CPF__pc === event.numerocpf,
             });
             break;
+          case 'CONTROL_ACCOUNT_UNCHANGED':
+            checks.push({
+              check: checkName,
+              passed:
+                expectedControlAccount !== undefined &&
+                controlTarget !== undefined &&
+                controlTarget.CPF__pc === expectedControlAccount.account.cpf &&
+                controlTarget.LastName === expectedControlAccount.account.name &&
+                controlTarget.IdProspectSalesforce__c ===
+                  expectedControlAccount.account.idProspect,
+            });
+            break;
           case 'NO_OTHER_ACCOUNT_UPDATED':
             checks.push({
               check: checkName,
@@ -820,6 +945,13 @@ export function createSalesforceTestDataAdapter(
               check: checkName,
               passed: leadByExternalId.length === 1,
               actualCount: leadByExternalId.length,
+            });
+            break;
+          case 'LEAD_COUNT_BY_CPF_IS_ONE':
+            checks.push({
+              check: checkName,
+              passed: leadByCpf.length === 1,
+              actualCount: leadByCpf.length,
             });
             break;
           case 'LEAD_CPF_EQUALS_EVENT':
@@ -929,7 +1061,10 @@ export function createSalesforceTestDataAdapter(
 
       for (const instruction of fixture.cleanup) {
         if (instruction.target === 'ACCOUNT') {
-          const exactOwnerId = fixture.identifiers.accountIdCliente;
+          const exactOwnerIds = [
+            fixture.identifiers.accountIdCliente,
+            fixture.identifiers.controlAccountIdCliente,
+          ].filter((value): value is string => value !== undefined);
           const records = await queryAccounts(
             asAllowlistedQuery(
               `SELECT ${accountFields} FROM Account WHERE Id IN (${uniqueIds
@@ -941,7 +1076,7 @@ export function createSalesforceTestDataAdapter(
           for (const record of records) {
             if (
               !uniqueIds.includes(record.Id) ||
-              (record.Id__c !== null && record.Id__c !== exactOwnerId)
+              (record.Id__c !== null && !exactOwnerIds.includes(record.Id__c))
             ) {
               throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
             }

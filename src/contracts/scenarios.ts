@@ -158,8 +158,11 @@ const templateReferenceSchema = z.discriminatedUnion('source', [
         'EVENT_TIME',
         'BASELINE_TIME',
         'CLIENT_ID',
+        'CLIENT_ID_X',
         'PROSPECT_ID',
+        'PROSPECT_ID_X',
         'CPF',
+        'CPF_X',
         'PERSON_NAME',
         'BASE_PERSON_NAME',
       ]),
@@ -240,8 +243,10 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_NAME_EQUALS_EVENT',
   'ACCOUNT_IS_PERSON_ACCOUNT',
   'ACCOUNT_CPF_EQUALS_EVENT',
+  'CONTROL_ACCOUNT_UNCHANGED',
   'NO_OTHER_ACCOUNT_UPDATED',
   'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
+  'LEAD_COUNT_BY_CPF_IS_ONE',
   'LEAD_CPF_EQUALS_EVENT',
   'LEAD_EMAIL_EXCLUDED',
   'LEAD_MOBILE_EXCLUDED',
@@ -283,6 +288,7 @@ export const expectedOutcomeSchema = z
       'ACCOUNT_UPDATED_ONLY',
       'CLIENT_ID_STAMPED_WITHOUT_DUPLICATE',
       'PERSON_ACCOUNT_CREATED',
+      'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
     ]),
     description: safePublicTextSchema,
@@ -295,8 +301,11 @@ const generatedFixtureReferenceSchema = z
     source: z.literal('GENERATED'),
     value: z.enum([
       'CLIENT_ID',
+      'CLIENT_ID_X',
       'PROSPECT_ID',
+      'PROSPECT_ID_X',
       'CPF',
+      'CPF_X',
       'PERSON_NAME',
       'BASE_PERSON_NAME',
       'BASELINE_TIME',
@@ -386,6 +395,7 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
   z
     .object({
       operation: z.literal('CREATE_SYNTHETIC_ACCOUNT'),
+      role: z.enum(['PRIMARY', 'CONTROL']).default('PRIMARY'),
       matchBy: z.enum(['ID_CLIENTE', 'CPF']),
       account: syntheticAccountTemplateSchema,
     })
@@ -465,12 +475,38 @@ const scenarioDefinitionBaseSchema = scenarioMetadataSchema.extend({
 });
 
 export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
-  .superRefine(({ steps }, context) => {
+  .superRefine(({ setup, steps }, context) => {
     if (new Set(steps.map(({ key }) => key)).size !== steps.length) {
       context.addIssue({
         code: 'custom',
         message: 'Step keys must be unique',
         path: ['steps'],
+      });
+    }
+
+    const syntheticAccountSetups =
+      setup?.filter(
+        (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
+      ) ?? [];
+    const primaryCount = syntheticAccountSetups.filter(
+      (instruction) => instruction.role === 'PRIMARY',
+    ).length;
+    const controlCount = syntheticAccountSetups.filter(
+      (instruction) => instruction.role === 'CONTROL',
+    ).length;
+
+    if (primaryCount > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one PRIMARY synthetic account is allowed',
+        path: ['setup'],
+      });
+    }
+    if (controlCount > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one CONTROL synthetic account is allowed',
+        path: ['setup'],
       });
     }
   })

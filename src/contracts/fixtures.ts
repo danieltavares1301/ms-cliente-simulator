@@ -65,6 +65,7 @@ export const renderedSetupInstructionSchema = z.discriminatedUnion(
     z
       .object({
         operation: z.literal('CREATE_SYNTHETIC_ACCOUNT'),
+        role: z.enum(['PRIMARY', 'CONTROL']).default('PRIMARY'),
         matchBy: z.enum(['ID_CLIENTE', 'CPF']),
         account: renderedAccountSchema,
       })
@@ -120,6 +121,7 @@ const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
       ownership: z
         .object({
           idCliente: z.string().min(1).max(50),
+          controlAccountIdCliente: z.string().min(1).max(50).optional(),
         })
         .strict(),
     })
@@ -191,9 +193,22 @@ export const renderedScenarioFixtureSchema = z
       .object({
         accountIdCliente: z.string().min(1).max(50),
         accountIdProspect: z.string().min(1).max(50),
+        controlAccountIdCliente: z.string().min(1).max(50).optional(),
+        controlAccountIdProspect: z.string().min(1).max(50).optional(),
         leadIdExterno: z.string().min(1).max(150),
       })
       .strict()
+      .refine(
+        ({ controlAccountIdCliente, controlAccountIdProspect }) =>
+          (controlAccountIdCliente === undefined &&
+            controlAccountIdProspect === undefined) ||
+          (controlAccountIdCliente !== undefined &&
+            controlAccountIdProspect !== undefined),
+        {
+          message:
+            'Control Account identifiers must either both be present or both be omitted',
+        },
+      )
       .refine(
         ({ accountIdProspect, leadIdExterno }) =>
           accountIdProspect === leadIdExterno,
@@ -205,7 +220,86 @@ export const renderedScenarioFixtureSchema = z
     asyncPolicy: asyncPolicySchema,
     cleanup: z.array(renderedCleanupInstructionSchema).min(1).max(20),
   })
-  .strict();
+  .superRefine(({ identifiers, setup, cleanup }, context) => {
+    const syntheticAccountSetups = setup.filter(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
+    );
+    const primaryAccounts = syntheticAccountSetups.filter(
+      (instruction) => instruction.role === 'PRIMARY',
+    );
+    const controlAccounts = syntheticAccountSetups.filter(
+      (instruction) => instruction.role === 'CONTROL',
+    );
+
+    if (primaryAccounts.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one PRIMARY synthetic account is allowed',
+        path: ['setup'],
+      });
+    }
+    if (controlAccounts.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one CONTROL synthetic account is allowed',
+        path: ['setup'],
+      });
+    }
+
+    if (
+      controlAccounts.length === 1 &&
+      (identifiers.controlAccountIdCliente === undefined ||
+        identifiers.controlAccountIdProspect === undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Rendered fixture identifiers must include the control Account ids',
+        path: ['identifiers'],
+      });
+    }
+    if (
+      controlAccounts.length === 0 &&
+      (identifiers.controlAccountIdCliente !== undefined ||
+        identifiers.controlAccountIdProspect !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Control Account identifiers are only allowed when a CONTROL account exists',
+        path: ['identifiers'],
+      });
+    }
+
+    for (const [index, cleanupInstruction] of cleanup.entries()) {
+      if (cleanupInstruction.target !== 'ACCOUNT') {
+        continue;
+      }
+      if (controlAccounts.length === 1) {
+        if (
+          cleanupInstruction.ownership.controlAccountIdCliente !==
+          identifiers.controlAccountIdCliente
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'Account cleanup must include the control Account ownership id',
+            path: ['cleanup', index, 'ownership', 'controlAccountIdCliente'],
+          });
+        }
+        continue;
+      }
+
+      if (cleanupInstruction.ownership.controlAccountIdCliente !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'Account cleanup cannot declare a control ownership id without a CONTROL account',
+          path: ['cleanup', index, 'ownership', 'controlAccountIdCliente'],
+        });
+      }
+    }
+  });
 
 export type RenderedScenarioFixture = z.infer<
   typeof renderedScenarioFixtureSchema
