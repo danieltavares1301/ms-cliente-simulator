@@ -128,11 +128,11 @@ export const basicScenarioDefinitions = [
   {
     key: 'contato-antes-cliente-colisao',
     version: 1,
-    name: 'Contato antes de cliente com colisão parcial',
+    name: 'Contato após cliente divergente com colisão parcial',
     description:
-      'Recebe contatos antes do cliente final, cria a Account Y acoplada ao prospect divergente e gera Lead novo com e-mail excluído e celular preservado.',
+      'Cliente-insert cria a Account Y com prospect divergente e dispara a criação assíncrona do Lead; os contatos que chegam logo em seguida (padrão O02) são reconciliados no Lead, respeitando a colisão de e-mail (Regra 6.6) e preservando o celular limpo.',
     scope: 'EXTENDED',
-    tags: ['regression', 'o01', 'regra-6-6', 'lead', 'colisao'],
+    tags: ['regression', 'o02', 'regra-6-6', 'lead', 'colisao'],
     availability: 'READY',
     variablesSchema,
     setup: [
@@ -177,34 +177,10 @@ export const basicScenarioDefinitions = [
     ],
     steps: [
       {
-        key: 'contato-email',
-        target: 'CLIENTE',
-        eventType: 'contato-insert',
-        delayMs: 0,
-        payloadTemplate: contatoPayload(
-          'Email',
-          generated('COLLISION_EMAIL'),
-          true,
-        ),
-        deliveryPolicy,
-      },
-      {
-        key: 'contato-celular',
-        target: 'CLIENTE',
-        eventType: 'contato-insert',
-        delayMs: 1_000,
-        payloadTemplate: contatoPayload(
-          'Celular',
-          generated('CLEAN_CELULAR'),
-          true,
-        ),
-        deliveryPolicy,
-      },
-      {
         key: 'cliente-insert-divergente',
         target: 'CLIENTE',
         eventType: 'cliente-insert',
-        delayMs: 2_000,
+        delayMs: 0,
         payloadTemplate: {
           kind: 'DECLARATIVE',
           contract: 'EVENT_GRID',
@@ -227,13 +203,37 @@ export const basicScenarioDefinitions = [
         },
         deliveryPolicy,
       },
+      {
+        key: 'contato-email',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 3_000,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('COLLISION_EMAIL'),
+          false,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 5_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          false,
+        ),
+        deliveryPolicy,
+      },
     ],
     expectedOutcomes: [
       {
         kind: 'BUSINESS_RESULT',
         result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
         description:
-          'A sequência O01 + Regra 6.6 cria a Account Y, preserva a Account X e gera Lead novo com e-mail excluído e celular preservado.',
+          'A sequência O02 + Regra 6.6: cliente-insert cria a Account Y (sem herdar o prospect de X) e dispara a criação assíncrona do Lead; os contatos que chegam logo em seguida atualizam a Account e são reconciliados no Lead, respeitando a colisão de e-mail com outro Lead (Regra 6.6) e preservando o celular limpo. A Account X permanece intacta.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
           'ACCOUNT_IS_PERSON_ACCOUNT',

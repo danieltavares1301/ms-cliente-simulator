@@ -577,7 +577,7 @@ describe('renderScenarioFixture', () => {
     );
   });
 
-  it('renders the combined O01 + Regra 6.6 scenario with dynamic mobile expectation', () => {
+  it('renders the combined O02 + Regra 6.6 scenario with dynamic mobile expectation', () => {
     const fixture = renderScenarioFixture({
       ...input,
       scenarioKey: 'contato-antes-cliente-colisao',
@@ -585,22 +585,27 @@ describe('renderScenarioFixture', () => {
 
     expect(fixture.identifiers.collisionLeadIdExterno).toMatch(/^LEAD-SIM-/);
     expect(fixture.steps.map((step) => step.key)).toStrictEqual([
+      'cliente-insert-divergente',
       'contato-email',
       'contato-celular',
-      'cliente-insert-divergente',
     ]);
-    expect(fixture.steps[0]?.eventType).toBe('contato-insert');
+    expect(fixture.steps[0]?.eventType).toBe('cliente-insert');
     expect(fixture.steps[1]?.eventType).toBe('contato-insert');
-    expect(fixture.steps[2]?.eventType).toBe('cliente-insert');
-    expect(fixture.steps[0]?.envelope[0].data).toMatchObject({
-      idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
+    expect(fixture.steps[2]?.eventType).toBe('contato-insert');
+    expect(fixture.steps[1]?.envelope[0].data).toMatchObject({
       tipocontato: 'Email',
       descricao: expect.stringContaining('@simulador.mrv.invalid'),
     });
-    expect(fixture.steps[1]?.envelope[0].data).toMatchObject({
+    expect(fixture.steps[1]?.envelope[0].data).not.toHaveProperty(
+      'idprospectsalesforce',
+    );
+    expect(fixture.steps[2]?.envelope[0].data).toMatchObject({
       tipocontato: 'Celular',
       descricao: expect.stringMatching(/^\d{11}$/),
     });
+    expect(fixture.steps[2]?.envelope[0].data).not.toHaveProperty(
+      'idprospectsalesforce',
+    );
     expect(fixture.expectedOutcomes[0]?.checks).toContainEqual(
       expect.objectContaining({
         check: 'LEAD_MOBILE_EQUALS_EXPECTED',
