@@ -230,6 +230,7 @@ const adapterInputSchema = z
         step.eventType === 'cliente-insert' ||
         step.eventType === 'cliente-update';
       const requiresContactFields = step.eventType === 'contato-insert';
+      const requiresAddressFields = step.eventType === 'endereco-insert';
       const usesAllowedIdentity =
         event !== undefined &&
         (event.idcliente === fixture.identifiers.accountIdCliente ||
@@ -251,6 +252,12 @@ const adapterInputSchema = z
         (requiresContactFields &&
           (!isContactFixtureEventData(event) ||
             event.descricao === undefined)) ||
+        (requiresAddressFields &&
+          (!isAddressFixtureEventData(event) ||
+            event.tipoendereco !== 'COBRANCA')) ||
+        (requiresAddressFields &&
+          (!isAddressFixtureEventData(event) ||
+            event.logradouro === undefined)) ||
         (event.idprospectsalesforce !== undefined &&
           event.idprospectsalesforce !==
             fixture.identifiers.accountIdProspect &&
@@ -337,6 +344,9 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_CPF_EQUALS_SETUP'
     | 'ACCOUNT_EMAIL_EXCLUDED'
     | 'ACCOUNT_MOBILE_EXCLUDED'
+    | 'ACCOUNT_EMAIL_EQUALS_EXPECTED'
+    | 'ACCOUNT_MOBILE_EQUALS_EXPECTED'
+    | 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_UNCHANGED'
@@ -397,6 +407,7 @@ const accountRecordSchema = z
     PersonEmail: nullableText.optional(),
     PersonMobilePhone: nullableText.optional(),
     Celular__c: nullableText.optional(),
+    BillingStreet: nullableText.optional(),
     DataAlteracaoEvento__c: nullableText.optional(),
   })
   .passthrough();
@@ -481,9 +492,16 @@ type ContactFixtureEventData = FixtureEventData & {
   tipocontato: string;
   descricao: string;
 };
+type AddressFixtureEventData = FixtureEventData & {
+  tipoendereco: 'COBRANCA';
+  logradouro?: string;
+  numerocep?: string;
+  bairro?: string;
+  numero?: string;
+};
 
 const accountFields =
-  'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount,PersonEmail,PersonMobilePhone,Celular__c' as const;
+  'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount,PersonEmail,PersonMobilePhone,Celular__c,BillingStreet' as const;
 const setupAccountFields = `${accountFields},DataAlteracaoEvento__c` as const;
 const leadFields =
   'Id,Id__c,FirstName,LastName,CPF__c,MobilePhone,CelularSemFormatacao__c,Email,CidadeInteresse__c,Marca__c,RecordTypeId,ManipularFase__c,Status,PermitirCriarLead__c,DescricaoOrigem__c' as const;
@@ -545,6 +563,12 @@ function isContactFixtureEventData(
   event: FixtureEventData,
 ): event is ContactFixtureEventData {
   return 'tipocontato' in event && 'descricao' in event;
+}
+
+function isAddressFixtureEventData(
+  event: FixtureEventData,
+): event is AddressFixtureEventData {
+  return 'tipoendereco' in event;
 }
 
 function isSyntheticAccountSetup(
@@ -1143,6 +1167,41 @@ export function createSalesforceTestDataAdapter(
                 accountTarget !== undefined &&
                 accountTarget.PersonMobilePhone === null &&
                 accountTarget.Celular__c === null,
+            });
+            break;
+          case 'ACCOUNT_EMAIL_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                accountTarget.PersonEmail === expectedValue,
+            });
+            break;
+          case 'ACCOUNT_MOBILE_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                (accountTarget.Celular__c ??
+                  normalizePhoneDigits(accountTarget.PersonMobilePhone) ??
+                  null) === normalizePhoneDigits(expectedValue),
+            });
+            break;
+          case 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                accountTarget.BillingStreet === expectedValue,
             });
             break;
           case 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED':

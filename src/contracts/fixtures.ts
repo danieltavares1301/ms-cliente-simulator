@@ -5,6 +5,7 @@ import {
   clienteInsertEventSchema,
   clienteUpdateEventSchema,
   contatoInsertEventSchema,
+  enderecoInsertEventSchema,
 } from './event-grid.ts';
 import {
   asyncPolicySchema,
@@ -18,6 +19,7 @@ const clientEnvelopeSchema = z
       clienteInsertEventSchema,
       clienteUpdateEventSchema,
       contatoInsertEventSchema,
+      enderecoInsertEventSchema,
     ]),
   )
   .length(1);
@@ -162,7 +164,12 @@ const renderedFixtureStepSchema = z
   .object({
     key: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     target: z.literal('CLIENTE'),
-    eventType: z.enum(['cliente-insert', 'cliente-update', 'contato-insert']),
+    eventType: z.enum([
+      'cliente-insert',
+      'cliente-update',
+      'contato-insert',
+      'endereco-insert',
+    ]),
     delayMs: z.number().int().nonnegative(),
     scheduledAt: apexCompatibleUtcDateTimeSchema,
     deliveryPolicy: deliveryPolicySchema,
@@ -176,13 +183,6 @@ const renderedFixtureStepSchema = z
         code: 'custom',
         message: 'Rendered event type must match its step',
         path: ['envelope', 0, 'eventType'],
-      });
-    }
-    if (event.eventTime !== scheduledAt) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Rendered eventTime must match scheduledAt',
-        path: ['envelope', 0, 'eventTime'],
       });
     }
   });

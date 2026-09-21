@@ -3,6 +3,7 @@ import type { ScenarioDefinition } from '../contracts/scenarios.ts';
 type GeneratedValue =
   | 'EVENT_ID'
   | 'EVENT_TIME'
+  | 'PINNED_EVENT_TIME'
   | 'BASELINE_TIME'
   | 'EARLIER_TIME'
   | 'CLIENT_ID'
@@ -16,7 +17,9 @@ type GeneratedValue =
   | 'COLLISION_LEAD_ID_EXTERNO'
   | 'COLLISION_CPF'
   | 'COLLISION_EMAIL'
-  | 'CLEAN_CELULAR';
+  | 'CLEAN_CELULAR'
+  | 'SYNTHETIC_EMAIL'
+  | 'SYNTHETIC_STREET';
 
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
@@ -65,12 +68,14 @@ function clientPayload(
   options: {
     cpf?: ReturnType<typeof generated>;
     dataAlteracao?: ReturnType<typeof generated>;
+    eventTime?: ReturnType<typeof generated>;
     personName?: ReturnType<typeof generated>;
   } = {},
 ) {
   const {
     cpf = generated('CPF'),
     dataAlteracao = generated('EVENT_TIME'),
+    eventTime = generated('EVENT_TIME'),
     personName = generated('PERSON_NAME'),
   } = options;
   return {
@@ -80,7 +85,7 @@ function clientPayload(
       id: generated('EVENT_ID'),
       subject: 'MS_Clientes',
       eventType,
-      eventTime: generated('EVENT_TIME'),
+      eventTime,
       dataVersion: '1.0',
       metadataVersion: '1',
       topic: '/simulator/ms-clientes',
@@ -102,7 +107,15 @@ function contatoPayload(
   descricao: ReturnType<typeof generated>,
   includeProspect: boolean,
   idCliente: ReturnType<typeof generated> = generated('CLIENT_ID'),
+  options: {
+    dataAlteracao?: ReturnType<typeof generated>;
+    eventTime?: ReturnType<typeof generated>;
+  } = {},
 ) {
+  const {
+    dataAlteracao = generated('EVENT_TIME'),
+    eventTime = generated('EVENT_TIME'),
+  } = options;
   return {
     kind: 'DECLARATIVE',
     contract: 'EVENT_GRID',
@@ -110,7 +123,7 @@ function contatoPayload(
       id: generated('EVENT_ID'),
       subject: 'MS_Clientes',
       eventType: 'contato-insert',
-      eventTime: generated('EVENT_TIME'),
+      eventTime,
       dataVersion: '1.0',
       metadataVersion: '1',
       topic: '/simulator/ms-clientes',
@@ -121,7 +134,47 @@ function contatoPayload(
           : {}),
         tipocontato: tipoContato,
         descricao,
-        dataalteracao: generated('EVENT_TIME'),
+        dataalteracao: dataAlteracao,
+      },
+    },
+  } as const;
+}
+
+function enderecoPayload(
+  descricaoLogradouro: ReturnType<typeof generated>,
+  includeProspect: boolean,
+  options: {
+    dataAlteracao?: ReturnType<typeof generated>;
+    eventTime?: ReturnType<typeof generated>;
+  } = {},
+) {
+  const {
+    dataAlteracao = generated('EVENT_TIME'),
+    eventTime = generated('EVENT_TIME'),
+  } = options;
+
+  return {
+    kind: 'DECLARATIVE',
+    contract: 'EVENT_GRID',
+    value: {
+      id: generated('EVENT_ID'),
+      subject: 'MS_Clientes',
+      eventType: 'endereco-insert',
+      eventTime,
+      dataVersion: '1.0',
+      metadataVersion: '1',
+      topic: '/simulator/ms-clientes',
+      data: {
+        idcliente: generated('CLIENT_ID'),
+        ...(includeProspect
+          ? { idprospectsalesforce: generated('PROSPECT_ID') }
+          : {}),
+        tipoendereco: 'COBRANCA',
+        logradouro: descricaoLogradouro,
+        numerocep: '30140071',
+        bairro: 'Funcionarios',
+        numero: '100',
+        dataalteracao: dataAlteracao,
       },
     },
   } as const;
@@ -264,6 +317,366 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithLead,
+  },
+  {
+    key: 'ordem-mesmo-eventtime-cliente-primeiro',
+    version: 1,
+    name: 'Mesmo eventTime com cliente primeiro',
+    description:
+      'Executa O03 com cliente, contatos e endereco compartilhando o mesmo eventTime logico, enquanto o dispatch fisico ocorre em instantes diferentes com cliente primeiro.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'o03',
+      'mesmo-eventtime',
+      'cliente-primeiro',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'cliente-insert',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 0,
+        payloadTemplate: clientPayload('cliente-insert', false, {
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-email',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 1_000,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL'),
+          false,
+          generated('CLIENT_ID'),
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 2_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          false,
+          generated('CLIENT_ID'),
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'endereco-insert',
+        target: 'CLIENTE',
+        eventType: 'endereco-insert',
+        delayMs: 3_000,
+        payloadTemplate: enderecoPayload(
+          generated('SYNTHETIC_STREET'),
+          false,
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'ACCOUNT_UPDATED_ONLY',
+        description:
+          'Com o mesmo eventTime logico, a Account final deve convergir para os campos do cliente, contato e endereco sem depender da ordem fisica do dispatch.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          {
+            check: 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_STREET'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup,
+  },
+  {
+    key: 'ordem-mesmo-eventtime-contato-primeiro',
+    version: 1,
+    name: 'Mesmo eventTime com contato primeiro',
+    description:
+      'Executa O03 com contato-email primeiro, preservando o mesmo eventTime logico nos quatro eventos e mudando apenas a ordem fisica do dispatch.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'o03',
+      'mesmo-eventtime',
+      'contato-primeiro',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-email',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL'),
+          false,
+          generated('CLIENT_ID'),
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 1_000,
+        payloadTemplate: clientPayload('cliente-insert', false, {
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'endereco-insert',
+        target: 'CLIENTE',
+        eventType: 'endereco-insert',
+        delayMs: 2_000,
+        payloadTemplate: enderecoPayload(
+          generated('SYNTHETIC_STREET'),
+          false,
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 3_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          false,
+          generated('CLIENT_ID'),
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'ACCOUNT_UPDATED_ONLY',
+        description:
+          'Mesmo com contato-email chegando primeiro, a Account final deve convergir para email, celular, logradouro, nome e CPF quando todos os eventos compartilham o mesmo eventTime logico.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          {
+            check: 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_STREET'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup,
+  },
+  {
+    key: 'ordem-mesmo-eventtime-endereco-primeiro',
+    version: 1,
+    name: 'Mesmo eventTime com endereco primeiro',
+    description:
+      'Executa O03 com endereco primeiro e os demais eventos em ordem fisica diferente, mantendo o mesmo eventTime logico em toda a permutacao.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'o03',
+      'mesmo-eventtime',
+      'endereco-primeiro',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'endereco-insert',
+        target: 'CLIENTE',
+        eventType: 'endereco-insert',
+        delayMs: 0,
+        payloadTemplate: enderecoPayload(
+          generated('SYNTHETIC_STREET'),
+          false,
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 1_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          false,
+          generated('CLIENT_ID'),
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: clientPayload('cliente-insert', false, {
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-email',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 3_000,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL'),
+          false,
+          generated('CLIENT_ID'),
+          {
+            dataAlteracao: generated('PINNED_EVENT_TIME'),
+            eventTime: generated('PINNED_EVENT_TIME'),
+          },
+        ),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'ACCOUNT_UPDATED_ONLY',
+        description:
+          'Mesmo com endereco primeiro, a Account final deve convergir para o mesmo estado canônico quando todos os eventos compartilham o mesmo eventTime logico.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          {
+            check: 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_STREET'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup,
   },
   {
     key: 'cliente-insert-prospect-divergente',

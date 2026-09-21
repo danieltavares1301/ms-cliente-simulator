@@ -27,6 +27,7 @@ type GeneratedValue =
   | 'STEP_ID'
   | 'EVENT_ID'
   | 'EVENT_TIME'
+  | 'PINNED_EVENT_TIME'
   | 'BASELINE_TIME'
   | 'EARLIER_TIME'
   | 'CLIENT_ID'
@@ -40,7 +41,9 @@ type GeneratedValue =
   | 'COLLISION_LEAD_ID_EXTERNO'
   | 'COLLISION_CPF'
   | 'COLLISION_EMAIL'
-  | 'CLEAN_CELULAR';
+  | 'CLEAN_CELULAR'
+  | 'SYNTHETIC_EMAIL'
+  | 'SYNTHETIC_STREET';
 
 type RenderContext = Readonly<Record<GeneratedValue, string>>;
 
@@ -122,6 +125,7 @@ export function renderScenarioFixture(
     STEP_ID: '',
     EVENT_ID: '',
     EVENT_TIME: eventStartAt,
+    PINNED_EVENT_TIME: eventStartAt,
     BASELINE_TIME: new Date(Date.parse(eventStartAt) - 1_000).toISOString(),
     EARLIER_TIME: new Date(Date.parse(eventStartAt) - 6_000).toISOString(),
     CLIENT_ID: accountIdCliente,
@@ -136,6 +140,8 @@ export function renderScenarioFixture(
     COLLISION_CPF: collisionCpf,
     COLLISION_EMAIL: collisionEmail,
     CLEAN_CELULAR: cleanCelular,
+    SYNTHETIC_EMAIL: `cliente.${seedToken}@simulador.mrv.invalid`,
+    SYNTHETIC_STREET: `Rua Simulada ${seedToken}`,
   } satisfies RenderContext;
   const hasControlAccount =
     definition.setup?.some(

@@ -19,6 +19,9 @@ const scenarioKeys = [
   'match-cpf-sem-id-cliente',
   'no-match-cliente-insert',
   'cliente-update-nova-estrutura',
+  'ordem-mesmo-eventtime-cliente-primeiro',
+  'ordem-mesmo-eventtime-contato-primeiro',
+  'ordem-mesmo-eventtime-endereco-primeiro',
 ] as const;
 
 const expectedStepCountByScenario = {
@@ -32,6 +35,9 @@ const expectedStepCountByScenario = {
   'match-cpf-sem-id-cliente': 1,
   'no-match-cliente-insert': 1,
   'cliente-update-nova-estrutura': 1,
+  'ordem-mesmo-eventtime-cliente-primeiro': 4,
+  'ordem-mesmo-eventtime-contato-primeiro': 4,
+  'ordem-mesmo-eventtime-endereco-primeiro': 4,
 } as const;
 
 const input = {
@@ -223,6 +229,68 @@ describe('basic scenario fixture definitions', () => {
         },
       },
     });
+    expect(
+      scenarioCatalog.get('ordem-mesmo-eventtime-cliente-primeiro', 1)
+        ?.expectedOutcomes[0],
+    ).toMatchObject({
+      result: 'ACCOUNT_UPDATED_ONLY',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+        },
+        {
+          check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+        },
+        {
+          check: 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_STREET' },
+        },
+      ],
+    });
+    expect(
+      scenarioCatalog.get('ordem-mesmo-eventtime-cliente-primeiro', 1)?.steps,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'cliente-insert',
+          payloadTemplate: expect.objectContaining({
+            value: expect.objectContaining({
+              eventTime: { source: 'GENERATED', value: 'PINNED_EVENT_TIME' },
+              data: expect.objectContaining({
+                dataalteracao: {
+                  source: 'GENERATED',
+                  value: 'PINNED_EVENT_TIME',
+                },
+              }),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          eventType: 'endereco-insert',
+          payloadTemplate: expect.objectContaining({
+            value: expect.objectContaining({
+              eventTime: { source: 'GENERATED', value: 'PINNED_EVENT_TIME' },
+              data: expect.objectContaining({
+                logradouro: {
+                  source: 'GENERATED',
+                  value: 'SYNTHETIC_STREET',
+                },
+                dataalteracao: {
+                  source: 'GENERATED',
+                  value: 'PINNED_EVENT_TIME',
+                },
+              }),
+            }),
+          }),
+        }),
+      ]),
+    );
     expect(
       scenarioCatalog.get('match-id-cliente', 1)?.expectedOutcomes[0],
     ).toMatchObject({
@@ -423,6 +491,47 @@ describe('renderScenarioFixture', () => {
     });
   });
 
+  it('renders O03 with the same logical eventTime across different physical dispatch times', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'ordem-mesmo-eventtime-endereco-primeiro',
+      version: 1,
+      seed: input.seed,
+      runId: input.runId,
+      eventStartAt: input.eventStartAt,
+    });
+
+    expect(fixture.steps.map((step) => step.key)).toStrictEqual([
+      'endereco-insert',
+      'contato-celular',
+      'cliente-insert',
+      'contato-email',
+    ]);
+    expect(fixture.steps.map((step) => step.scheduledAt)).toStrictEqual([
+      '2026-08-22T15:00:00.000Z',
+      '2026-08-22T15:00:01.000Z',
+      '2026-08-22T15:00:02.000Z',
+      '2026-08-22T15:00:03.000Z',
+    ]);
+    expect(
+      new Set(fixture.steps.map((step) => step.envelope[0].eventTime)),
+    ).toStrictEqual(new Set([input.eventStartAt]));
+    expect(
+      new Set(
+        fixture.steps.map((step) => step.envelope[0].data.dataalteracao),
+      ),
+    ).toStrictEqual(new Set([input.eventStartAt]));
+    expect(
+      fixture.steps.find((step) => step.eventType === 'endereco-insert')
+        ?.envelope[0].data,
+    ).toMatchObject({
+      tipoendereco: 'COBRANCA',
+      logradouro: expect.any(String),
+      numerocep: '30140071',
+      bairro: 'Funcionarios',
+      numero: '100',
+    });
+  });
+
   it('rejects rendered fixtures with more than one collision lead setup', () => {
     const scheduledAt = '2026-08-22T15:00:00.000Z';
     const collisionLead = {
@@ -596,6 +705,9 @@ describe('renderScenarioFixture', () => {
     'produces deterministic Apex-compatible UTC dates and applies delay for %s',
     (scenarioKey) => {
       const fixture = renderScenarioFixture({ ...input, scenarioKey });
+      const isPinnedLogicalEventTime = scenarioKey.startsWith(
+        'ordem-mesmo-eventtime-',
+      );
       for (const step of fixture.steps) {
         const expectedTime = new Date(
           Date.parse(input.eventStartAt) + step.delayMs,
@@ -603,10 +715,15 @@ describe('renderScenarioFixture', () => {
         const expectedDataAlteracao =
           scenarioKey === 'evento-obsoleto'
             ? '2026-08-22T14:59:54.000Z'
-            : expectedTime;
+            : isPinnedLogicalEventTime
+              ? input.eventStartAt
+              : expectedTime;
+        const expectedEventTime = isPinnedLogicalEventTime
+          ? input.eventStartAt
+          : expectedTime;
 
         expect(step.scheduledAt).toBe(expectedTime);
-        expect(step.envelope[0].eventTime).toBe(expectedTime);
+        expect(step.envelope[0].eventTime).toBe(expectedEventTime);
         expect(step.envelope[0].data.dataalteracao).toBe(
           expectedDataAlteracao,
         );

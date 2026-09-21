@@ -1167,6 +1167,37 @@ describe('Salesforce test data adapter verify', () => {
     expect(client.query).not.toHaveBeenCalled();
   });
 
+  it('rejects endereco-insert sem logradouro after supporting O03 permutations', async () => {
+    const rendered = renderScenarioFixture({
+      scenarioKey: 'ordem-mesmo-eventtime-cliente-primeiro',
+      version: 1,
+      seed: 'phase-four-seed',
+      runId: 'run_phase_four_a',
+      eventStartAt: '2026-09-20T16:30:00.000Z',
+    });
+    const addressStep = rendered.steps.find(
+      (step) => step.eventType === 'endereco-insert',
+    );
+    if (!addressStep) {
+      throw new Error('Expected endereco-insert step');
+    }
+    delete (
+      addressStep.envelope[0].data as {
+        logradouro?: string;
+      }
+    ).logradouro;
+    const client = restClient();
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup({
+        runId: rendered.runId,
+        scenarioKey: rendered.scenarioKey,
+        fixture: rendered,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_FIXTURE' });
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
   it('rejects collision Leads whose rendered external id diverges from fixture identifiers', async () => {
     const rendered = contatoAntesClienteColisaoFixture();
     (
@@ -1569,6 +1600,69 @@ describe('Salesforce test data adapter verify', () => {
         { check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
         { check: 'LEAD_EMAIL_EXCLUDED', passed: true },
         { check: 'LEAD_MOBILE_EXCLUDED', passed: true },
+      ]),
+    );
+  });
+
+  it('passes the O03 account convergence checks for email, mobile and billing street', async () => {
+    const rendered = renderScenarioFixture({
+      scenarioKey: 'ordem-mesmo-eventtime-contato-primeiro',
+      version: 1,
+      seed: 'phase-four-seed',
+      runId: 'run_phase_four_a',
+      eventStartAt: '2026-09-20T16:30:00.000Z',
+    });
+    const emailStep = rendered.steps.find(
+      (step) =>
+        step.eventType === 'contato-insert' &&
+        (step.envelope[0].data as { tipocontato?: string }).tipocontato ===
+          'Email',
+    );
+    const mobileStep = rendered.steps.find(
+      (step) =>
+        step.eventType === 'contato-insert' &&
+        (step.envelope[0].data as { tipocontato?: string }).tipocontato ===
+          'Celular',
+    );
+    const addressStep = rendered.steps.find(
+      (step) => step.eventType === 'endereco-insert',
+    );
+    const expectedEmail = (emailStep?.envelope[0].data as { descricao: string })
+      .descricao;
+    const expectedMobile = (
+      mobileStep?.envelope[0].data as { descricao: string }
+    ).descricao;
+    const expectedStreet = (
+      addressStep?.envelope[0].data as { logradouro: string }
+    ).logradouro;
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          PersonEmail: expectedEmail,
+          PersonMobilePhone: `55${expectedMobile}`,
+          Celular__c: expectedMobile,
+          BillingStreet: expectedStreet,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: rendered,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
+        { check: 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED', passed: true },
       ]),
     );
   });

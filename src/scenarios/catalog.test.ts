@@ -155,7 +155,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(10);
+    expect(scenarioCatalog.listActive()).toHaveLength(13);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -210,6 +210,21 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'no-match-cliente-insert',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'ordem-mesmo-eventtime-cliente-primeiro',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'ordem-mesmo-eventtime-contato-primeiro',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'ordem-mesmo-eventtime-endereco-primeiro',
         version: 1,
         availability: 'READY',
       },

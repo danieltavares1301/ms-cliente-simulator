@@ -25,6 +25,7 @@ const generatedFixtureValueSchema = z.enum([
   'STEP_ID',
   'EVENT_ID',
   'EVENT_TIME',
+  'PINNED_EVENT_TIME',
   'BASELINE_TIME',
   'EARLIER_TIME',
   'CLIENT_ID',
@@ -39,6 +40,8 @@ const generatedFixtureValueSchema = z.enum([
   'COLLISION_CPF',
   'COLLISION_EMAIL',
   'CLEAN_CELULAR',
+  'SYNTHETIC_EMAIL',
+  'SYNTHETIC_STREET',
 ]);
 
 export const scenarioScopeSchema = z.enum(['CORE', 'EXTENDED']);
@@ -267,6 +270,9 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_CPF_EQUALS_SETUP',
   'ACCOUNT_EMAIL_EXCLUDED',
   'ACCOUNT_MOBILE_EXCLUDED',
+  'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+  'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+  'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
   'CONTROL_ACCOUNT_UNCHANGED',
   'NO_OTHER_ACCOUNT_UPDATED',
   'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
@@ -318,6 +324,27 @@ const renderedControlAccountExpectedValueCheckSchema = z.discriminatedUnion(
   ],
 );
 
+const renderedAccountExpectedValueCheckSchema = z.discriminatedUnion('check', [
+  z
+    .object({
+      check: z.literal('ACCOUNT_EMAIL_EQUALS_EXPECTED'),
+      value: z.string().trim().min(1).max(80),
+    })
+    .strict(),
+  z
+    .object({
+      check: z.literal('ACCOUNT_MOBILE_EQUALS_EXPECTED'),
+      value: z.string().trim().min(1).max(40),
+    })
+    .strict(),
+  z
+    .object({
+      check: z.literal('ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'),
+      value: z.string().trim().min(1).max(255),
+    })
+    .strict(),
+]);
+
 const definitionExpectedValueSchema = z.union([
   generatedFixtureReferenceSchema,
   z.string().trim().min(1).max(255),
@@ -356,6 +383,24 @@ export const expectedOutcomeCheckSchema = z.union([
         value: definitionExpectedValueSchema,
       })
       .strict(),
+    z
+      .object({
+        check: z.literal('ACCOUNT_EMAIL_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('ACCOUNT_MOBILE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
   ]),
 ]);
 
@@ -377,6 +422,7 @@ export const expectedOutcomeSchema = z
 export const renderedExpectedOutcomeCheckSchema = z.union([
   bareExpectedOutcomeCheckSchema,
   renderedLeadExpectedValueCheckSchema,
+  renderedAccountExpectedValueCheckSchema,
   renderedControlAccountExpectedValueCheckSchema,
 ]);
 
