@@ -856,6 +856,7 @@ describe('Salesforce test data adapter cleanup', () => {
 
   it('deletes Apex-created Leads only from the explicit Salesforce Id allowlist', async () => {
     const rendered = leadFixture();
+    const setup = createLeadSetup(rendered).lead;
     const client = restClient();
     client.query.mockResolvedValue({
       totalSize: 1,
@@ -863,6 +864,7 @@ describe('Salesforce test data adapter cleanup', () => {
       records: [
         leadFromFixture(rendered, {
           Id__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+          CPF__c: setup.cpf,
         }),
       ],
     });
@@ -875,5 +877,50 @@ describe('Salesforce test data adapter cleanup', () => {
       ),
     ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
     expect(client.deleteRecord).toHaveBeenCalledWith('Lead', leadId);
+  });
+
+  it('rejects Apex-created Leads with a mismatched fixture CPF even when the Salesforce Id is allowlisted', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        leadFromFixture(rendered, {
+          Id__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+          CPF__c: '39095812030',
+        }),
+      ],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        leadInput(rendered),
+        [leadId],
+      ),
+    ).rejects.toMatchObject({ code: 'OWNERSHIP_MISMATCH' });
+    expect(client.deleteRecord).not.toHaveBeenCalled();
+  });
+
+  it('rejects cleanup for Leads without Id__c even when the Salesforce Id is allowlisted', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        leadFromFixture(rendered, {
+          Id__c: null,
+        }),
+      ],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        leadInput(rendered),
+        [leadId],
+      ),
+    ).rejects.toMatchObject({ code: 'OWNERSHIP_MISMATCH' });
+    expect(client.deleteRecord).not.toHaveBeenCalled();
   });
 });

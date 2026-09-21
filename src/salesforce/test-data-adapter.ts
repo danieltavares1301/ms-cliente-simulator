@@ -957,6 +957,7 @@ export function createSalesforceTestDataAdapter(
         }
 
         if (instruction.target === 'LEAD') {
+          const expectedCpf = fixtureCpf(fixture);
           const records = await queryLeads(
             asAllowlistedQuery(
               `SELECT ${leadFields} FROM Lead WHERE Id IN (${uniqueIds
@@ -966,10 +967,16 @@ export function createSalesforceTestDataAdapter(
           );
 
           for (const record of records) {
-            const isPrefixOwned =
-              record.Id__c?.startsWith(leadSyntheticIdPrefix) === true;
-            const isExplicitlyOwned = uniqueIds.includes(record.Id);
-            if (!isPrefixOwned && !isExplicitlyOwned) {
+            if (record.Id__c?.startsWith(leadSyntheticIdPrefix) === true) {
+              continue;
+            }
+            if (record.Id__c === null) {
+              throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+            }
+            // CPF is used only to validate the ownership of an already allowlisted
+            // Salesforce Id returned by verify(); cleanup still never selects Leads
+            // by CPF/email alone.
+            if (record.CPF__c !== expectedCpf) {
               throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
             }
           }
