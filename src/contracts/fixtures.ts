@@ -25,6 +25,40 @@ const renderedAccountSchema = z
   })
   .strict();
 
+const renderedLeadSchema = z
+  .object({
+    idExterno: z.string().min(1).max(150).optional(),
+    cpf: z.string().regex(/^\d{11}$/),
+    firstName: z.string().min(1).max(40).optional(),
+    lastName: z.string().min(1).max(80),
+    email: z.string().min(1).max(80).optional(),
+    celular: z.string().min(1).max(40).optional(),
+    cidadeInteresse: z.string().min(1).max(255).optional(),
+    status: z.string().min(1).max(80).default('Pendente de Distribuição'),
+    descricaoOrigem: z.string().min(1).max(255).optional(),
+  })
+  .strict();
+
+const renderedLeadAbsentKeysSchema = z
+  .object({
+    idExterno: z.string().min(1).max(150).optional(),
+    cpf: z
+      .string()
+      .regex(/^\d{11}$/)
+      .optional(),
+    email: z.string().min(1).max(80).optional(),
+    celular: z.string().min(1).max(40).optional(),
+  })
+  .strict()
+  .refine(
+    ({ idExterno, cpf, email, celular }) =>
+      idExterno !== undefined ||
+      cpf !== undefined ||
+      email !== undefined ||
+      celular !== undefined,
+    { message: 'ENSURE_LEAD_ABSENT requires at least one key' },
+  );
+
 export const renderedSetupInstructionSchema = z.discriminatedUnion(
   'operation',
   [
@@ -63,20 +97,56 @@ export const renderedSetupInstructionSchema = z.discriminatedUnion(
           .strict(),
       })
       .strict(),
+    z
+      .object({
+        operation: z.literal('CREATE_SYNTHETIC_LEAD'),
+        lead: renderedLeadSchema,
+      })
+      .strict(),
+    z
+      .object({
+        operation: z.literal('ENSURE_LEAD_ABSENT'),
+        keys: renderedLeadAbsentKeysSchema,
+      })
+      .strict(),
   ],
 );
 
-const renderedCleanupInstructionSchema = z
-  .object({
-    operation: z.literal('DELETE_OWNED_RECORDS'),
-    target: z.literal('ACCOUNT'),
-    ownership: z
-      .object({
-        idCliente: z.string().min(1).max(50),
-      })
-      .strict(),
-  })
-  .strict();
+const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
+  z
+    .object({
+      operation: z.literal('DELETE_OWNED_RECORDS'),
+      target: z.literal('ACCOUNT'),
+      ownership: z
+        .object({
+          idCliente: z.string().min(1).max(50),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('DELETE_OWNED_RECORDS'),
+      target: z.literal('LEAD'),
+      ownership: z
+        .object({
+          idExternoPrefix: z.literal('LEAD-SIM-'),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('DELETE_OWNED_RECORDS'),
+      target: z.literal('CLIENT_STRUCTURE'),
+      ownership: z
+        .object({
+          idCliente: z.string().min(1).max(50),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
 
 const renderedFixtureStepSchema = z
   .object({

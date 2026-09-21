@@ -7,7 +7,8 @@ import {
 import {
   asAllowlistedQuery,
   escapeSoqlLiteral,
-  SALESFORCE_API_VERSION,
+  getLeadGestaoVendasRecordTypeId,
+  getPersonAccountRecordTypeId,
   type SalesforceCompositeRequest,
   type SalesforceRestClient,
 } from './rest-client';
@@ -15,12 +16,7 @@ import {
 const adapterInputSchema = z
   .object({
     runId: z.string().regex(/^run_[A-Za-z0-9_-]{1,64}$/),
-    scenarioKey: z.enum([
-      'match-id-cliente',
-      'match-cpf-sem-id-cliente',
-      'no-match-cliente-insert',
-      'cliente-update-nova-estrutura',
-    ]),
+    scenarioKey: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     fixture: renderedScenarioFixtureSchema,
   })
   .strict()
@@ -39,51 +35,91 @@ const adapterInputSchema = z
         path: ['scenarioKey'],
       });
     }
-    if (!fixture.identifiers.accountIdCliente.startsWith('CLI-SIM-')) {
+
+    const accountSetup = fixture.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
+    );
+    const absentAccountSetup = fixture.setup.find(
+      (instruction) => instruction.operation === 'ENSURE_ACCOUNT_ABSENT',
+    );
+    const leadSetup = fixture.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
+    );
+    const absentLeadSetup = fixture.setup.find(
+      (instruction) => instruction.operation === 'ENSURE_LEAD_ABSENT',
+    );
+    const setupCpf =
+      accountSetup?.account.cpf ??
+      absentAccountSetup?.keys.cpf ??
+      leadSetup?.lead.cpf ??
+      absentLeadSetup?.keys.cpf;
+
+    if (
+      (accountSetup !== undefined || absentAccountSetup !== undefined) &&
+      !fixture.identifiers.accountIdCliente.startsWith('CLI-SIM-')
+    ) {
       context.addIssue({
         code: 'custom',
         message: 'Fixture Account identifier is not simulator-owned',
         path: ['fixture', 'identifiers', 'accountIdCliente'],
       });
     }
-
-    const expectedSetup = {
-      'match-id-cliente': ['CREATE_SYNTHETIC_ACCOUNT', 'ID_CLIENTE'],
-      'match-cpf-sem-id-cliente': ['CREATE_SYNTHETIC_ACCOUNT', 'CPF'],
-      'no-match-cliente-insert': ['ENSURE_ACCOUNT_ABSENT'],
-      'cliente-update-nova-estrutura': ['ENSURE_ACCOUNT_ABSENT'],
-    }[scenarioKey];
-    const setup = fixture.setup[0];
-    const setupMatchesScenario =
-      fixture.setup.length === 1 &&
-      setup !== undefined &&
-      setup.operation === expectedSetup[0] &&
-      (setup.operation !== 'CREATE_SYNTHETIC_ACCOUNT' ||
-        setup.matchBy === expectedSetup[1]);
-    if (!setupMatchesScenario) {
+    if (accountSetup !== undefined) {
+      const accountIdsMatch =
+        (accountSetup.matchBy === 'CPF' ||
+          accountSetup.account.idCliente ===
+            fixture.identifiers.accountIdCliente) &&
+        accountSetup.account.idProspect ===
+          fixture.identifiers.accountIdProspect;
+      if (!accountIdsMatch) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Fixture Account setup identifiers are inconsistent',
+          path: ['fixture', 'setup'],
+        });
+      }
+    }
+    if (absentAccountSetup !== undefined) {
+      const accountIdsMatch =
+        absentAccountSetup.keys.idCliente ===
+          fixture.identifiers.accountIdCliente &&
+        absentAccountSetup.keys.idProspect ===
+          fixture.identifiers.accountIdProspect;
+      if (!accountIdsMatch) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Fixture Account absence keys are inconsistent',
+          path: ['fixture', 'setup'],
+        });
+      }
+    }
+    if (
+      leadSetup?.lead.idExterno !== undefined &&
+      leadSetup.lead.idExterno !== fixture.identifiers.leadIdExterno
+    ) {
       context.addIssue({
         code: 'custom',
-        message: 'Fixture setup does not match the core scenario',
+        message: 'Fixture Lead external id is inconsistent',
         path: ['fixture', 'setup'],
       });
-      return;
     }
-
-    const setupCpf =
-      setup.operation === 'CREATE_SYNTHETIC_ACCOUNT'
-        ? setup.account.cpf
-        : setup.keys.cpf;
-    const setupIdsMatch =
-      setup.operation === 'CREATE_SYNTHETIC_ACCOUNT'
-        ? (setup.matchBy === 'CPF' ||
-            setup.account.idCliente === fixture.identifiers.accountIdCliente) &&
-          setup.account.idProspect === fixture.identifiers.accountIdProspect
-        : setup.keys.idCliente === fixture.identifiers.accountIdCliente &&
-          setup.keys.idProspect === fixture.identifiers.accountIdProspect;
-    if (!setupIdsMatch) {
+    if (
+      leadSetup?.lead.idExterno !== undefined &&
+      !leadSetup.lead.idExterno.startsWith('LEAD-SIM-')
+    ) {
       context.addIssue({
         code: 'custom',
-        message: 'Fixture setup identifiers are inconsistent',
+        message: 'Synthetic Lead external id must be simulator-owned',
+        path: ['fixture', 'setup'],
+      });
+    }
+    if (
+      absentLeadSetup?.keys.idExterno !== undefined &&
+      absentLeadSetup.keys.idExterno !== fixture.identifiers.leadIdExterno
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Fixture Lead absence keys are inconsistent',
         path: ['fixture', 'setup'],
       });
     }
@@ -93,7 +129,7 @@ const adapterInputSchema = z
       if (
         event === undefined ||
         event.idcliente !== fixture.identifiers.accountIdCliente ||
-        event.numerocpf !== setupCpf ||
+        (setupCpf !== undefined && event.numerocpf !== setupCpf) ||
         event.nomecompleto === undefined ||
         (event.idprospectsalesforce !== undefined &&
           event.idprospectsalesforce !== fixture.identifiers.accountIdProspect)
@@ -106,16 +142,28 @@ const adapterInputSchema = z
       }
     }
 
-    if (
-      fixture.cleanup.length !== 1 ||
-      fixture.cleanup[0]?.ownership.idCliente !==
-        fixture.identifiers.accountIdCliente
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: 'Fixture cleanup ownership is inconsistent',
-        path: ['fixture', 'cleanup'],
-      });
+    for (const cleanup of fixture.cleanup) {
+      if (
+        (cleanup.target === 'ACCOUNT' ||
+          cleanup.target === 'CLIENT_STRUCTURE') &&
+        cleanup.ownership.idCliente !== fixture.identifiers.accountIdCliente
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Fixture cleanup ownership is inconsistent',
+          path: ['fixture', 'cleanup'],
+        });
+      }
+      if (
+        cleanup.target === 'LEAD' &&
+        cleanup.ownership.idExternoPrefix !== 'LEAD-SIM-'
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Fixture Lead cleanup ownership is inconsistent',
+          path: ['fixture', 'cleanup'],
+        });
+      }
     }
   });
 
@@ -151,6 +199,14 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_IS_PERSON_ACCOUNT'
     | 'ACCOUNT_CPF_EQUALS_EVENT'
     | 'NO_OTHER_ACCOUNT_UPDATED'
+    | 'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE'
+    | 'LEAD_CPF_EQUALS_EVENT'
+    | 'LEAD_EMAIL_EQUALS_EXPECTED'
+    | 'LEAD_MOBILE_EQUALS_EXPECTED'
+    | 'LEAD_EMAIL_EXCLUDED'
+    | 'LEAD_MOBILE_EXCLUDED'
+    | 'LEAD_DESCRICAO_ORIGEM_EQUALS'
+    | 'LEAD_NOT_CREATED'
     | 'LEAD_NOT_REQUIRED'
     | 'PROPONENTE_NOT_REQUIRED';
   passed: boolean;
@@ -207,19 +263,31 @@ const accountQueryResponseSchema = z
   })
   .passthrough();
 
-const recordTypeQueryResponseSchema = z
+const leadRecordSchema = z
   .object({
-    totalSize: z.literal(1),
+    Id: z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/),
+    Id__c: nullableText,
+    FirstName: nullableText.optional(),
+    LastName: nullableText,
+    CPF__c: nullableText,
+    MobilePhone: nullableText,
+    CelularSemFormatacao__c: nullableText,
+    Email: nullableText,
+    CidadeInteresse__c: nullableText,
+    Marca__c: nullableText,
+    RecordTypeId: nullableText,
+    ManipularFase__c: z.boolean(),
+    Status: nullableText,
+    PermitirCriarLead__c: z.boolean(),
+    DescricaoOrigem__c: nullableText.optional(),
+  })
+  .passthrough();
+
+const leadQueryResponseSchema = z
+  .object({
+    totalSize: z.number().int().nonnegative(),
     done: z.literal(true),
-    records: z
-      .array(
-        z
-          .object({
-            Id: z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/),
-          })
-          .passthrough(),
-      )
-      .length(1),
+    records: z.array(leadRecordSchema),
   })
   .passthrough();
 
@@ -237,7 +305,7 @@ const compositeResponseSchema = z
               })
               .passthrough(),
             httpStatusCode: z.number().int().min(200).max(299),
-            referenceId: z.literal('createAccount'),
+            referenceId: z.enum(['createAccount', 'createLead']),
           })
           .passthrough(),
       )
@@ -246,10 +314,18 @@ const compositeResponseSchema = z
   .passthrough();
 
 type AccountRecord = z.infer<typeof accountRecordSchema>;
+type LeadRecord = z.infer<typeof leadRecordSchema>;
+type FixtureCheck =
+  RenderedScenarioFixture['expectedOutcomes'][number]['checks'][number];
 
 const accountFields =
   'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount' as const;
 const setupAccountFields = `${accountFields},DataAlteracaoEvento__c` as const;
+const leadFields =
+  'Id,Id__c,FirstName,LastName,CPF__c,MobilePhone,CelularSemFormatacao__c,Email,CidadeInteresse__c,Marca__c,RecordTypeId,ManipularFase__c,Status,PermitirCriarLead__c,DescricaoOrigem__c' as const;
+const leadSyntheticIdPrefix = 'LEAD-SIM-' as const;
+const leadDefaultStatus = 'Pendente de Distribuição' as const;
+const leadDefaultBrand = '1' as const;
 
 function literal(value: string): string {
   return `'${escapeSoqlLiteral(value)}'`;
@@ -273,15 +349,32 @@ function parseAccountQueryResponse(value: unknown): AccountRecord[] {
   return result.data.records;
 }
 
+function parseLeadQueryResponse(value: unknown): LeadRecord[] {
+  const result = leadQueryResponseSchema.safeParse(value);
+  if (!result.success || result.data.totalSize !== result.data.records.length) {
+    throw new SalesforceTestDataAdapterError('SALESFORCE_RESPONSE_INVALID');
+  }
+  return result.data.records;
+}
+
 function fixtureEvent(fixture: RenderedScenarioFixture) {
   return fixture.steps[0]!.envelope[0]!.data;
 }
 
 function fixtureCpf(fixture: RenderedScenarioFixture): string {
   const setup = fixture.setup[0]!;
-  return setup.operation === 'CREATE_SYNTHETIC_ACCOUNT'
-    ? setup.account.cpf
-    : setup.keys.cpf;
+  switch (setup.operation) {
+    case 'CREATE_SYNTHETIC_ACCOUNT':
+      return setup.account.cpf;
+    case 'ENSURE_ACCOUNT_ABSENT':
+      return setup.keys.cpf;
+    case 'CREATE_SYNTHETIC_LEAD':
+      return setup.lead.cpf;
+    case 'ENSURE_LEAD_ABSENT':
+      return setup.keys.cpf ?? fixtureEvent(fixture).numerocpf ?? '';
+    default:
+      return fixtureEvent(fixture).numerocpf ?? '';
+  }
 }
 
 function accountLookupQuery(
@@ -296,11 +389,96 @@ function accountLookupQuery(
   );
 }
 
+function normalizePhoneDigits(value: string | null | undefined) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const digits = value.replace(/\D+/g, '');
+  return digits.length === 0 ? undefined : digits;
+}
+
+function getLeadExternalId(
+  fixture: RenderedScenarioFixture,
+  setup = fixture.setup.find(
+    (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
+  ),
+) {
+  return setup?.operation === 'CREATE_SYNTHETIC_LEAD'
+    ? (setup.lead.idExterno ?? fixture.identifiers.leadIdExterno)
+    : fixture.identifiers.leadIdExterno;
+}
+
+function buildLeadWhereClause(keys: {
+  idExterno?: string;
+  cpf?: string;
+  email?: string;
+  celular?: string;
+}) {
+  const clauses = [
+    keys.idExterno !== undefined ? `Id__c = ${literal(keys.idExterno)}` : null,
+    keys.cpf !== undefined ? `CPF__c = ${literal(keys.cpf)}` : null,
+    keys.email !== undefined ? `Email = ${literal(keys.email)}` : null,
+    keys.celular !== undefined
+      ? `CelularSemFormatacao__c = ${literal(keys.celular)}`
+      : null,
+  ].filter((clause): clause is string => clause !== null);
+  if (clauses.length === 0) {
+    throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+  }
+  return clauses.join(' OR ');
+}
+
+function leadLookupKeysForSetup(fixture: RenderedScenarioFixture) {
+  const setup = fixture.setup[0]!;
+  if (setup.operation === 'CREATE_SYNTHETIC_LEAD') {
+    return {
+      idExterno: getLeadExternalId(fixture, setup),
+      cpf: setup.lead.cpf,
+      email: setup.lead.email,
+      celular: normalizePhoneDigits(setup.lead.celular),
+    };
+  }
+  if (setup.operation === 'ENSURE_LEAD_ABSENT') {
+    return {
+      idExterno: setup.keys.idExterno,
+      cpf: setup.keys.cpf,
+      email: setup.keys.email,
+      celular: normalizePhoneDigits(setup.keys.celular),
+    };
+  }
+  throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+}
+
+function leadLookupQueryForSetup(fixture: RenderedScenarioFixture) {
+  return asAllowlistedQuery(
+    `SELECT ${leadFields} FROM Lead WHERE ${buildLeadWhereClause(
+      leadLookupKeysForSetup(fixture),
+    )}`,
+  );
+}
+
+function leadLookupQueryForVerify(fixture: RenderedScenarioFixture) {
+  return asAllowlistedQuery(
+    `SELECT ${leadFields} FROM Lead WHERE ${buildLeadWhereClause({
+      idExterno: getLeadExternalId(fixture),
+      cpf: fixtureEvent(fixture).numerocpf,
+    })}`,
+  );
+}
+
+function verificationCheckName(
+  check: FixtureCheck,
+): SalesforceTestDataVerificationCheck['check'] {
+  return typeof check === 'string' ? check : check.check;
+}
+
+function verificationCheckValue(check: FixtureCheck) {
+  return typeof check === 'string' ? undefined : check.value;
+}
+
 export function createSalesforceTestDataAdapter(
   dependencies: SalesforceTestDataAdapterDependencies,
 ): SalesforceTestDataAdapter {
-  let personAccountRecordTypeId: string | undefined;
-
   async function queryAccounts(
     query: ReturnType<typeof asAllowlistedQuery>,
   ): Promise<AccountRecord[]> {
@@ -309,22 +487,10 @@ export function createSalesforceTestDataAdapter(
     );
   }
 
-  async function getPersonAccountRecordTypeId(): Promise<string> {
-    if (personAccountRecordTypeId !== undefined) {
-      return personAccountRecordTypeId;
-    }
-
-    const response = await dependencies.restClient.query<unknown>(
-      asAllowlistedQuery(
-        "SELECT Id FROM RecordType WHERE SobjectType = 'Account' AND DeveloperName = 'PersonAccount' LIMIT 1",
-      ),
-    );
-    const parsed = recordTypeQueryResponseSchema.safeParse(response);
-    if (!parsed.success) {
-      throw new SalesforceTestDataAdapterError('SALESFORCE_RESPONSE_INVALID');
-    }
-    personAccountRecordTypeId = parsed.data.records[0]!.Id;
-    return personAccountRecordTypeId;
+  async function queryLeads(
+    query: ReturnType<typeof asAllowlistedQuery>,
+  ): Promise<LeadRecord[]> {
+    return parseLeadQueryResponse(await dependencies.restClient.query(query));
   }
 
   return {
@@ -349,6 +515,105 @@ export function createSalesforceTestDataAdapter(
           if (records.length > 0) {
             throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
           }
+          continue;
+        }
+
+        if (instruction.operation === 'ENSURE_LEAD_ABSENT') {
+          const records = await queryLeads(leadLookupQueryForSetup(fixture));
+          if (records.length > 0) {
+            throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
+          }
+          continue;
+        }
+
+        if (instruction.operation === 'CREATE_SYNTHETIC_LEAD') {
+          const { lead } = instruction;
+          const leadExternalId = getLeadExternalId(fixture, instruction);
+          const normalizedCell = normalizePhoneDigits(lead.celular) ?? null;
+          const records = await queryLeads(leadLookupQueryForSetup(fixture));
+          const existing = records[0];
+          const matchesFixture =
+            records.length === 1 &&
+            existing.Id__c === leadExternalId &&
+            existing.FirstName === (lead.firstName ?? null) &&
+            existing.LastName === lead.lastName &&
+            existing.CPF__c === lead.cpf &&
+            existing.MobilePhone === (lead.celular ?? null) &&
+            existing.CelularSemFormatacao__c === normalizedCell &&
+            existing.Email === (lead.email ?? null) &&
+            existing.CidadeInteresse__c === (lead.cidadeInteresse ?? null) &&
+            existing.Marca__c === leadDefaultBrand &&
+            existing.ManipularFase__c === true &&
+            existing.Status === (lead.status ?? leadDefaultStatus) &&
+            existing.PermitirCriarLead__c === true &&
+            existing.DescricaoOrigem__c === (lead.descricaoOrigem ?? null);
+
+          if (matchesFixture) {
+            replayedCount += 1;
+            recordIds.push(existing.Id);
+            continue;
+          }
+          if (records.length > 0) {
+            throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+          }
+
+          let recordTypeId: string;
+          try {
+            recordTypeId = await getLeadGestaoVendasRecordTypeId(
+              dependencies.restClient,
+            );
+          } catch {
+            throw new SalesforceTestDataAdapterError(
+              'SALESFORCE_RESPONSE_INVALID',
+            );
+          }
+
+          const request: SalesforceCompositeRequest = {
+            method: 'POST',
+            url: '/services/data/v61.0/sobjects/Lead',
+            referenceId: 'createLead',
+            body: {
+              Id__c: leadExternalId,
+              LastName: lead.lastName,
+              Marca__c: leadDefaultBrand,
+              RecordTypeId: recordTypeId,
+              ManipularFase__c: true,
+              Status: lead.status ?? leadDefaultStatus,
+              PermitirCriarLead__c: true,
+            },
+          };
+          if (lead.firstName !== undefined) {
+            request.body.FirstName = lead.firstName;
+          }
+          if (lead.cpf !== undefined) {
+            request.body.CPF__c = lead.cpf;
+          }
+          if (lead.celular !== undefined) {
+            request.body.MobilePhone = lead.celular;
+          }
+          if (normalizedCell !== null) {
+            request.body.CelularSemFormatacao__c = normalizedCell;
+          }
+          if (lead.email !== undefined) {
+            request.body.Email = lead.email;
+          }
+          if (lead.cidadeInteresse !== undefined) {
+            request.body.CidadeInteresse__c = lead.cidadeInteresse;
+          }
+          if (lead.descricaoOrigem !== undefined) {
+            request.body.DescricaoOrigem__c = lead.descricaoOrigem;
+          }
+
+          const response = compositeResponseSchema.safeParse(
+            await dependencies.restClient.composite([request]),
+          );
+          if (!response.success) {
+            throw new SalesforceTestDataAdapterError(
+              'SALESFORCE_RESPONSE_INVALID',
+            );
+          }
+          createdCount += 1;
+          recordIds.push(response.data.compositeResponse[0]!.body.id);
           continue;
         }
 
@@ -385,28 +650,35 @@ export function createSalesforceTestDataAdapter(
           throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
         }
 
-        const recordTypeId = await getPersonAccountRecordTypeId();
-        const body: SalesforceCompositeRequest['body'] = {
-          RecordTypeId: recordTypeId,
-          LastName: account.name,
-          IdProspectSalesforce__c: account.idProspect,
-          CPF__pc: account.cpf,
-          DataAlteracaoEvento__c: account.dataAlteracao,
-        };
-        if (account.idCliente !== null) {
-          body.Id__c = account.idCliente;
+        let recordTypeId: string;
+        try {
+          recordTypeId = await getPersonAccountRecordTypeId(
+            dependencies.restClient,
+          );
+        } catch {
+          throw new SalesforceTestDataAdapterError(
+            'SALESFORCE_RESPONSE_INVALID',
+          );
         }
 
-        const requests: readonly SalesforceCompositeRequest[] = [
-          {
-            method: 'POST',
-            url: `/services/data/${SALESFORCE_API_VERSION}/sobjects/Account`,
-            referenceId: 'createAccount',
-            body,
+        const request: SalesforceCompositeRequest = {
+          method: 'POST',
+          url: '/services/data/v61.0/sobjects/Account',
+          referenceId: 'createAccount',
+          body: {
+            RecordTypeId: recordTypeId,
+            LastName: account.name,
+            IdProspectSalesforce__c: account.idProspect,
+            CPF__pc: account.cpf,
+            DataAlteracaoEvento__c: account.dataAlteracao,
           },
-        ];
+        };
+        if (account.idCliente !== null) {
+          request.body.Id__c = account.idCliente;
+        }
+
         const response = compositeResponseSchema.safeParse(
-          await dependencies.restClient.composite(requests),
+          await dependencies.restClient.composite([request]),
         );
         if (!response.success) {
           throw new SalesforceTestDataAdapterError(
@@ -429,93 +701,212 @@ export function createSalesforceTestDataAdapter(
     async verify(candidate): Promise<SalesforceTestDataVerifyResult> {
       const { fixture } = parseInput(candidate);
       const event = fixtureEvent(fixture);
-      const records = await queryAccounts(accountLookupQuery(fixture));
-      const byClientId = records.filter(
+      const expectedChecks = fixture.expectedOutcomes.flatMap(
+        (outcome) => outcome.checks,
+      );
+      const needsAccountRecords = expectedChecks.some((check) => {
+        const checkName = verificationCheckName(check);
+        return (
+          checkName.startsWith('ACCOUNT_') ||
+          checkName === 'NO_OTHER_ACCOUNT_UPDATED'
+        );
+      });
+      const needsLeadRecords = expectedChecks.some((check) => {
+        const checkName = verificationCheckName(check);
+        return (
+          checkName.startsWith('LEAD_') && checkName !== 'LEAD_NOT_REQUIRED'
+        );
+      });
+
+      const accountRecords = needsAccountRecords
+        ? await queryAccounts(accountLookupQuery(fixture))
+        : [];
+      const leadRecords = needsLeadRecords
+        ? await queryLeads(leadLookupQueryForVerify(fixture))
+        : [];
+      const byClientId = accountRecords.filter(
         (record) => record.Id__c === event.idcliente,
       );
-      const byCpf = records.filter(
+      const byCpf = accountRecords.filter(
         (record) => record.CPF__pc === event.numerocpf,
       );
-      const target =
+      const accountTarget =
         byClientId.length === 1
           ? byClientId[0]
           : byCpf.length === 1
             ? byCpf[0]
             : undefined;
+      const leadExternalId = getLeadExternalId(fixture);
+      const leadByExternalId = leadRecords.filter(
+        (record) => record.Id__c === leadExternalId,
+      );
+      const leadByCpf = leadRecords.filter(
+        (record) => record.CPF__c === event.numerocpf,
+      );
+      const leadTarget =
+        leadByExternalId.length === 1
+          ? leadByExternalId[0]
+          : leadByCpf.length === 1
+            ? leadByCpf[0]
+            : leadRecords.length === 1
+              ? leadRecords[0]
+              : undefined;
       const checks: SalesforceTestDataVerificationCheck[] = [];
 
-      for (const check of fixture.expectedOutcomes.flatMap(
-        (outcome) => outcome.checks,
-      )) {
-        switch (check) {
+      for (const check of expectedChecks) {
+        const checkName = verificationCheckName(check);
+        const expectedValue = verificationCheckValue(check);
+
+        switch (checkName) {
           case 'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE':
             checks.push({
-              check,
+              check: checkName,
               passed: byClientId.length === 1,
               actualCount: byClientId.length,
             });
             break;
           case 'ACCOUNT_COUNT_BY_CPF_IS_ONE':
             checks.push({
-              check,
+              check: checkName,
               passed: byCpf.length === 1,
               actualCount: byCpf.length,
             });
             break;
           case 'ACCOUNT_CLIENT_ID_EQUALS_EVENT':
             checks.push({
-              check,
+              check: checkName,
               passed: byCpf.length === 1 && byCpf[0].Id__c === event.idcliente,
             });
             break;
           case 'ACCOUNT_NAME_EQUALS_EVENT':
             checks.push({
-              check,
+              check: checkName,
               passed:
-                target !== undefined && target.LastName === event.nomecompleto,
+                accountTarget !== undefined &&
+                accountTarget.LastName === event.nomecompleto,
             });
             break;
           case 'ACCOUNT_IS_PERSON_ACCOUNT':
             checks.push({
-              check,
-              passed: target?.IsPersonAccount === true,
+              check: checkName,
+              passed: accountTarget?.IsPersonAccount === true,
             });
             break;
           case 'ACCOUNT_CPF_EQUALS_EVENT':
             checks.push({
-              check,
+              check: checkName,
               passed:
-                target !== undefined && target.CPF__pc === event.numerocpf,
+                accountTarget !== undefined &&
+                accountTarget.CPF__pc === event.numerocpf,
             });
             break;
           case 'NO_OTHER_ACCOUNT_UPDATED':
             checks.push({
-              check,
+              check: checkName,
               passed:
-                records.length === 1 &&
-                target !== undefined &&
-                target.Id__c === event.idcliente &&
-                target.CPF__pc === event.numerocpf &&
-                target.LastName === event.nomecompleto &&
+                accountRecords.length === 1 &&
+                accountTarget !== undefined &&
+                accountTarget.Id__c === event.idcliente &&
+                accountTarget.CPF__pc === event.numerocpf &&
+                accountTarget.LastName === event.nomecompleto &&
                 (event.idprospectsalesforce === undefined ||
-                  target.IdProspectSalesforce__c ===
+                  accountTarget.IdProspectSalesforce__c ===
                     event.idprospectsalesforce),
-              actualCount: records.length,
+              actualCount: accountRecords.length,
+            });
+            break;
+          case 'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE':
+            checks.push({
+              check: checkName,
+              passed: leadByExternalId.length === 1,
+              actualCount: leadByExternalId.length,
+            });
+            break;
+          case 'LEAD_CPF_EQUALS_EVENT':
+            checks.push({
+              check: checkName,
+              passed:
+                leadTarget !== undefined &&
+                leadTarget.CPF__c === event.numerocpf,
+            });
+            break;
+          case 'LEAD_EMAIL_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                leadTarget !== undefined && leadTarget.Email === expectedValue,
+            });
+            break;
+          case 'LEAD_MOBILE_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                leadTarget !== undefined &&
+                (leadTarget.CelularSemFormatacao__c ??
+                  normalizePhoneDigits(leadTarget.MobilePhone) ??
+                  null) === normalizePhoneDigits(expectedValue),
+            });
+            break;
+          case 'LEAD_EMAIL_EXCLUDED':
+            checks.push({
+              check: checkName,
+              passed: leadTarget !== undefined && leadTarget.Email === null,
+            });
+            break;
+          case 'LEAD_MOBILE_EXCLUDED':
+            checks.push({
+              check: checkName,
+              passed:
+                leadTarget !== undefined &&
+                leadTarget.MobilePhone === null &&
+                leadTarget.CelularSemFormatacao__c === null,
+            });
+            break;
+          case 'LEAD_DESCRICAO_ORIGEM_EQUALS':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                leadTarget !== undefined &&
+                leadTarget.DescricaoOrigem__c === expectedValue,
+            });
+            break;
+          case 'LEAD_NOT_CREATED':
+            checks.push({
+              check: checkName,
+              passed: leadRecords.length === 0,
+              actualCount: leadRecords.length,
             });
             break;
           case 'LEAD_NOT_REQUIRED':
           case 'PROPONENTE_NOT_REQUIRED':
-            checks.push({ check, passed: true });
+            checks.push({ check: checkName, passed: true });
             break;
           default:
             throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
         }
       }
 
+      const resultRecordIds = new Set<string>();
+      if (accountTarget !== undefined) {
+        resultRecordIds.add(accountTarget.Id);
+      }
+      if (leadTarget !== undefined) {
+        resultRecordIds.add(leadTarget.Id);
+      }
+
       return {
         passed: checks.every((check) => check.passed),
         checks,
-        recordIds: target === undefined ? [] : [target.Id],
+        recordIds: [...resultRecordIds],
       };
     },
 
@@ -524,43 +915,80 @@ export function createSalesforceTestDataAdapter(
       ownedRecordIds,
     ): Promise<SalesforceTestDataCleanupResult> {
       const { fixture } = parseInput(candidate);
-      const exactOwnerId = fixture.identifiers.accountIdCliente;
       const uniqueIds = [...new Set(ownedRecordIds)];
       const validIds = z
         .array(z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/))
         .safeParse(uniqueIds);
-      if (!validIds.success || !exactOwnerId.startsWith('CLI-SIM-')) {
+      if (!validIds.success) {
         throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
       }
       if (uniqueIds.length === 0) {
         return { status: 'NO_OP', deletedCount: 0 };
       }
-      const records = await queryAccounts(
-        asAllowlistedQuery(
-          `SELECT ${accountFields} FROM Account WHERE Id IN (${uniqueIds
-            .map(literal)
-            .join(',')})`,
-        ),
-      );
+      let deletedCount = 0;
 
-      for (const record of records) {
-        if (
-          !uniqueIds.includes(record.Id) ||
-          (record.Id__c !== null && record.Id__c !== exactOwnerId)
-        ) {
-          throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+      for (const instruction of fixture.cleanup) {
+        if (instruction.target === 'ACCOUNT') {
+          const exactOwnerId = fixture.identifiers.accountIdCliente;
+          const records = await queryAccounts(
+            asAllowlistedQuery(
+              `SELECT ${accountFields} FROM Account WHERE Id IN (${uniqueIds
+                .map(literal)
+                .join(',')})`,
+            ),
+          );
+
+          for (const record of records) {
+            if (
+              !uniqueIds.includes(record.Id) ||
+              (record.Id__c !== null && record.Id__c !== exactOwnerId)
+            ) {
+              throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+            }
+          }
+
+          await Promise.all(
+            records.map((record) =>
+              dependencies.restClient.deleteRecord('Account', record.Id),
+            ),
+          );
+          deletedCount += records.length;
+          continue;
         }
+
+        if (instruction.target === 'LEAD') {
+          const records = await queryLeads(
+            asAllowlistedQuery(
+              `SELECT ${leadFields} FROM Lead WHERE Id IN (${uniqueIds
+                .map(literal)
+                .join(',')})`,
+            ),
+          );
+
+          for (const record of records) {
+            const isPrefixOwned =
+              record.Id__c?.startsWith(leadSyntheticIdPrefix) === true;
+            const isExplicitlyOwned = uniqueIds.includes(record.Id);
+            if (!isPrefixOwned && !isExplicitlyOwned) {
+              throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+            }
+          }
+
+          await Promise.all(
+            records.map((record) =>
+              dependencies.restClient.deleteRecord('Lead', record.Id),
+            ),
+          );
+          deletedCount += records.length;
+          continue;
+        }
+
+        throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
       }
 
-      await Promise.all(
-        records.map((record) =>
-          dependencies.restClient.deleteRecord('Account', record.Id),
-        ),
-      );
-
       return {
-        status: records.length > 0 ? 'DELETED' : 'NO_OP',
-        deletedCount: records.length,
+        status: deletedCount > 0 ? 'DELETED' : 'NO_OP',
+        deletedCount,
       };
     },
   };

@@ -200,7 +200,9 @@ function createPreview(
     })),
     assertions: fixture.expectedOutcomes.map(({ kind, checks }) => ({
       kind,
-      checks: [...checks],
+      checks: checks.map((check) =>
+        typeof check === 'string' ? check : check.check,
+      ),
     })),
     cleanup: fixture.cleanup.map(({ operation, target }) => ({
       operation,

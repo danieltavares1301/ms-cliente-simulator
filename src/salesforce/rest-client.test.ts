@@ -4,6 +4,7 @@ import {
   asAllowlistedQuery,
   createSalesforceRestClient,
   escapeSoqlLiteral,
+  getLeadGestaoVendasRecordTypeId,
   SalesforceRestError,
 } from './rest-client';
 
@@ -178,6 +179,148 @@ describe('Salesforce REST client', () => {
     );
   });
 
+  it('sends only the fixed Lead composite URL with the allowlisted body', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ compositeResponse: [] }), {
+        status: 200,
+      }),
+    );
+    const client = createSalesforceRestClient({
+      oauthClient: {
+        getAccess: vi.fn(),
+        invalidateToken: vi.fn(),
+      },
+      safetyGuard: {
+        validate: vi.fn().mockResolvedValue({
+          accessToken: 'token-1',
+          instanceUrl: 'https://example.my.salesforce.com',
+        }),
+      },
+      fetchFn,
+    });
+
+    await client.composite([
+      {
+        method: 'POST',
+        url: '/services/data/v61.0/sobjects/Lead',
+        referenceId: 'createLead',
+        body: {
+          Id__c: 'LEAD-SIM-owned',
+          FirstName: 'Cliente',
+          LastName: 'Simulado',
+          CPF__c: '12345678901',
+          MobilePhone: '31999990000',
+          CelularSemFormatacao__c: '31999990000',
+          Email: 'lead@example.com',
+          CidadeInteresse__c: 'Belo Horizonte',
+          Marca__c: '1',
+          RecordTypeId: '012000000000002AAA',
+          ManipularFase__c: true,
+          Status: 'Pendente de Distribuição',
+          PermitirCriarLead__c: true,
+          DescricaoOrigem__c: 'InsertClientePAC',
+        },
+      },
+    ]);
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/data/v61.0/composite',
+      expect.objectContaining({
+        method: 'POST',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
+        body: JSON.stringify({
+          allOrNone: true,
+          compositeRequest: [
+            {
+              method: 'POST',
+              url: '/services/data/v61.0/sobjects/Lead',
+              referenceId: 'createLead',
+              body: {
+                Id__c: 'LEAD-SIM-owned',
+                FirstName: 'Cliente',
+                LastName: 'Simulado',
+                CPF__c: '12345678901',
+                MobilePhone: '31999990000',
+                CelularSemFormatacao__c: '31999990000',
+                Email: 'lead@example.com',
+                CidadeInteresse__c: 'Belo Horizonte',
+                Marca__c: '1',
+                RecordTypeId: '012000000000002AAA',
+                ManipularFase__c: true,
+                Status: 'Pendente de Distribuição',
+                PermitirCriarLead__c: true,
+                DescricaoOrigem__c: 'InsertClientePAC',
+              },
+            },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('deletes Lead records through the allowlist', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, {
+        status: 204,
+      }),
+    );
+    const client = createSalesforceRestClient({
+      oauthClient: {
+        getAccess: vi.fn(),
+        invalidateToken: vi.fn(),
+      },
+      safetyGuard: {
+        validate: vi.fn().mockResolvedValue({
+          accessToken: 'token-1',
+          instanceUrl: 'https://example.my.salesforce.com',
+        }),
+      },
+      fetchFn,
+    });
+
+    await expect(
+      client.deleteRecord('Lead', '00Q000000000001AAA'),
+    ).resolves.toBeUndefined();
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/data/v61.0/sobjects/Lead/00Q000000000001AAA',
+      expect.objectContaining({
+        method: 'DELETE',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it('caches the GestaoVendas Lead record type lookup independently', async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000002AAA' }],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000003AAA' }],
+      });
+    const restClient = { query } as never;
+
+    await expect(getLeadGestaoVendasRecordTypeId(restClient)).resolves.toBe(
+      '012000000000002AAA',
+    );
+    await expect(getLeadGestaoVendasRecordTypeId(restClient)).resolves.toBe(
+      '012000000000002AAA',
+    );
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(String(query.mock.calls[0][0])).toContain(
+      "SobjectType = 'Lead' AND DeveloperName = 'GestaoVendas'",
+    );
+  });
+
   it('rejects a non-allowlisted delete target at runtime', async () => {
     const client = createSalesforceRestClient({
       oauthClient: {
@@ -191,7 +334,7 @@ describe('Salesforce REST client', () => {
     });
 
     await expect(
-      client.deleteRecord('Lead' as 'Account', '001000000000001AAA'),
+      client.deleteRecord('Contact' as 'Account', '001000000000001AAA'),
     ).rejects.toMatchObject({ code: 'SALESFORCE_OPERATION_NOT_ALLOWED' });
   });
 });

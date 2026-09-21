@@ -233,7 +233,7 @@ export const publicScenarioStepSchema = scenarioStepSchema.omit({
   payloadTemplate: true,
 });
 
-export const expectedOutcomeCheckSchema = z.enum([
+const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
   'ACCOUNT_COUNT_BY_CPF_IS_ONE',
   'ACCOUNT_CLIENT_ID_EQUALS_EVENT',
@@ -241,8 +241,39 @@ export const expectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_IS_PERSON_ACCOUNT',
   'ACCOUNT_CPF_EQUALS_EVENT',
   'NO_OTHER_ACCOUNT_UPDATED',
+  'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
+  'LEAD_CPF_EQUALS_EVENT',
+  'LEAD_EMAIL_EXCLUDED',
+  'LEAD_MOBILE_EXCLUDED',
+  'LEAD_NOT_CREATED',
   'LEAD_NOT_REQUIRED',
   'PROPONENTE_NOT_REQUIRED',
+]);
+
+const leadExpectedValueCheckSchema = z.discriminatedUnion('check', [
+  z
+    .object({
+      check: z.literal('LEAD_EMAIL_EQUALS_EXPECTED'),
+      value: z.string().trim().min(1).max(80),
+    })
+    .strict(),
+  z
+    .object({
+      check: z.literal('LEAD_MOBILE_EQUALS_EXPECTED'),
+      value: z.string().trim().min(1).max(40),
+    })
+    .strict(),
+  z
+    .object({
+      check: z.literal('LEAD_DESCRICAO_ORIGEM_EQUALS'),
+      value: z.string().trim().min(1).max(255),
+    })
+    .strict(),
+]);
+
+export const expectedOutcomeCheckSchema = z.union([
+  bareExpectedOutcomeCheckSchema,
+  leadExpectedValueCheckSchema,
 ]);
 
 export const expectedOutcomeSchema = z
@@ -283,6 +314,74 @@ const syntheticAccountTemplateSchema = z
   })
   .strict();
 
+const generatedOrStaticStringSchema = z.union([
+  generatedFixtureReferenceSchema,
+  z.string().trim().min(1).max(255),
+]);
+
+const syntheticLeadTemplateSchema = z
+  .object({
+    idExterno: generatedOrStaticStringSchema.optional(),
+    cpf: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().regex(/^\d{11}$/),
+    ]),
+    firstName: generatedOrStaticStringSchema.optional(),
+    lastName: generatedOrStaticStringSchema,
+    email: z
+      .union([
+        generatedFixtureReferenceSchema,
+        z.string().trim().min(1).max(80),
+      ])
+      .optional(),
+    celular: z
+      .union([
+        generatedFixtureReferenceSchema,
+        z.string().trim().min(1).max(40),
+      ])
+      .optional(),
+    cidadeInteresse: generatedOrStaticStringSchema.optional(),
+    status: generatedOrStaticStringSchema
+      .optional()
+      .default('Pendente de Distribuição'),
+    descricaoOrigem: generatedOrStaticStringSchema.optional(),
+  })
+  .strict();
+
+const ensureLeadAbsentKeysSchema = z
+  .object({
+    idExterno: z
+      .union([
+        generatedFixtureReferenceSchema,
+        z.string().trim().min(1).max(150),
+      ])
+      .optional(),
+    cpf: z
+      .union([generatedFixtureReferenceSchema, z.string().regex(/^\d{11}$/)])
+      .optional(),
+    email: z
+      .union([
+        generatedFixtureReferenceSchema,
+        z.string().trim().min(1).max(80),
+      ])
+      .optional(),
+    celular: z
+      .union([
+        generatedFixtureReferenceSchema,
+        z.string().trim().min(1).max(40),
+      ])
+      .optional(),
+  })
+  .strict()
+  .refine(
+    ({ idExterno, cpf, email, celular }) =>
+      idExterno !== undefined ||
+      cpf !== undefined ||
+      email !== undefined ||
+      celular !== undefined,
+    { message: 'ENSURE_LEAD_ABSENT requires at least one key' },
+  );
+
 export const setupInstructionSchema = z.discriminatedUnion('operation', [
   z
     .object({
@@ -317,6 +416,18 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
           cpf: generatedFixtureReferenceSchema,
         })
         .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('CREATE_SYNTHETIC_LEAD'),
+      lead: syntheticLeadTemplateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('ENSURE_LEAD_ABSENT'),
+      keys: ensureLeadAbsentKeysSchema,
     })
     .strict(),
 ]);

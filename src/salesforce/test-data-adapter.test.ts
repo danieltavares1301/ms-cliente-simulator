@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderScenarioFixture } from '../scenarios/renderer';
-import type { AllowlistedQuery, SalesforceRestClient } from './rest-client';
+import {
+  escapeSoqlLiteral,
+  type AllowlistedQuery,
+  type SalesforceRestClient,
+} from './rest-client';
 import {
   createSalesforceTestDataAdapter,
   SalesforceTestDataAdapterError,
 } from './test-data-adapter';
 
 const accountId = '001000000000001AAA';
+const leadId = '00Q000000000001AAA';
 
 type CoreScenarioKey =
   | 'match-id-cliente'
@@ -71,6 +76,134 @@ function accountFromFixture(
     LastName: event.nomecompleto,
     IsPersonAccount: true,
     DataAlteracaoEvento__c: event.dataalteracao,
+    ...overrides,
+  };
+}
+
+function leadFixture() {
+  const rendered = JSON.parse(
+    JSON.stringify(fixture('no-match-cliente-insert')),
+  ) as ReturnType<typeof fixture> & {
+    expectedOutcomes: Array<Record<string, unknown>>;
+    setup: Array<Record<string, unknown>>;
+    cleanup: Array<Record<string, unknown>>;
+  };
+  rendered.scenarioKey = 'phase6-lead-adapter';
+  rendered.identifiers.accountIdProspect = 'LEAD-SIM-owned';
+  rendered.identifiers.leadIdExterno = 'LEAD-SIM-owned';
+  rendered.steps[0].envelope[0].data.idprospectsalesforce =
+    rendered.identifiers.leadIdExterno;
+  rendered.setup = [
+    {
+      operation: 'CREATE_SYNTHETIC_LEAD',
+      lead: {
+        idExterno: rendered.identifiers.leadIdExterno,
+        cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
+        firstName: 'Cliente',
+        lastName: 'Simulado',
+        email: 'lead@example.com',
+        celular: '31999990000',
+        cidadeInteresse: 'Belo Horizonte',
+        status: 'Pendente de Distribuição',
+        descricaoOrigem: 'InsertClientePAC',
+      },
+    },
+  ];
+  rendered.expectedOutcomes = [
+    {
+      kind: 'BUSINESS_RESULT',
+      result: 'PERSON_ACCOUNT_CREATED',
+      description: 'Lead criado ou localizado com os dados esperados.',
+      checks: [
+        'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
+        'LEAD_CPF_EQUALS_EVENT',
+        { check: 'LEAD_EMAIL_EQUALS_EXPECTED', value: 'lead@example.com' },
+        { check: 'LEAD_MOBILE_EQUALS_EXPECTED', value: '31999990000' },
+        {
+          check: 'LEAD_DESCRICAO_ORIGEM_EQUALS',
+          value: 'InsertClientePAC',
+        },
+      ],
+    },
+  ];
+  rendered.cleanup = [
+    {
+      operation: 'DELETE_OWNED_RECORDS',
+      target: 'LEAD',
+      ownership: {
+        idExternoPrefix: 'LEAD-SIM-',
+      },
+    },
+  ];
+  return rendered;
+}
+
+function leadInput(rendered = leadFixture()) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
+function createLeadSetup(rendered = leadFixture()) {
+  const setup = rendered.setup[0];
+  if (setup.operation !== 'CREATE_SYNTHETIC_LEAD') {
+    throw new Error('Expected CREATE_SYNTHETIC_LEAD fixture');
+  }
+  return setup as {
+    lead: {
+      idExterno?: string;
+      cpf: string;
+      firstName?: string;
+      lastName: string;
+      email?: string;
+      celular?: string;
+      cidadeInteresse?: string;
+      status?: string;
+      descricaoOrigem?: string;
+    };
+  };
+}
+
+function ensureLeadAbsentFixture() {
+  const rendered = leadFixture();
+  const setup = createLeadSetup(rendered).lead;
+  rendered.setup = [
+    {
+      operation: 'ENSURE_LEAD_ABSENT',
+      keys: {
+        idExterno: rendered.identifiers.leadIdExterno,
+        cpf: setup.cpf,
+        email: setup.email,
+        celular: setup.celular,
+      },
+    },
+  ];
+  return rendered;
+}
+
+function leadFromFixture(
+  rendered = leadFixture(),
+  overrides: Record<string, unknown> = {},
+) {
+  const setup = createLeadSetup(rendered).lead;
+  return {
+    Id: leadId,
+    Id__c: setup.idExterno ?? rendered.identifiers.leadIdExterno,
+    FirstName: setup.firstName ?? null,
+    LastName: setup.lastName,
+    CPF__c: setup.cpf,
+    MobilePhone: setup.celular ?? null,
+    CelularSemFormatacao__c: setup.celular ?? null,
+    Email: setup.email ?? null,
+    CidadeInteresse__c: setup.cidadeInteresse ?? null,
+    Marca__c: '1',
+    RecordTypeId: '012000000000002AAA',
+    ManipularFase__c: true,
+    Status: setup.status ?? 'Pendente de Distribuição',
+    PermitirCriarLead__c: true,
+    DescricaoOrigem__c: setup.descricaoOrigem ?? null,
     ...overrides,
   };
 }
@@ -194,6 +327,155 @@ describe('Salesforce test data adapter setup', () => {
       }),
     ).rejects.toBeInstanceOf(SalesforceTestDataAdapterError);
     expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it('creates the minimal GestaoVendas Lead through Composite with only allowlisted fields', async () => {
+    const rendered = leadFixture();
+    const setup = createLeadSetup(rendered).lead;
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000002AAA' }],
+      });
+    client.composite.mockResolvedValue({
+      compositeResponse: [
+        {
+          body: { id: leadId, success: true, errors: [] },
+          httpHeaders: {},
+          httpStatusCode: 201,
+          referenceId: 'createLead',
+        },
+      ],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        leadInput(rendered),
+      ),
+    ).resolves.toStrictEqual({
+      status: 'CREATED',
+      createdCount: 1,
+      replayedCount: 0,
+      recordIds: [leadId],
+    });
+
+    const requests = client.composite.mock.calls[0][0];
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      method: 'POST',
+      url: '/services/data/v61.0/sobjects/Lead',
+      referenceId: 'createLead',
+      body: {
+        Id__c: rendered.identifiers.leadIdExterno,
+        FirstName: setup.firstName,
+        LastName: setup.lastName,
+        CPF__c: setup.cpf,
+        MobilePhone: setup.celular,
+        CelularSemFormatacao__c: setup.celular,
+        Email: setup.email,
+        CidadeInteresse__c: setup.cidadeInteresse,
+        Marca__c: '1',
+        RecordTypeId: '012000000000002AAA',
+        ManipularFase__c: true,
+        Status: setup.status,
+        PermitirCriarLead__c: true,
+        DescricaoOrigem__c: setup.descricaoOrigem,
+      },
+    });
+    expect(requests[0].body).not.toHaveProperty('OwnerId');
+  });
+
+  it('returns REPLAY without DML when the existing Lead matches the fixture', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [leadFromFixture(rendered)],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).setup(leadInput(rendered));
+
+    expect(result.status).toBe('REPLAY');
+    expect(result.recordIds).toStrictEqual([leadId]);
+    expect(client.composite).not.toHaveBeenCalled();
+  });
+
+  it('fails with SETUP_CONFLICT without mutating an incompatible Lead', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [leadFromFixture(rendered, { Email: 'outro@example.com' })],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        leadInput(rendered),
+      ),
+    ).rejects.toMatchObject({ code: 'SETUP_CONFLICT' });
+    expect(client.composite).not.toHaveBeenCalled();
+    expect(client.deleteRecord).not.toHaveBeenCalled();
+  });
+
+  it('fails ENSURE_LEAD_ABSENT when any fixed Lead identifier already exists', async () => {
+    const rendered = ensureLeadAbsentFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [leadFromFixture(leadFixture())],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        leadInput(rendered),
+      ),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+  });
+
+  it('escapes the allowlisted Lead search fields in SOQL', async () => {
+    const rendered = ensureLeadAbsentFixture();
+    rendered.identifiers.accountIdProspect = "LEAD-SIM-x' OR Name != null";
+    rendered.identifiers.leadIdExterno = rendered.identifiers.accountIdProspect;
+    rendered.steps[0].envelope[0].data.idprospectsalesforce =
+      rendered.identifiers.leadIdExterno;
+    rendered.setup[0] = {
+      operation: 'ENSURE_LEAD_ABSENT',
+      keys: {
+        idExterno: rendered.identifiers.leadIdExterno,
+        cpf: rendered.steps[0].envelope[0].data.numerocpf,
+        email: "lead'@example.com",
+        celular: "31999'990000",
+      },
+    };
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 0,
+      done: true,
+      records: [],
+    });
+
+    await createSalesforceTestDataAdapter({ restClient: client }).setup(
+      leadInput(rendered),
+    );
+
+    const query = String(client.query.mock.calls[0][0] as AllowlistedQuery);
+    expect(query).toContain(
+      `Id__c = '${escapeSoqlLiteral(rendered.identifiers.leadIdExterno)}'`,
+    );
+    expect(query).toContain(
+      `Email = '${escapeSoqlLiteral("lead'@example.com")}'`,
+    );
+    expect(query).toContain(
+      `CelularSemFormatacao__c = '${escapeSoqlLiteral('31999990000')}'`,
+    );
   });
 });
 
@@ -369,7 +651,7 @@ describe('Salesforce test data adapter verify', () => {
       cleanup: Array<Record<string, unknown>>;
     };
     rendered.setup[0].operation = 'CREATE_LEAD';
-    rendered.cleanup[0].target = 'LEAD';
+    rendered.cleanup[0].target = 'OPPORTUNITY';
     const client = restClient();
 
     await expect(
@@ -378,6 +660,103 @@ describe('Salesforce test data adapter verify', () => {
       ),
     ).rejects.toMatchObject({ code: 'INVALID_FIXTURE' });
     expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it('passes the Lead verification checks for count, CPF, contacts and origin', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [leadFromFixture(rendered)],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(leadInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.recordIds).toStrictEqual([leadId]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        {
+          check: 'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
+          passed: true,
+          actualCount: 1,
+        },
+        { check: 'LEAD_CPF_EQUALS_EVENT', passed: true },
+        { check: 'LEAD_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'LEAD_MOBILE_EQUALS_EXPECTED', passed: true },
+        { check: 'LEAD_DESCRICAO_ORIGEM_EQUALS', passed: true },
+      ]),
+    );
+  });
+
+  it('passes the Lead exclusion checks used by Regra 6.6', async () => {
+    const rendered = leadFixture();
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED',
+        description:
+          'Lead criado sem contatos quando ambos colidem com outra pessoa.',
+        checks: ['LEAD_EMAIL_EXCLUDED', 'LEAD_MOBILE_EXCLUDED'],
+      },
+    ];
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        leadFromFixture(rendered, {
+          Email: null,
+          MobilePhone: null,
+          CelularSemFormatacao__c: null,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(leadInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'LEAD_EMAIL_EXCLUDED', passed: true },
+        { check: 'LEAD_MOBILE_EXCLUDED', passed: true },
+      ]),
+    );
+  });
+
+  it('passes LEAD_NOT_CREATED when no matching Lead exists', async () => {
+    const rendered = ensureLeadAbsentFixture();
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED',
+        description: 'Nenhum lead extra deve ser criado.',
+        checks: ['LEAD_NOT_CREATED'],
+      },
+    ];
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 0,
+      done: true,
+      records: [],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(leadInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.recordIds).toStrictEqual([]);
+    expect(result.checks).toContainEqual({
+      check: 'LEAD_NOT_CREATED',
+      passed: true,
+      actualCount: 0,
+    });
   });
 });
 
@@ -454,5 +833,47 @@ describe('Salesforce test data adapter cleanup', () => {
       ]),
     ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
     expect(client.deleteRecord).toHaveBeenCalledWith('Account', accountId);
+  });
+
+  it('deletes setup Leads owned by the simulator prefix', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [leadFromFixture(rendered)],
+    });
+    client.deleteRecord.mockResolvedValue(undefined);
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        leadInput(rendered),
+        [leadId],
+      ),
+    ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
+    expect(client.deleteRecord).toHaveBeenCalledWith('Lead', leadId);
+  });
+
+  it('deletes Apex-created Leads only from the explicit Salesforce Id allowlist', async () => {
+    const rendered = leadFixture();
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        leadFromFixture(rendered, {
+          Id__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+        }),
+      ],
+    });
+    client.deleteRecord.mockResolvedValue(undefined);
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        leadInput(rendered),
+        [leadId],
+      ),
+    ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 1 });
+    expect(client.deleteRecord).toHaveBeenCalledWith('Lead', leadId);
   });
 });
