@@ -1322,6 +1322,44 @@ describe('Salesforce test data adapter verify', () => {
     });
   });
 
+  it('fails ACCOUNT_NOT_CREATED when the Account already exists', async () => {
+    const rendered = JSON.parse(
+      JSON.stringify(fixture('no-match-cliente-insert')),
+    ) as ReturnType<typeof fixture> & {
+      expectedOutcomes: Array<Record<string, unknown>>;
+    };
+    rendered.scenarioKey = 'phase6-account-absent';
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED',
+        description: 'Nenhuma Account do cliente novo deve existir.',
+        checks: ['ACCOUNT_NOT_CREATED'],
+      },
+    ];
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [accountFromFixture(rendered)],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: rendered,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual({
+      check: 'ACCOUNT_NOT_CREATED',
+      passed: false,
+      actualCount: 1,
+    });
+  });
+
   it('passes the divergent prospect checks and queries the control Account explicitly', async () => {
     const rendered = prospectDivergenteFixture();
     const primaryAccount = accountFromFixture(rendered, {
