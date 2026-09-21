@@ -35,7 +35,11 @@ type GeneratedValue =
   | 'CPF'
   | 'CPF_X'
   | 'PERSON_NAME'
-  | 'BASE_PERSON_NAME';
+  | 'BASE_PERSON_NAME'
+  | 'COLLISION_LEAD_ID_EXTERNO'
+  | 'COLLISION_CPF'
+  | 'COLLISION_EMAIL'
+  | 'CLEAN_CELULAR';
 
 type RenderContext = Readonly<Record<GeneratedValue, string>>;
 
@@ -45,6 +49,14 @@ function digest(value: string): string {
 
 function normalizeUtc(value: string): string {
   return new Date(value).toISOString();
+}
+
+function deterministicDigits(value: string, length: number): string {
+  return digest(value)
+    .replace(/[a-f]/g, (character) =>
+      String(character.charCodeAt(0) % 10),
+    )
+    .slice(0, length);
 }
 
 function isGeneratedReference(
@@ -97,6 +109,13 @@ export function renderScenarioFixture(
     `${input.seed}:x`,
     input.runId,
   );
+  const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
+  const collisionCpf = generateSyntheticCpf(`${input.seed}:collision`, input.runId);
+  const collisionEmail = `colisao.${seedToken}@simulador.mrv.invalid`;
+  const cleanCelular = `119${deterministicDigits(
+    `celular|${input.seed}|${input.runId}`,
+    8,
+  )}`;
   const baseContext = {
     RUN_ID: input.runId,
     STEP_ID: '',
@@ -111,12 +130,22 @@ export function renderScenarioFixture(
     CPF_X: controlSyntheticCpf,
     PERSON_NAME: `Cliente Simulado ${seedToken}`,
     BASE_PERSON_NAME: `Cliente Simulado Base ${seedToken}`,
+    COLLISION_LEAD_ID_EXTERNO: collisionLeadIdExterno,
+    COLLISION_CPF: collisionCpf,
+    COLLISION_EMAIL: collisionEmail,
+    CLEAN_CELULAR: cleanCelular,
   } satisfies RenderContext;
   const hasControlAccount =
     definition.setup?.some(
       (instruction) =>
         instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
         instruction.role === 'CONTROL',
+    ) ?? false;
+  const hasCollisionLead =
+    definition.setup?.some(
+      (instruction) =>
+        instruction.operation === 'CREATE_SYNTHETIC_LEAD' &&
+        instruction.role === 'COLLISION',
     ) ?? false;
 
   const setup = resolveTemplate(definition.setup ?? [], baseContext);
@@ -178,7 +207,9 @@ export function renderScenarioFixture(
   });
   const expectedOutcomes = definition.expectedOutcomes.map((outcome) => ({
     ...outcome,
-    checks: [...outcome.checks],
+    checks: outcome.checks.map((check) =>
+      resolveTemplate(check, baseContext),
+    ) as typeof outcome.checks,
   }));
   const asyncPolicy = {
     expectedCallbacks: { ...definition.asyncPolicy.expectedCallbacks },
@@ -198,6 +229,11 @@ export function renderScenarioFixture(
         ? {
             controlAccountIdCliente,
             controlAccountIdProspect,
+          }
+        : {}),
+      ...(hasCollisionLead
+        ? {
+            collisionLeadIdExterno,
           }
         : {}),
       leadIdExterno: accountIdProspect,

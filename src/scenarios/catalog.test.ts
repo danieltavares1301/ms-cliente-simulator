@@ -68,11 +68,75 @@ describe('scenarioDefinitionSchema', () => {
       }),
     ).toThrow(/control/i);
   });
+
+  it('accepts a collision Lead role and generated expected outcome values', () => {
+    const parsed = scenarioDefinitionSchema.parse({
+      ...noMatchDefinition,
+      key: 'contato-antes-cliente-colisao',
+      tags: ['regression', 'o01', 'regra-6-6'],
+      setup: [
+        ...(noMatchDefinition.setup ?? []),
+        {
+          operation: 'CREATE_SYNTHETIC_LEAD',
+          role: 'COLLISION',
+          lead: {
+            idExterno: { source: 'GENERATED', value: 'COLLISION_LEAD_ID_EXTERNO' },
+            cpf: { source: 'GENERATED', value: 'COLLISION_CPF' },
+            lastName: 'Terceiro Colidente',
+            email: { source: 'GENERATED', value: 'COLLISION_EMAIL' },
+          },
+        },
+      ],
+      expectedOutcomes: [
+        {
+          kind: 'BUSINESS_RESULT',
+          result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+          description:
+            'Permite checks parametrizados por valores gerados na renderização.',
+          checks: [
+            {
+              check: 'LEAD_MOBILE_EQUALS_EXPECTED',
+              value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.setup?.at(-1)).toMatchObject({
+      operation: 'CREATE_SYNTHETIC_LEAD',
+      role: 'COLLISION',
+    });
+    expect(parsed.expectedOutcomes[0]?.checks[0]).toMatchObject({
+      check: 'LEAD_MOBILE_EQUALS_EXPECTED',
+      value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+    });
+  });
+
+  it('rejects more than one synthetic collision lead in the same fixture', () => {
+    const collisionLead = {
+      operation: 'CREATE_SYNTHETIC_LEAD',
+      role: 'COLLISION',
+      lead: {
+        idExterno: { source: 'GENERATED', value: 'COLLISION_LEAD_ID_EXTERNO' },
+        cpf: { source: 'GENERATED', value: 'COLLISION_CPF' },
+        lastName: 'Terceiro Colidente',
+        email: { source: 'GENERATED', value: 'COLLISION_EMAIL' },
+      },
+    } as const;
+
+    expect(() =>
+      scenarioDefinitionSchema.parse({
+        ...noMatchDefinition,
+        setup: [collisionLead, collisionLead, ...(noMatchDefinition.setup ?? [])],
+      }),
+    ).toThrow(/collision/i);
+  });
 });
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(5);
+    expect(scenarioCatalog.listActive()).toHaveLength(6);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -87,6 +151,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'cliente-update-nova-estrutura',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'contato-antes-cliente-colisao',
         version: 1,
         availability: 'READY',
       },

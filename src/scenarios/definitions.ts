@@ -11,7 +11,11 @@ type GeneratedValue =
   | 'CPF'
   | 'CPF_X'
   | 'PERSON_NAME'
-  | 'BASE_PERSON_NAME';
+  | 'BASE_PERSON_NAME'
+  | 'COLLISION_LEAD_ID_EXTERNO'
+  | 'COLLISION_CPF'
+  | 'COLLISION_EMAIL'
+  | 'CLEAN_CELULAR';
 
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
@@ -82,6 +86,35 @@ function clientPayload(
   } as const;
 }
 
+function contatoPayload(
+  tipoContato: 'Email' | 'Celular',
+  descricao: ReturnType<typeof generated>,
+  includeProspect: boolean,
+) {
+  return {
+    kind: 'DECLARATIVE',
+    contract: 'EVENT_GRID',
+    value: {
+      id: generated('EVENT_ID'),
+      subject: 'MS_Clientes',
+      eventType: 'contato-insert',
+      eventTime: generated('EVENT_TIME'),
+      dataVersion: '1.0',
+      metadataVersion: '1',
+      topic: '/simulator/ms-clientes',
+      data: {
+        idcliente: generated('CLIENT_ID'),
+        ...(includeProspect
+          ? { idprospectsalesforce: generated('PROSPECT_ID_X') }
+          : {}),
+        tipocontato: tipoContato,
+        descricao,
+        dataalteracao: generated('EVENT_TIME'),
+      },
+    },
+  } as const;
+}
+
 const cleanup: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
 ];
@@ -92,6 +125,134 @@ const cleanupWithLead: ScenarioDefinition['cleanup'] = [
 ];
 
 export const basicScenarioDefinitions = [
+  {
+    key: 'contato-antes-cliente-colisao',
+    version: 1,
+    name: 'Contato antes de cliente com colisão parcial',
+    description:
+      'Recebe contatos antes do cliente final, cria a Account Y acoplada ao prospect divergente e gera Lead novo com e-mail excluído e celular preservado.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'o01', 'regra-6-6', 'lead', 'colisao'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'CONTROL',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspect: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF_X'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_LEAD',
+        role: 'COLLISION',
+        lead: {
+          idExterno: generated('COLLISION_LEAD_ID_EXTERNO'),
+          cpf: generated('COLLISION_CPF'),
+          lastName: 'Terceiro Colidente',
+          email: generated('COLLISION_EMAIL'),
+          status: 'Pendente de Distribuição',
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-email',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('COLLISION_EMAIL'),
+          true,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 1_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          true,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert-divergente',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: {
+          kind: 'DECLARATIVE',
+          contract: 'EVENT_GRID',
+          value: {
+            id: generated('EVENT_ID'),
+            subject: 'MS_Clientes',
+            eventType: 'cliente-insert',
+            eventTime: generated('EVENT_TIME'),
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/simulator/ms-clientes',
+            data: {
+              idcliente: generated('CLIENT_ID'),
+              idprospectsalesforce: generated('PROSPECT_ID_X'),
+              numerocpf: generated('CPF'),
+              dataalteracao: generated('EVENT_TIME'),
+              nomecompleto: generated('PERSON_NAME'),
+            },
+          },
+        },
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+        description:
+          'A sequência O01 + Regra 6.6 cria a Account Y, preserva a Account X e gera Lead novo com e-mail excluído e celular preservado.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          'CONTROL_ACCOUNT_UNCHANGED',
+          'LEAD_COUNT_BY_CPF_IS_ONE',
+          'LEAD_CPF_EQUALS_EVENT',
+          'LEAD_EMAIL_EXCLUDED',
+          {
+            check: 'LEAD_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithLead,
+  },
   {
     key: 'cliente-insert-prospect-divergente',
     version: 1,
