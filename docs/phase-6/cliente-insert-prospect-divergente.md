@@ -96,7 +96,7 @@ Justificativa:
   então a correlação prática tende a depender de `idCliente`;
 - `30000ms` fica alinhado ao timeout de rede do Salesforce
   (`SALESFORCE_NETWORK_TIMEOUT_MS = 30000`) e folgado em relação ao máximo de
-  atraso simulado do callback (`MAX_DELAYED_RESPONSE_MS = 4000`);
+  atraso simulado do callback (`MAX_DELAYED_RESPONSE_MS = 8000`);
 - ausência do callback não prova que a criação falhou, então o resultado
   escolhido é `PARTIAL`, não `FAILED`.
 

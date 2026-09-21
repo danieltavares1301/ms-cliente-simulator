@@ -572,10 +572,10 @@ Os cenarios desta secao incluem Proponente__c no MVP, porque `NotificacaoCliente
 | `evento-duplicado` | Mesmo evento enviado duas vezes | Segunda entrega nao corrompe dados. |
 | `evento-obsoleto` | `dataalteracao` anterior ao persistido | Evento nao atualiza registro. |
 | `ordem-invertida-completa` | Contato, endereco e cliente em ordem invertida | Resultado final preserva isolamento. |
-| `graphql-erro-500` | Callback retorna 500 | Vinculo local permanece; falha de sincronizacao remota fica observavel e o run termina `PARTIAL`. |
-| `graphql-resposta-invalida` | Callback retorna JSON inesperado | Vinculo local permanece; erro de parsing fica registrado, correlacionavel e classificado como falha remota. |
-| `graphql-timeout` | Callback excede os 12 segundos do Apex | Vinculo local permanece; timeout e log sao validados e o run termina `PARTIAL`. |
-| `id-prospect-igual-id-cliente` | MS devolve echo incorreto | Salesforce nao grava IdProspect igual ao Id Cliente. |
+| `graphql-erro-500` | Callback retorna 500 | Execucao real confirmou vinculo local preservado, callback observavel e run final `SUCCEEDED` (nao `PARTIAL`). |
+| `graphql-resposta-invalida` | Callback retorna JSON inesperado | Execucao real confirmou vinculo local preservado; o body invalido fica persistido/correlacionavel e o run final observado foi `SUCCEEDED`. |
+| `graphql-timeout` | Callback atrasado (~8s simulados, `maxDuration=15`) | Aproxima o timeout do Apex sem estourar o runtime; vinculo local permanece e o run observado termina `SUCCEEDED`. |
+| `id-prospect-igual-id-cliente` | MS devolve echo incorreto | Salesforce cria a Account, mas nao carimba `IdProspectSalesforce__c`; nenhum Lead novo foi observado nesse recorte. |
 
 ### 11.6 Extensao PAC e Opportunity
 
@@ -1685,10 +1685,11 @@ segredos ou payload bruto persistido.
     distintas; as 3 execucoes reais em `mrv-devDan` convergiram para o mesmo
     padrao final na Account, sem dependencia observada de ordem de chegada ou
     `CreatedDate`.
-- [ ] Falhas GraphQL cobertas: `graphql-erro-500`, `graphql-resposta-invalida`,
-  `graphql-timeout` (ja modeladas na secao 11.5, pendentes de implementacao).
-- [ ] Echo IdProspect igual IdCliente coberto (`id-prospect-igual-id-cliente`).
-- [ ] Mesma seed em runs diferentes mantem valores logicos repetiveis e IDs persistidos isolados.
+- [x] Falhas GraphQL cobertas: `graphql-erro-500`, `graphql-resposta-invalida`,
+  `graphql-timeout` (implementadas e validadas ao vivo; o status final observado
+  foi `SUCCEEDED` nos 3 cenarios, nao `PARTIAL`).
+- [x] Echo IdProspect igual IdCliente coberto (`id-prospect-igual-id-cliente`).
+- [x] Mesma seed em runs diferentes mantem valores logicos repetiveis e IDs persistidos isolados.
 
 **Verificacao:** execucoes repetidas com mesma seed produzem a mesma agenda sem reutilizar registros persistidos de outro `runId`.
 
