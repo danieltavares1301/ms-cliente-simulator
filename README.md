@@ -56,8 +56,8 @@ curl http://localhost:3000/api/v1/scenarios/match-id-cliente
 
 Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
 `phase-2` ou `future`. Endpoints internos/protegidos (`/api/v1/internal/dispatches`,
-`/api/ms-clientes/graphql` e `/api/ms-clientes/token`) não são publicados no
-OpenAPI público.
+`/api/ms-clientes/graphql`, `/api/ms-clientes/token` e
+`/api/ms-clientes/pac-credito`) não são publicados no OpenAPI público.
 
 ### Emissor fake de token OAuth2
 
@@ -80,6 +80,24 @@ redirecionamento temporário da Named Credential compartilhada
 > trava operacional/liga-desliga, não a uma proteção real de segredo. Detalhes
 > operacionais, impactos colaterais e rollback estão em
 > [`docs/phase-5/servico-clientes-redirect-risks.md`](docs/phase-5/servico-clientes-redirect-risks.md).
+
+### Callback PAC Crédito simulado
+
+O endpoint `POST /api/ms-clientes/pac-credito` existe **somente para
+desenvolvimento** e recebe o callback fire-and-forget hoje emitido por
+`EnvioPACCreditoQueue.cls` para o Azure Service Bus. Ele:
+
+- exige `Authorization` com prefixo literal `SharedAccessSignature`;
+- valida apenas a **estrutura** desse header, não a assinatura criptográfica;
+- aceita o JSON Apex com `IdSalesforcePac`, `IdPac`, `IdJornada` opcional/nulo
+  e `DataCriacao`;
+- responde `201` com `{ "accepted": true, "requestId": "..." }` quando aceita o
+  payload;
+- registra log estruturado sem expor o header sensível.
+
+O racional, o raio de impacto restrito ao fluxo PAC Crédito e o precedente de
+uso de credenciais falsas estão documentados em
+[`docs/phase-7/pac-credito-callback-redirect-risks.md`](docs/phase-7/pac-credito-callback-redirect-risks.md).
 
 ### Callback GraphQL simulado
 
@@ -185,6 +203,9 @@ nenhuma credencial Salesforce é necessária enquanto
   quando `ORCHESTRATION_ENABLED=true` e `GRAPHQL_CALLBACK_SHARED_SECRET` está
   configurado com pelo menos 32 caracteres. Serve apenas para o endpoint fake
   `POST /api/ms-clientes/token`.
+- `PAC_CREDITO_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true`
+  quando `ORCHESTRATION_ENABLED=true`. Serve apenas para o endpoint fake
+  `POST /api/ms-clientes/pac-credito`.
 - `GRAPHQL_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`.
 - `GRAPHQL_CALLBACK_AUTH_MODE`: opcional; default `SHARED_SECRET`. O operador
