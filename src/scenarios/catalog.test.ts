@@ -132,6 +132,25 @@ describe('scenarioDefinitionSchema', () => {
       }),
     ).toThrow(/collision/i);
   });
+
+  it('rejects more than one synthetic primary lead in the same fixture', () => {
+    const primaryLead = {
+      operation: 'CREATE_SYNTHETIC_LEAD',
+      role: 'PRIMARY',
+      lead: {
+        idExterno: { source: 'GENERATED', value: 'PROSPECT_ID' },
+        cpf: { source: 'GENERATED', value: 'CPF' },
+        lastName: 'Cliente Simulado',
+      },
+    } as const;
+
+    expect(() =>
+      scenarioDefinitionSchema.parse({
+        ...noMatchDefinition,
+        setup: [primaryLead, primaryLead, ...(noMatchDefinition.setup ?? [])],
+      }),
+    ).toThrow(/primary synthetic lead/i);
+  });
 });
 
 describe('versioned scenario catalog', () => {
