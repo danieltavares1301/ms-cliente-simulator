@@ -155,7 +155,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(6);
+    expect(scenarioCatalog.listActive()).toHaveLength(7);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -175,6 +175,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'contato-antes-cliente-colisao',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'cpf-divergente-contato-primeiro',
         version: 1,
         availability: 'READY',
       },

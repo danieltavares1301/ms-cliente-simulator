@@ -10,6 +10,7 @@ import { renderScenarioFixture } from './renderer';
 
 const scenarioKeys = [
   'contato-antes-cliente-colisao',
+  'cpf-divergente-contato-primeiro',
   'cliente-insert-prospect-divergente',
   'match-id-cliente',
   'match-cpf-sem-id-cliente',
@@ -19,6 +20,7 @@ const scenarioKeys = [
 
 const expectedStepCountByScenario = {
   'contato-antes-cliente-colisao': 3,
+  'cpf-divergente-contato-primeiro': 3,
   'cliente-insert-prospect-divergente': 1,
   'match-id-cliente': 1,
   'match-cpf-sem-id-cliente': 1,
@@ -93,6 +95,30 @@ describe('basic scenario fixture definitions', () => {
     });
     expect(
       scenarioCatalog.get('contato-antes-cliente-colisao', 1)?.asyncPolicy,
+    ).toStrictEqual({
+      expectedCallbacks: { min: 1, max: 1 },
+      waitTimeoutMs: 30_000,
+      missingCallbackResult: 'PARTIAL',
+    });
+    expect(
+      scenarioCatalog.get('cpf-divergente-contato-primeiro', 1)
+        ?.expectedOutcomes[0],
+    ).toMatchObject({
+      result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'CONTROL_ACCOUNT_UNCHANGED',
+        'LEAD_COUNT_BY_CPF_IS_ONE',
+        'LEAD_CPF_EQUALS_EVENT',
+        'LEAD_EMAIL_EXCLUDED',
+        'LEAD_MOBILE_EXCLUDED',
+      ],
+    });
+    expect(
+      scenarioCatalog.get('cpf-divergente-contato-primeiro', 1)?.asyncPolicy,
     ).toStrictEqual({
       expectedCallbacks: { min: 1, max: 1 },
       waitTimeoutMs: 30_000,
@@ -270,6 +296,28 @@ describe('renderScenarioFixture', () => {
         ],
       }),
     ).not.toThrow();
+  });
+
+  it('renders O01 with divergent prospect on both contato steps before cliente-insert', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'cpf-divergente-contato-primeiro',
+      version: 1,
+      seed: input.seed,
+      runId: input.runId,
+      eventStartAt: input.eventStartAt,
+    });
+
+    expect(fixture.steps.map((step) => step.key)).toStrictEqual([
+      'contato-email',
+      'contato-celular',
+      'cliente-insert-final',
+    ]);
+    for (const step of fixture.steps.slice(0, 2)) {
+      expect(step.envelope[0]?.data).toMatchObject({
+        idcliente: fixture.identifiers.accountIdCliente,
+        idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
+      });
+    }
   });
 
   it('rejects rendered fixtures with more than one collision lead setup', () => {

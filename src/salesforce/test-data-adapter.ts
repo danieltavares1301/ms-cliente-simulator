@@ -322,6 +322,7 @@ export type SalesforceTestDataVerificationCheck = {
   check:
     | 'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE'
     | 'ACCOUNT_COUNT_BY_CPF_IS_ONE'
+    | 'ACCOUNT_NOT_CREATED'
     | 'ACCOUNT_CLIENT_ID_EQUALS_EVENT'
     | 'ACCOUNT_NAME_EQUALS_EVENT'
     | 'ACCOUNT_IS_PERSON_ACCOUNT'
@@ -1004,6 +1005,9 @@ export function createSalesforceTestDataAdapter(
       const byCpf = accountRecords.filter(
         (record) => record.CPF__pc === event.numerocpf,
       );
+      const matchedAccountCount = new Set(
+        [...byClientId, ...byCpf].map((record) => record.Id),
+      ).size;
       const accountTarget =
         byClientId.length === 1
           ? byClientId[0]
@@ -1051,6 +1055,13 @@ export function createSalesforceTestDataAdapter(
               check: checkName,
               passed: byCpf.length === 1,
               actualCount: byCpf.length,
+            });
+            break;
+          case 'ACCOUNT_NOT_CREATED':
+            checks.push({
+              check: checkName,
+              passed: matchedAccountCount === 0,
+              actualCount: matchedAccountCount,
             });
             break;
           case 'ACCOUNT_CLIENT_ID_EQUALS_EVENT':

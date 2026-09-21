@@ -20,9 +20,9 @@ describe('GET /api/v1/scenarios', () => {
     expect(body).toMatchObject({
       data: [
         { key: 'contato-antes-cliente-colisao' },
-        { key: 'match-cpf-sem-id-cliente' },
+        { key: 'cpf-divergente-contato-primeiro' },
       ],
-      pagination: { page: 2, pageSize: 2, total: 6, totalPages: 3 },
+      pagination: { page: 2, pageSize: 2, total: 7, totalPages: 4 },
     });
   });
 

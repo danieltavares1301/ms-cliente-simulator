@@ -257,6 +257,7 @@ export const publicScenarioStepSchema = scenarioStepSchema.omit({
 const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
   'ACCOUNT_COUNT_BY_CPF_IS_ONE',
+  'ACCOUNT_NOT_CREATED',
   'ACCOUNT_CLIENT_ID_EQUALS_EVENT',
   'ACCOUNT_NAME_EQUALS_EVENT',
   'ACCOUNT_IS_PERSON_ACCOUNT',

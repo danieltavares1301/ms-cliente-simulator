@@ -342,6 +342,120 @@ export const basicScenarioDefinitions = [
     cleanup: cleanupWithLead,
   },
   {
+    key: 'cpf-divergente-contato-primeiro',
+    version: 1,
+    name: 'CPF divergente com contato antes do cliente',
+    description:
+      'Perfil O01 genuíno: dois contatos chegam primeiro com a identidade nova Y e reaproveitando o prospect PROS-X da conta de controle. Hipótese inicial fixada antes da validação real: os contatos anteriores são descartados, mas o cliente-insert final ainda cria a estrutura Y e um Lead novo sem contatos.',
+    scope: 'EXTENDED',
+    tags: ['o01', 'parciais-antes', 'lead', 'pos-pac', 'prospect-divergente'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'CONTROL',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspect: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF_X'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-email',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('COLLISION_EMAIL'),
+          true,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 1_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          true,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert-final',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: {
+          kind: 'DECLARATIVE',
+          contract: 'EVENT_GRID',
+          value: {
+            id: generated('EVENT_ID'),
+            subject: 'MS_Clientes',
+            eventType: 'cliente-insert',
+            eventTime: generated('EVENT_TIME'),
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/simulator/ms-clientes',
+            data: {
+              idcliente: generated('CLIENT_ID'),
+              idprospectsalesforce: generated('PROSPECT_ID_X'),
+              numerocpf: generated('CPF'),
+              dataalteracao: generated('EVENT_TIME'),
+              nomecompleto: generated('PERSON_NAME'),
+            },
+          },
+        },
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+        description:
+          'Decisão inicial antes da execução real: os contatos antecipados com PROS-X não contaminam X nem sobrevivem em Y, mas o cliente-insert final ainda cria a Person Account Y, preserva X intacta e cria um Lead novo sem contatos.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          'CONTROL_ACCOUNT_UNCHANGED',
+          'LEAD_COUNT_BY_CPF_IS_ONE',
+          'LEAD_CPF_EQUALS_EVENT',
+          'LEAD_EMAIL_EXCLUDED',
+          'LEAD_MOBILE_EXCLUDED',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithLead,
+  },
+  {
     key: 'match-id-cliente',
     version: 1,
     name: 'Match por Id Cliente',
