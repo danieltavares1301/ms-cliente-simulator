@@ -220,6 +220,7 @@ export const renderedScenarioFixtureSchema = z
     asyncPolicy: asyncPolicySchema,
     cleanup: z.array(renderedCleanupInstructionSchema).min(1).max(20),
   })
+  .strict()
   .superRefine(({ identifiers, setup, cleanup }, context) => {
     const syntheticAccountSetups = setup.filter(
       (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',

@@ -18,10 +18,7 @@ describe('GET /api/v1/scenarios', () => {
     expect(response.status).toBe(200);
     expect(scenarioListResponseSchema.parse(body)).toStrictEqual(body);
     expect(body).toMatchObject({
-      data: [
-        { key: 'match-cpf-sem-id-cliente' },
-        { key: 'match-id-cliente' },
-      ],
+      data: [{ key: 'match-cpf-sem-id-cliente' }, { key: 'match-id-cliente' }],
       pagination: { page: 2, pageSize: 2, total: 5, totalPages: 3 },
     });
   });

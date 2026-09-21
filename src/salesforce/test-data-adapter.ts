@@ -36,9 +36,7 @@ const adapterInputSchema = z
       });
     }
 
-    const accountSetups = fixture.setup.filter(
-      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
-    );
+    const accountSetups = fixture.setup.filter(isSyntheticAccountSetup);
     const accountSetup = accountSetups.find(
       (instruction) => instruction.role === 'PRIMARY',
     );
@@ -61,17 +59,25 @@ const adapterInputSchema = z
       leadSetup?.lead.cpf ??
       absentLeadSetup?.keys.cpf;
 
-    if (accountSetups.filter((instruction) => instruction.role === 'PRIMARY').length > 1) {
+    if (
+      accountSetups.filter((instruction) => instruction.role === 'PRIMARY')
+        .length > 1
+    ) {
       context.addIssue({
         code: 'custom',
-        message: 'Fixture cannot declare more than one PRIMARY synthetic account',
+        message:
+          'Fixture cannot declare more than one PRIMARY synthetic account',
         path: ['fixture', 'setup'],
       });
     }
-    if (accountSetups.filter((instruction) => instruction.role === 'CONTROL').length > 1) {
+    if (
+      accountSetups.filter((instruction) => instruction.role === 'CONTROL')
+        .length > 1
+    ) {
       context.addIssue({
         code: 'custom',
-        message: 'Fixture cannot declare more than one CONTROL synthetic account',
+        message:
+          'Fixture cannot declare more than one CONTROL synthetic account',
         path: ['fixture', 'setup'],
       });
     }
@@ -180,7 +186,8 @@ const adapterInputSchema = z
         (setupCpf !== undefined && event.numerocpf !== setupCpf) ||
         event.nomecompleto === undefined ||
         (event.idprospectsalesforce !== undefined &&
-          event.idprospectsalesforce !== fixture.identifiers.accountIdProspect &&
+          event.idprospectsalesforce !==
+            fixture.identifiers.accountIdProspect &&
           event.idprospectsalesforce !==
             fixture.identifiers.controlAccountIdProspect)
       ) {
@@ -211,8 +218,7 @@ const adapterInputSchema = z
       ) {
         context.addIssue({
           code: 'custom',
-          message:
-            'Fixture control Account cleanup ownership is inconsistent',
+          message: 'Fixture control Account cleanup ownership is inconsistent',
           path: ['fixture', 'cleanup'],
         });
       }
@@ -381,6 +387,10 @@ type AccountRecord = z.infer<typeof accountRecordSchema>;
 type LeadRecord = z.infer<typeof leadRecordSchema>;
 type FixtureCheck =
   RenderedScenarioFixture['expectedOutcomes'][number]['checks'][number];
+type SyntheticAccountSetup = Extract<
+  RenderedScenarioFixture['setup'][number],
+  { operation: 'CREATE_SYNTHETIC_ACCOUNT' }
+>;
 
 const accountFields =
   'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount' as const;
@@ -425,19 +435,27 @@ function fixtureEvent(fixture: RenderedScenarioFixture) {
   return fixture.steps[0]!.envelope[0]!.data;
 }
 
-function primaryAccountSetup(fixture: RenderedScenarioFixture) {
+function isSyntheticAccountSetup(
+  instruction: RenderedScenarioFixture['setup'][number],
+): instruction is SyntheticAccountSetup {
+  return instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT';
+}
+
+function primaryAccountSetup(
+  fixture: RenderedScenarioFixture,
+): SyntheticAccountSetup | undefined {
   return fixture.setup.find(
-    (instruction) =>
-      instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
-      instruction.role === 'PRIMARY',
+    (instruction): instruction is SyntheticAccountSetup =>
+      isSyntheticAccountSetup(instruction) && instruction.role === 'PRIMARY',
   );
 }
 
-function controlAccountSetup(fixture: RenderedScenarioFixture) {
+function controlAccountSetup(
+  fixture: RenderedScenarioFixture,
+): SyntheticAccountSetup | undefined {
   return fixture.setup.find(
-    (instruction) =>
-      instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
-      instruction.role === 'CONTROL',
+    (instruction): instruction is SyntheticAccountSetup =>
+      isSyntheticAccountSetup(instruction) && instruction.role === 'CONTROL',
   );
 }
 
@@ -472,7 +490,9 @@ function fixtureCpf(fixture: RenderedScenarioFixture): string {
   return absentLeadSetup?.keys.cpf ?? '';
 }
 
-function controlFixtureCpf(fixture: RenderedScenarioFixture): string | undefined {
+function controlFixtureCpf(
+  fixture: RenderedScenarioFixture,
+): string | undefined {
   return controlAccountSetup(fixture)?.account.cpf;
 }
 
@@ -920,7 +940,8 @@ export function createSalesforceTestDataAdapter(
                 expectedControlAccount !== undefined &&
                 controlTarget !== undefined &&
                 controlTarget.CPF__pc === expectedControlAccount.account.cpf &&
-                controlTarget.LastName === expectedControlAccount.account.name &&
+                controlTarget.LastName ===
+                  expectedControlAccount.account.name &&
                 controlTarget.IdProspectSalesforce__c ===
                   expectedControlAccount.account.idProspect,
             });

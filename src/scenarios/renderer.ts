@@ -93,7 +93,10 @@ export function renderScenarioFixture(
   const syntheticCpf = generateSyntheticCpf(input.seed, input.runId);
   const controlAccountIdCliente = `CLI-SIM-X-${namespaceToken}-${seedToken}`;
   const controlAccountIdProspect = `PRO-SIM-X-${namespaceToken}-${seedToken}`;
-  const controlSyntheticCpf = generateSyntheticCpf(`${input.seed}:x`, input.runId);
+  const controlSyntheticCpf = generateSyntheticCpf(
+    `${input.seed}:x`,
+    input.runId,
+  );
   const baseContext = {
     RUN_ID: input.runId,
     STEP_ID: '',

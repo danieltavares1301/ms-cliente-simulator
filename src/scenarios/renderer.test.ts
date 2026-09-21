@@ -304,9 +304,9 @@ describe('renderScenarioFixture', () => {
         idProspect: fixture.identifiers.controlAccountIdProspect,
       },
     });
-    expect(
-      fixture.steps[0].envelope[0].data.idprospectsalesforce,
-    ).toBe(fixture.identifiers.controlAccountIdProspect);
+    expect(fixture.steps[0].envelope[0].data.idprospectsalesforce).toBe(
+      fixture.identifiers.controlAccountIdProspect,
+    );
   });
 
   it('emits only cliente fields consumed by the Apex contract', () => {

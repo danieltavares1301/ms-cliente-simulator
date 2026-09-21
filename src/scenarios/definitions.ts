@@ -192,6 +192,7 @@ export const basicScenarioDefinitions = [
     setup: [
       {
         operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
         matchBy: 'ID_CLIENTE',
         account: {
           idCliente: generated('CLIENT_ID'),
@@ -241,6 +242,7 @@ export const basicScenarioDefinitions = [
     setup: [
       {
         operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
         matchBy: 'CPF',
         account: {
           idCliente: null,

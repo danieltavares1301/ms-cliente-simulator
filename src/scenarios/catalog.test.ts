@@ -120,7 +120,9 @@ describe('versioned scenario catalog', () => {
   it('keeps deterministic ordering by key and version', () => {
     const catalog = createScenarioCatalog([
       { ...matchIdClienteDefinition, version: 2 },
-      basicScenarioDefinitions.find(({ key }) => key === 'match-cpf-sem-id-cliente')!,
+      basicScenarioDefinitions.find(
+        ({ key }) => key === 'match-cpf-sem-id-cliente',
+      )!,
       matchIdClienteDefinition,
     ]);
 

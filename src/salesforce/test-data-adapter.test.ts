@@ -245,14 +245,14 @@ function prospectDivergenteFixture() {
       keys: {
         idCliente: rendered.identifiers.accountIdCliente,
         idProspect: rendered.identifiers.accountIdProspect,
-        cpf: rendered.steps[0].envelope[0].data.numerocpf,
+        cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
       },
     },
     {
       operation: 'ENSURE_LEAD_ABSENT',
       keys: {
         idExterno: rendered.identifiers.controlAccountIdProspect,
-        cpf: rendered.steps[0].envelope[0].data.numerocpf,
+        cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
       },
     },
   ];
@@ -930,8 +930,12 @@ describe('Salesforce test data adapter verify', () => {
         },
       ]),
     );
-    const accountQuery = String(client.query.mock.calls[0][0] as AllowlistedQuery);
-    expect(accountQuery).toContain(rendered.identifiers.controlAccountIdCliente!);
+    const accountQuery = String(
+      client.query.mock.calls[0][0] as AllowlistedQuery,
+    );
+    expect(accountQuery).toContain(
+      rendered.identifiers.controlAccountIdCliente!,
+    );
     expect(accountQuery).toContain('39095812030');
   });
 
