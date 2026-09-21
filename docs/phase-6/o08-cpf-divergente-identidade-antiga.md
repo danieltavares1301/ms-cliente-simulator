@@ -324,3 +324,44 @@ O comportamento real observado foi o oposto:
 
 O simulador passou a refletir o **comportamento real do Apex atual**, não o
 texto esperado pelo catálogo.
+
+## Hipótese sobre a origem da divergência: reconciliação via PAC (Fase 7)
+
+Investigação adicional em `ClienteService.cls` encontrou um mecanismo que
+provavelmente explica por que o catálogo descreve "Y recebe C/D": o método
+`sincronizarContatosAprovadosPac` (`ClienteService.cls:747`).
+
+Esse método é acionado quando um `Proponente__c` (vinculado a uma PAC) atinge
+o status `CREDITO_APROVADO_CONDICIONADO`. Diferente do fluxo testado neste
+cenário (que depende de `contato-insert` cru do `/Cliente`), ele:
+
+1. Localiza a Account **diretamente pelo lookup `Proponente__c.Proponente__c`
+   + `IdCliente__c`** — ou seja, a Account que tem o **Proponente Principal
+   aprovado** vinculado a ela. No fluxo real completo, essa Account seria
+   **Y** (a identidade definitiva aprovada na PAC), não X.
+2. Copia `EmailAtualizado__c`/`Celular__c` do `Proponente__c` **diretamente**
+   para essa Account (`PersonEmail`/`Celular__c`), com precedência por
+   timestamp (`dataAlteracaoPAC`).
+3. Ao final, dispara
+   `ReconciliacaoContatosLeadQueueable.solicitarSePendente(...,
+   OrigemReconciliacao.POS_PAC_APROVADA)` para refletir no Lead.
+
+Ou seja: no fluxo real completo, os contatos "aprovados" não vêm dos eventos
+crus `contato-insert` aplicados fisicamente a X — eles vêm do
+`Proponente__c` da PAC, aplicados **diretamente** na Account que detém o
+Proponente Principal (Y), por um caminho de dados totalmente diferente do
+que testamos aqui. Isso é compatível com o catálogo descrever "Y recebe
+C/D": ele provavelmente descreve o resultado da cadeia **completa**
+(incluindo PAC), não o comportamento isolado do `/Cliente` reproduzido neste
+incremento (MVP sem PAC).
+
+**Este mecanismo está fora do escopo do MVP atual (Fase 6) e faz parte da
+Fase 7 do plano** (`plano-api-simulador-ms-clientes-2.2.md`, "Extensão PAC,
+Máquina de Estado e Opportunity", Tarefa 7.1 — contratos `/PAC`). Quando a
+Fase 7 for implementada, este cenário (`cpf-divergente-identidade-antiga`)
+deve ser revisitado com uma variante que inclua uma PAC aprovada
+(`Proponente__c` com status `CREDITO_APROVADO_CONDICIONADO`) para confirmar
+se, com esse mecanismo em ação, o resultado final passa a bater com o texto
+original do catálogo (Y recebendo C/D via `sincronizarContatosAprovadosPac`,
+em vez de X sendo alterada pelos `contato-insert` crus).
+

@@ -609,7 +609,7 @@ documentado como evidencia, nao assumido a priori.
 | O05 | PAC aprovada reentregue | — (a definir na Fase 7) | Fase 7. |
 | O06 | Intervencao manual pos-PAC | — (a definir na Fase 7) | Fase 7. |
 | O07 | Corrida Queueable vs PAC | `maquina-estado-atual-corrida` (parcial) | Fase 7. |
-| O08 | Parciais com identidade antiga (`contato-insert(IDCLI-X, PROS-X)` antes de `cliente-insert(IDCLI-Y, PROS-X)`) | `cpf-divergente-identidade-antiga` | Implementado e validado ao vivo contra `mrv-devDan`: os dois `contato-insert` atualizam a Account X com C/D; o `cliente-insert` final cria Y e um Lead novo de Y, ambos sem contatos. |
+| O08 | Parciais com identidade antiga (`contato-insert(IDCLI-X, PROS-X)` antes de `cliente-insert(IDCLI-Y, PROS-X)`) | `cpf-divergente-identidade-antiga` | Implementado e validado ao vivo contra `mrv-devDan`: os dois `contato-insert` atualizam a Account X com C/D; o `cliente-insert` final cria Y e um Lead novo de Y, ambos sem contatos. **Diverge do texto do catalogo** ("X invariante, Y recebe C/D") — ver hipotese de reconciliacao via PAC abaixo e retestar na Fase 7. |
 | O09 | Ordem composta Clarice (caso real complementar) | — | Fora do MVP atual; requer PAC + intervencao manual combinados. |
 | O10 | Rajada concorrente Cliente/PAC | — | Fora de escopo (stress tecnico, nao e ordem funcional). |
 | O11 | Jornada sem `idCliente` antes do carimbo | `maquina-estado-sem-id-cliente` (parcial) | Fase 7. |
@@ -626,6 +626,22 @@ apenas na identidade usada no payload (`IDCLI-Y` inexistente em O01 vs
 `IDCLI-X` existente em O08) — ambas devem ser implementadas e executadas
 contra `mrv-devDan` para documentar o comportamento real observado do Apex,
 nao inferido.
+
+**Hipotese confirmada por leitura de codigo sobre a divergencia do O08:** o
+resultado real observado de O08 (X alterada, Y sem contatos) diverge do
+texto do catalogo (X invariante, Y recebe C/D). Investigacao em
+`ClienteService.sincronizarContatosAprovadosPac` (`ClienteService.cls:747`)
+encontrou o mecanismo provavel responsavel pelo comportamento descrito no
+catalogo: quando um `Proponente__c` vinculado a uma PAC atinge o status
+`CREDITO_APROVADO_CONDICIONADO`, os contatos aprovados sao copiados
+**diretamente** para a Account que detem o Proponente Principal (Y no fluxo
+real), via um caminho de dados totalmente diferente dos eventos crus
+`contato-insert` do `/Cliente` (que ficam presos em X, como observado). Isso
+sera revisitado na Tarefa 7.1 (contratos `/PAC`): o cenario
+`cpf-divergente-identidade-antiga` deve ganhar uma variante com PAC aprovada
+para confirmar se, com esse mecanismo em acao, o resultado passa a bater com
+o texto original do catalogo. Ver `docs/phase-6/o08-cpf-divergente-identidade-antiga.md`
+para a analise completa.
 
 ## 12. Modelo de dados
 
@@ -1699,6 +1715,13 @@ segredos ou payload bruto persistido.
 - [ ] Fixtures validadas por contrato, determinismo e ausencia de segredos.
 - [ ] Ordem relativa a cliente e configuravel.
 - [ ] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
+- [ ] Retestar `cpf-divergente-identidade-antiga` (O08) com uma PAC aprovada
+  (`Proponente__c` com status `CREDITO_APROVADO_CONDICIONADO` vinculado a Y):
+  confirmar se `ClienteService.sincronizarContatosAprovadosPac`
+  (`ClienteService.cls:747`) projeta os contatos aprovados diretamente em Y
+  (independente do que os `contato-insert` crus escreveram em X), fazendo o
+  resultado bater com o texto original do catalogo O08 ("X invariante, Y
+  recebe C/D"). Ver `docs/phase-6/o08-cpf-divergente-identidade-antiga.md`.
 
 **Dependencias:** MVP.
 
