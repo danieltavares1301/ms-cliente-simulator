@@ -347,6 +347,7 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_EMAIL_EQUALS_EXPECTED'
     | 'ACCOUNT_MOBILE_EQUALS_EXPECTED'
     | 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'
+    | 'ACCOUNT_PROSPECT_ID_NOT_STAMPED'
     | 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_UNCHANGED'
@@ -784,6 +785,10 @@ function verificationCheckValue(check: FixtureCheck) {
   return typeof check === 'string' ? undefined : check.value;
 }
 
+function isBlankText(value: string | null | undefined): boolean {
+  return value === null || value === undefined || value.trim().length === 0;
+}
+
 export function createSalesforceTestDataAdapter(
   dependencies: SalesforceTestDataAdapterDependencies,
 ): SalesforceTestDataAdapter {
@@ -1202,6 +1207,14 @@ export function createSalesforceTestDataAdapter(
               passed:
                 accountTarget !== undefined &&
                 accountTarget.BillingStreet === expectedValue,
+            });
+            break;
+          case 'ACCOUNT_PROSPECT_ID_NOT_STAMPED':
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                isBlankText(accountTarget.IdProspectSalesforce__c),
             });
             break;
           case 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED':

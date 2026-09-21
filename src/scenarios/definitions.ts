@@ -189,6 +189,114 @@ const cleanupWithLead: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'LEAD' },
 ];
 
+function prospectDivergenteSetup(): NonNullable<ScenarioDefinition['setup']> {
+  return [
+    {
+      operation: 'CREATE_SYNTHETIC_ACCOUNT',
+      role: 'CONTROL',
+      matchBy: 'ID_CLIENTE',
+      account: {
+        idCliente: generated('CLIENT_ID_X'),
+        idProspect: generated('PROSPECT_ID_X'),
+        cpf: generated('CPF_X'),
+        name: generated('BASE_PERSON_NAME'),
+        dataAlteracao: generated('BASELINE_TIME'),
+      },
+    },
+    {
+      operation: 'ENSURE_ACCOUNT_ABSENT',
+      keys: {
+        idCliente: generated('CLIENT_ID'),
+        idProspect: generated('PROSPECT_ID'),
+        cpf: generated('CPF'),
+      },
+    },
+    {
+      operation: 'ENSURE_LEAD_ABSENT',
+      keys: {
+        idExterno: generated('PROSPECT_ID_X'),
+        cpf: generated('CPF'),
+      },
+    },
+  ];
+}
+
+function prospectDivergenteSteps(): ScenarioDefinition['steps'] {
+  return [
+    {
+      key: 'cliente-insert-divergente',
+      target: 'CLIENTE',
+      eventType: 'cliente-insert',
+      delayMs: 0,
+      payloadTemplate: {
+        kind: 'DECLARATIVE',
+        contract: 'EVENT_GRID',
+        value: {
+          id: generated('EVENT_ID'),
+          subject: 'MS_Clientes',
+          eventType: 'cliente-insert',
+          eventTime: generated('EVENT_TIME'),
+          dataVersion: '1.0',
+          metadataVersion: '1',
+          topic: '/simulator/ms-clientes',
+          data: {
+            idcliente: generated('CLIENT_ID'),
+            idprospectsalesforce: generated('PROSPECT_ID_X'),
+            numerocpf: generated('CPF'),
+            dataalteracao: generated('EVENT_TIME'),
+            nomecompleto: generated('PERSON_NAME'),
+          },
+        },
+      },
+      deliveryPolicy,
+    },
+  ];
+}
+
+function prospectDivergenteExpectedOutcomes(): ScenarioDefinition['expectedOutcomes'] {
+  return [
+    {
+      kind: 'BUSINESS_RESULT',
+      result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      description:
+        'A Account Y ? criada sem herdar o prospect da conta X, um Lead novo ? criado pelo CPF de Y e a Account de controle permanece intacta.',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'CONTROL_ACCOUNT_UNCHANGED',
+        'LEAD_COUNT_BY_CPF_IS_ONE',
+        'LEAD_CPF_EQUALS_EVENT',
+      ],
+    },
+  ];
+}
+
+function createProspectDivergenteGraphqlScenario(input: {
+  key: string;
+  name: string;
+  description: string;
+  graphqlResponse: NonNullable<ScenarioDefinition['graphqlResponse']>;
+}): ScenarioDefinition {
+  return {
+    key: input.key,
+    version: 1,
+    name: input.name,
+    description: input.description,
+    scope: 'EXTENDED',
+    tags: ['regression', 'prospect-divergente', 'lead', 'pos-pac', 'graphql'],
+    availability: 'READY',
+    variablesSchema,
+    setup: prospectDivergenteSetup(),
+    steps: prospectDivergenteSteps(),
+    expectedOutcomes: prospectDivergenteExpectedOutcomes(),
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    graphqlResponse: input.graphqlResponse,
+    cleanup: cleanupWithLead,
+  };
+}
+
 export const basicScenarioDefinitions = [
   {
     key: 'contato-antes-cliente-colisao',
@@ -765,6 +873,97 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithLead,
+  },
+  createProspectDivergenteGraphqlScenario({
+    key: 'graphql-erro-500',
+    name: 'Cliente insert com callback GraphQL HTTP 500',
+    description:
+      'Reexecuta o fluxo de prospect divergente, mas for?a o callback GraphQL do Apex a receber HTTP 500 para comprovar o comportamento real do v?nculo local e do status final do run.',
+    graphqlResponse: { policy: 'HTTP_500' },
+  }),
+  createProspectDivergenteGraphqlScenario({
+    key: 'graphql-resposta-invalida',
+    name: 'Cliente insert com callback GraphQL inv?lido',
+    description:
+      'Reexecuta o fluxo de prospect divergente, mas responde com JSON inv?lido para medir a rea??o atual do Apex e do orquestrador ao callback ass?ncrono quebrado.',
+    graphqlResponse: { policy: 'INVALID_JSON_200' },
+  }),
+  createProspectDivergenteGraphqlScenario({
+    key: 'graphql-timeout',
+    name: 'Cliente insert com callback GraphQL atrasado',
+    description:
+      'Reexecuta o fluxo de prospect divergente com atraso deliberado no callback GraphQL para simular o timeout ass?ncrono observado no Apex sem exceder o or?amento do runtime local.',
+    graphqlResponse: {
+      policy: 'DELAYED_RESPONSE',
+      delayMs: 8_000,
+    },
+  }),
+  {
+    key: 'id-prospect-igual-id-cliente',
+    version: 1,
+    name: 'Cliente insert com echo de prospect igual ao cliente',
+    description:
+      'Publica um cliente-insert cujo idprospectsalesforce replica o idcliente para comprovar que o Apex cria a Person Account, mas n?o carimba o IdProspectSalesforce__c com esse echo inv?lido.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'prospect', 'echo', 'id-cliente'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'cliente-insert',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 0,
+        payloadTemplate: {
+          kind: 'DECLARATIVE',
+          contract: 'EVENT_GRID',
+          value: {
+            id: generated('EVENT_ID'),
+            subject: 'MS_Clientes',
+            eventType: 'cliente-insert',
+            eventTime: generated('EVENT_TIME'),
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/simulator/ms-clientes',
+            data: {
+              idcliente: generated('CLIENT_ID'),
+              idprospectsalesforce: generated('CLIENT_ID'),
+              numerocpf: generated('CPF'),
+              dataalteracao: generated('EVENT_TIME'),
+              nomecompleto: generated('PERSON_NAME'),
+            },
+          },
+        },
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED',
+        description:
+          'A Person Account nasce com os dados do evento, mas o Apex n?o deve gravar IdProspectSalesforce__c quando o MS ecoa o mesmo valor do Id Cliente.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup,
   },
   {
     key: 'cpf-divergente-contato-primeiro',

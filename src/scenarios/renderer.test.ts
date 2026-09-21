@@ -15,6 +15,10 @@ const scenarioKeys = [
   'cliente-insert-prospect-divergente',
   'evento-duplicado',
   'evento-obsoleto',
+  'graphql-erro-500',
+  'graphql-resposta-invalida',
+  'graphql-timeout',
+  'id-prospect-igual-id-cliente',
   'match-id-cliente',
   'match-cpf-sem-id-cliente',
   'no-match-cliente-insert',
@@ -31,6 +35,10 @@ const expectedStepCountByScenario = {
   'cliente-insert-prospect-divergente': 1,
   'evento-duplicado': 1,
   'evento-obsoleto': 1,
+  'graphql-erro-500': 1,
+  'graphql-resposta-invalida': 1,
+  'graphql-timeout': 1,
+  'id-prospect-igual-id-cliente': 1,
   'match-id-cliente': 1,
   'match-cpf-sem-id-cliente': 1,
   'no-match-cliente-insert': 1,
@@ -226,6 +234,41 @@ describe('basic scenario fixture definitions', () => {
         data: {
           dataalteracao: { source: 'GENERATED', value: 'EARLIER_TIME' },
           numerocpf: { source: 'GENERATED', value: 'CPF_X' },
+        },
+      },
+    });
+    expect(scenarioCatalog.get('graphql-erro-500', 1)?.graphqlResponse).toStrictEqual({
+      policy: 'HTTP_500',
+    });
+    expect(
+      scenarioCatalog.get('graphql-resposta-invalida', 1)?.graphqlResponse,
+    ).toStrictEqual({
+      policy: 'INVALID_JSON_200',
+    });
+    expect(scenarioCatalog.get('graphql-timeout', 1)?.graphqlResponse).toStrictEqual({
+      policy: 'DELAYED_RESPONSE',
+      delayMs: 8_000,
+    });
+    expect(
+      scenarioCatalog.get('id-prospect-igual-id-cliente', 1)?.expectedOutcomes[0],
+    ).toMatchObject({
+      result: 'PERSON_ACCOUNT_CREATED',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
+      ],
+    });
+    expect(
+      scenarioCatalog.get('id-prospect-igual-id-cliente', 1)?.steps[0]?.payloadTemplate,
+    ).toMatchObject({
+      kind: 'DECLARATIVE',
+      value: {
+        data: {
+          idcliente: { source: 'GENERATED', value: 'CLIENT_ID' },
+          idprospectsalesforce: { source: 'GENERATED', value: 'CLIENT_ID' },
         },
       },
     });
@@ -1007,6 +1050,38 @@ describe('renderScenarioFixture', () => {
         ownership: { idExternoPrefix: 'LEAD-SIM-' },
       },
     ]);
+  });
+
+  it('renders the GraphQL failure and echo-prospect fixtures with the expected callback metadata', () => {
+    const erro500 = renderScenarioFixture({
+      ...input,
+      scenarioKey: 'graphql-erro-500',
+    });
+    const invalida = renderScenarioFixture({
+      ...input,
+      scenarioKey: 'graphql-resposta-invalida',
+    });
+    const timeout = renderScenarioFixture({
+      ...input,
+      scenarioKey: 'graphql-timeout',
+    });
+    const echo = renderScenarioFixture({
+      ...input,
+      scenarioKey: 'id-prospect-igual-id-cliente',
+    });
+
+    expect(erro500.graphqlResponse).toStrictEqual({ policy: 'HTTP_500' });
+    expect(invalida.graphqlResponse).toStrictEqual({
+      policy: 'INVALID_JSON_200',
+    });
+    expect(timeout.graphqlResponse).toStrictEqual({
+      policy: 'DELAYED_RESPONSE',
+      delayMs: 8_000,
+    });
+    expect(echo.graphqlResponse).toBeUndefined();
+    expect(echo.steps[0]?.envelope[0].data.idcliente).toBe(
+      echo.steps[0]?.envelope[0].data.idprospectsalesforce,
+    );
   });
 
   it('keeps the control identifiers deterministic and distinct from the primary account', () => {

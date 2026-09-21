@@ -409,6 +409,42 @@ function contatoAntesClienteColisaoInput(
   };
 }
 
+function idProspectIgualIdClienteFixture() {
+  const rendered = JSON.parse(
+    JSON.stringify(fixture('no-match-cliente-insert')),
+  ) as ReturnType<typeof fixture> & {
+    expectedOutcomes: Array<Record<string, unknown>>;
+  };
+  rendered.scenarioKey = 'id-prospect-igual-id-cliente';
+  rendered.steps[0].envelope[0].data.idprospectsalesforce =
+    rendered.identifiers.accountIdCliente;
+  rendered.expectedOutcomes = [
+    {
+      kind: 'BUSINESS_RESULT',
+      result: 'PERSON_ACCOUNT_CREATED',
+      description: 'A Account nasce sem carimbar o IdProspect igual ao IdCliente.',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
+      ],
+    },
+  ];
+  return rendered;
+}
+
+function idProspectIgualIdClienteInput(
+  rendered = idProspectIgualIdClienteFixture(),
+) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
 function prospectDivergenteInput(rendered = prospectDivergenteFixture()) {
   return {
     runId: rendered.runId,

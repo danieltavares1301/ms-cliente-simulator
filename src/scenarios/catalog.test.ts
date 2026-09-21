@@ -171,7 +171,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(13);
+    expect(scenarioCatalog.listActive()).toHaveLength(17);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -211,6 +211,26 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'evento-obsoleto',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'graphql-erro-500',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'graphql-resposta-invalida',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'graphql-timeout',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'id-prospect-igual-id-cliente',
         version: 1,
         availability: 'READY',
       },
