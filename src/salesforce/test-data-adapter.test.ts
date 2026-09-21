@@ -625,6 +625,43 @@ describe('Salesforce test data adapter setup', () => {
     expect(leadAbsenceQuery).toContain(`CPF__c = '${leadSetup.keys.cpf}'`);
   });
 
+  it('accepts contato steps rendered with the control identity in O08 fixtures', async () => {
+    const rendered = renderScenarioFixture({
+      scenarioKey: 'cpf-divergente-identidade-antiga',
+      version: 1,
+      seed: 'phase-four-seed',
+      runId: 'run_phase_four_a',
+      eventStartAt: '2026-09-20T16:30:00.000Z',
+    });
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000001AAA' }],
+      })
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] });
+    client.composite.mockResolvedValue({
+      compositeResponse: [
+        {
+          body: { id: controlAccountId, success: true, errors: [] },
+          httpStatusCode: 201,
+          referenceId: 'createAccount',
+        },
+      ],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup({
+        runId: rendered.runId,
+        scenarioKey: rendered.scenarioKey,
+        fixture: rendered,
+      }),
+    ).resolves.toMatchObject({ status: 'CREATED', createdCount: 1 });
+  });
+
   it('fails with SETUP_CONFLICT without mutating an incompatible Account', async () => {
     const client = restClient();
     client.query.mockResolvedValue({
@@ -1358,6 +1395,96 @@ describe('Salesforce test data adapter verify', () => {
       passed: false,
       actualCount: 1,
     });
+  });
+
+  it('passes the O08 checks when contacts stay on the control Account and Y remains empty', async () => {
+    const rendered = renderScenarioFixture({
+      scenarioKey: 'cpf-divergente-identidade-antiga',
+      version: 1,
+      seed: 'phase-four-seed',
+      runId: 'run_phase_four_a',
+      eventStartAt: '2026-09-20T16:30:00.000Z',
+    }) as ReturnType<typeof fixture> & {
+      expectedOutcomes: Array<Record<string, unknown>>;
+    };
+    const emailContato = rendered.steps[0]!.envelope[0]!.data as {
+      descricao: string;
+    };
+    const celularContato = rendered.steps[1]!.envelope[0]!.data as {
+      descricao: string;
+    };
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+        description:
+          'Os contatos parciais ficam em X; Y e o Lead final permanecem sem contatos.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          'ACCOUNT_EMAIL_EXCLUDED',
+          'ACCOUNT_MOBILE_EXCLUDED',
+          {
+            check: 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: emailContato.descricao,
+          },
+          {
+            check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: celularContato.descricao,
+          },
+          'LEAD_COUNT_BY_CPF_IS_ONE',
+          'LEAD_CPF_EQUALS_EVENT',
+          'LEAD_EMAIL_EXCLUDED',
+          'LEAD_MOBILE_EXCLUDED',
+        ],
+      },
+    ];
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 2,
+        done: true,
+        records: [
+          accountFromFixture(rendered, {
+            IdProspectSalesforce__c: '50dcfa9f-9d7e-4205-5cb2-2065dd60148c',
+            PersonEmail: null,
+            PersonMobilePhone: null,
+            Celular__c: null,
+          }),
+          controlAccountFromFixture(rendered, {
+            PersonEmail: emailContato.descricao,
+            PersonMobilePhone: `55${celularContato.descricao}`,
+            Celular__c: celularContato.descricao,
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [createdLeadFromFixture(rendered)],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: rendered,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_EMAIL_EXCLUDED', passed: true },
+        { check: 'ACCOUNT_MOBILE_EXCLUDED', passed: true },
+        { check: 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
+        { check: 'LEAD_EMAIL_EXCLUDED', passed: true },
+        { check: 'LEAD_MOBILE_EXCLUDED', passed: true },
+      ]),
+    );
   });
 
   it('passes the divergent prospect checks and queries the control Account explicitly', async () => {

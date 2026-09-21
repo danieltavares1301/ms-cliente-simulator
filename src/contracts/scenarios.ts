@@ -262,6 +262,8 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_NAME_EQUALS_EVENT',
   'ACCOUNT_IS_PERSON_ACCOUNT',
   'ACCOUNT_CPF_EQUALS_EVENT',
+  'ACCOUNT_EMAIL_EXCLUDED',
+  'ACCOUNT_MOBILE_EXCLUDED',
   'CONTROL_ACCOUNT_UNCHANGED',
   'NO_OTHER_ACCOUNT_UPDATED',
   'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
@@ -295,6 +297,24 @@ const renderedLeadExpectedValueCheckSchema = z.discriminatedUnion('check', [
     .strict(),
 ]);
 
+const renderedControlAccountExpectedValueCheckSchema = z.discriminatedUnion(
+  'check',
+  [
+    z
+      .object({
+        check: z.literal('CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(80),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(40),
+      })
+      .strict(),
+  ],
+);
+
 const definitionExpectedValueSchema = z.union([
   generatedFixtureReferenceSchema,
   z.string().trim().min(1).max(255),
@@ -321,6 +341,18 @@ export const expectedOutcomeCheckSchema = z.union([
         value: definitionExpectedValueSchema,
       })
       .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
   ]),
 ]);
 
@@ -342,6 +374,7 @@ export const expectedOutcomeSchema = z
 export const renderedExpectedOutcomeCheckSchema = z.union([
   bareExpectedOutcomeCheckSchema,
   renderedLeadExpectedValueCheckSchema,
+  renderedControlAccountExpectedValueCheckSchema,
 ]);
 
 export const renderedExpectedOutcomeSchema = z

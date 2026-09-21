@@ -13,7 +13,11 @@ de imutabilidade e cleanup ownership para duas Accounts. No incremento 0.8.2
 ele passa a sustentar também o cenário READY
 `cpf-divergente-contato-primeiro` e ganha o check explícito
 `ACCOUNT_NOT_CREATED` para documentar cenários em que a estrutura Y nunca chega
-a ser criada. O lifecycle durável está detalhado em [lifecycle.md](lifecycle.md).
+a ser criada. No incremento 0.8.3 ele passa a sustentar também o cenário READY
+`cpf-divergente-identidade-antiga`, incluindo fixtures em que
+`contato-insert` usa a identidade da conta de controle X e checks explícitos
+para afirmar onde os contatos finais ficaram. O lifecycle durável está
+detalhado em [lifecycle.md](lifecycle.md).
 
 O health informa somente `testData: disabled|configured`; não abre conexão com
 Salesforce.
@@ -25,6 +29,7 @@ Salesforce.
 `scenarioKey`. Os cenários publicados passam a ser:
 
 - `cpf-divergente-contato-primeiro`;
+- `cpf-divergente-identidade-antiga`;
 - `cliente-insert-prospect-divergente`;
 - `match-id-cliente`;
 - `match-cpf-sem-id-cliente`;
@@ -64,6 +69,10 @@ Verificações permitidas:
 - `ACCOUNT_CLIENT_ID_EQUALS_EVENT`;
 - `ACCOUNT_IS_PERSON_ACCOUNT`;
 - `ACCOUNT_CPF_EQUALS_EVENT`;
+- `ACCOUNT_EMAIL_EXCLUDED`;
+- `ACCOUNT_MOBILE_EXCLUDED`;
+- `CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED`;
+- `CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED`;
 - `CONTROL_ACCOUNT_UNCHANGED`;
 - `NO_OTHER_ACCOUNT_UPDATED`;
 - `LEAD_COUNT_BY_ID_EXTERNO_IS_ONE`;

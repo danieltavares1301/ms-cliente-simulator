@@ -11,6 +11,7 @@ import { renderScenarioFixture } from './renderer';
 const scenarioKeys = [
   'contato-antes-cliente-colisao',
   'cpf-divergente-contato-primeiro',
+  'cpf-divergente-identidade-antiga',
   'cliente-insert-prospect-divergente',
   'match-id-cliente',
   'match-cpf-sem-id-cliente',
@@ -21,6 +22,7 @@ const scenarioKeys = [
 const expectedStepCountByScenario = {
   'contato-antes-cliente-colisao': 3,
   'cpf-divergente-contato-primeiro': 3,
+  'cpf-divergente-identidade-antiga': 3,
   'cliente-insert-prospect-divergente': 1,
   'match-id-cliente': 1,
   'match-cpf-sem-id-cliente': 1,
@@ -119,6 +121,39 @@ describe('basic scenario fixture definitions', () => {
     });
     expect(
       scenarioCatalog.get('cpf-divergente-contato-primeiro', 1)?.asyncPolicy,
+    ).toStrictEqual({
+      expectedCallbacks: { min: 1, max: 1 },
+      waitTimeoutMs: 30_000,
+      missingCallbackResult: 'PARTIAL',
+    });
+    expect(
+      scenarioCatalog.get('cpf-divergente-identidade-antiga', 1)
+        ?.expectedOutcomes[0],
+    ).toMatchObject({
+      result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'ACCOUNT_EMAIL_EXCLUDED',
+        'ACCOUNT_MOBILE_EXCLUDED',
+        {
+          check: 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'COLLISION_EMAIL' },
+        },
+        {
+          check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+        },
+        'LEAD_COUNT_BY_CPF_IS_ONE',
+        'LEAD_CPF_EQUALS_EVENT',
+        'LEAD_EMAIL_EXCLUDED',
+        'LEAD_MOBILE_EXCLUDED',
+      ],
+    });
+    expect(
+      scenarioCatalog.get('cpf-divergente-identidade-antiga', 1)?.asyncPolicy,
     ).toStrictEqual({
       expectedCallbacks: { min: 1, max: 1 },
       waitTimeoutMs: 30_000,
@@ -318,6 +353,32 @@ describe('renderScenarioFixture', () => {
         idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
       });
     }
+  });
+
+  it('renders O08 with contato steps pinned to the control identity before cliente-insert for Y', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'cpf-divergente-identidade-antiga',
+      version: 1,
+      seed: input.seed,
+      runId: input.runId,
+      eventStartAt: input.eventStartAt,
+    });
+
+    expect(fixture.steps.map((step) => step.key)).toStrictEqual([
+      'contato-email-x',
+      'contato-celular-x',
+      'cliente-insert-y',
+    ]);
+    for (const step of fixture.steps.slice(0, 2)) {
+      expect(step.envelope[0]?.data).toMatchObject({
+        idcliente: fixture.identifiers.controlAccountIdCliente,
+        idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
+      });
+    }
+    expect(fixture.steps[2]?.envelope[0]?.data).toMatchObject({
+      idcliente: fixture.identifiers.accountIdCliente,
+      idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
+    });
   });
 
   it('rejects rendered fixtures with more than one collision lead setup', () => {

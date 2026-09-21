@@ -230,9 +230,15 @@ const adapterInputSchema = z
         step.eventType === 'cliente-insert' ||
         step.eventType === 'cliente-update';
       const requiresContactFields = step.eventType === 'contato-insert';
+      const usesAllowedIdentity =
+        event !== undefined &&
+        (event.idcliente === fixture.identifiers.accountIdCliente ||
+          (!requiresClientFields &&
+            fixture.identifiers.controlAccountIdCliente !== undefined &&
+            event.idcliente === fixture.identifiers.controlAccountIdCliente));
       if (
         event === undefined ||
-        event.idcliente !== fixture.identifiers.accountIdCliente ||
+        !usesAllowedIdentity ||
         (requiresClientFields &&
           (!isClientFixtureEventData(event) ||
             (setupCpf !== undefined && event.numerocpf !== setupCpf))) ||
@@ -327,6 +333,10 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_NAME_EQUALS_EVENT'
     | 'ACCOUNT_IS_PERSON_ACCOUNT'
     | 'ACCOUNT_CPF_EQUALS_EVENT'
+    | 'ACCOUNT_EMAIL_EXCLUDED'
+    | 'ACCOUNT_MOBILE_EXCLUDED'
+    | 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'
+    | 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_UNCHANGED'
     | 'NO_OTHER_ACCOUNT_UPDATED'
     | 'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE'
@@ -382,6 +392,9 @@ const accountRecordSchema = z
     CPF__pc: nullableText,
     LastName: nullableText,
     IsPersonAccount: z.boolean(),
+    PersonEmail: nullableText.optional(),
+    PersonMobilePhone: nullableText.optional(),
+    Celular__c: nullableText.optional(),
     DataAlteracaoEvento__c: nullableText.optional(),
   })
   .passthrough();
@@ -468,7 +481,7 @@ type ContactFixtureEventData = FixtureEventData & {
 };
 
 const accountFields =
-  'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount' as const;
+  'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount,PersonEmail,PersonMobilePhone,Celular__c' as const;
 const setupAccountFields = `${accountFields},DataAlteracaoEvento__c` as const;
 const leadFields =
   'Id,Id__c,FirstName,LastName,CPF__c,MobilePhone,CelularSemFormatacao__c,Email,CidadeInteresse__c,Marca__c,RecordTypeId,ManipularFase__c,Status,PermitirCriarLead__c,DescricaoOrigem__c' as const;
@@ -982,7 +995,7 @@ export function createSalesforceTestDataAdapter(
         const checkName = verificationCheckName(check);
         return (
           checkName.startsWith('ACCOUNT_') ||
-          checkName === 'CONTROL_ACCOUNT_UNCHANGED' ||
+          checkName.startsWith('CONTROL_ACCOUNT_') ||
           checkName === 'NO_OTHER_ACCOUNT_UPDATED'
         );
       });
@@ -1092,6 +1105,47 @@ export function createSalesforceTestDataAdapter(
                 accountTarget !== undefined &&
                 clientEvent !== undefined &&
                 accountTarget.CPF__pc === clientEvent.numerocpf,
+            });
+            break;
+          case 'ACCOUNT_EMAIL_EXCLUDED':
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                accountTarget.PersonEmail === null,
+            });
+            break;
+          case 'ACCOUNT_MOBILE_EXCLUDED':
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                accountTarget.PersonMobilePhone === null &&
+                accountTarget.Celular__c === null,
+            });
+            break;
+          case 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                controlTarget !== undefined &&
+                controlTarget.PersonEmail === expectedValue,
+            });
+            break;
+          case 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                controlTarget !== undefined &&
+                (controlTarget.Celular__c ??
+                  normalizePhoneDigits(controlTarget.PersonMobilePhone) ??
+                  null) === normalizePhoneDigits(expectedValue),
             });
             break;
           case 'CONTROL_ACCOUNT_UNCHANGED':
