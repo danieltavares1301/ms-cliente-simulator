@@ -204,4 +204,37 @@ describe('createPacCreditoCallbackHandler', () => {
       'Invalid Date',
     );
   });
+
+  it('accepts a real Apex DateTime.now() serialization with non-zero milliseconds', async () => {
+    // Regression: found via execução real do EnvioPACCreditoQueue contra
+    // mrv-devDan (Fase 7) — o Apex serializa DateTime.now() com milissegundos
+    // reais e arbitrários (ex.: "2026-09-21T23:36:05.153Z"), nunca ".000".
+    // O schema original reaproveitava apexCompatibleUtcDateTimeSchema (que so
+    // aceita ".000" ou ausencia de fracao, adequado para o envelope EVENT_GRID
+    // que O PROPRIO simulador gera), rejeitando com 422 qualquer timestamp
+    // real vindo do Apex.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const handler = createPacCreditoCallbackHandler({
+      environment: validEnvironment,
+      requestIdFactory: () => 'request-real-apex-timestamp',
+    });
+
+    const response = await handler(
+      createRequest(
+        JSON.stringify({
+          IdSalesforcePac: 'a0BHZ0000001234',
+          IdPac: 'PAC-001',
+          IdJornada: null,
+          DataCriacao: '2026-09-21T23:36:05.153Z',
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toStrictEqual({
+      accepted: true,
+      requestId: 'request-real-apex-timestamp',
+    });
+    expect(logSpy).toHaveBeenCalledTimes(1);
+  });
 });
