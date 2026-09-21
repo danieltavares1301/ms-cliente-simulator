@@ -1421,6 +1421,62 @@ export class DrizzleRunRepository<
     return step?.eventEnvelope ?? null;
   }
 
+  private async promoteWaitingAsyncIfCallbacksAlreadyMet(
+    runId: string,
+    actor: string,
+  ): Promise<RunStatus> {
+    const [currentRun] = await this.database
+      .select({
+        status: scenarioRun.status,
+        expectedCallbackMin: scenarioRun.expectedCallbackMin,
+        asyncWaitDeadline: scenarioRun.asyncWaitDeadline,
+      })
+      .from(scenarioRun)
+      .where(eq(scenarioRun.id, runId))
+      .limit(1);
+    if (currentRun === undefined) throw new Error('Dispatch run not found');
+    if (
+      currentRun.status !== 'WAITING_ASYNC' ||
+      currentRun.expectedCallbackMin <= 0
+    ) {
+      return currentRun.status;
+    }
+
+    const [countRow] = await this.database
+      .select({ total: count() })
+      .from(graphqlCallback)
+      .where(
+        and(
+          eq(graphqlCallback.runId, runId),
+          currentRun.asyncWaitDeadline === null
+            ? undefined
+            : lte(graphqlCallback.createdAt, currentRun.asyncWaitDeadline),
+        ),
+      );
+    const callbackCount = countRow?.total ?? 0;
+    if (callbackCount < currentRun.expectedCallbackMin) {
+      return currentRun.status;
+    }
+
+    const [advanced] = await this.database
+      .update(scenarioRun)
+      .set({ status: 'VERIFYING', finishedAt: null })
+      .where(
+        and(eq(scenarioRun.id, runId), eq(scenarioRun.status, 'WAITING_ASYNC')),
+      )
+      .returning({ status: scenarioRun.status });
+    if (advanced === undefined) return currentRun.status;
+
+    await this.appendAuditEvent({
+      actor,
+      action: 'GRAPHQL_CALLBACK_THRESHOLD_REACHED',
+      resourceType: 'scenario_run',
+      resourceId: runId,
+      metadataRedacted: { callbackCount, status: 'VERIFYING' },
+    });
+    return advanced.status;
+  }
+
   async recordGraphqlCallback(input: RecordGraphqlCallbackInput): Promise<{
     callback: GraphqlCallbackRecord;
     runStatus: RunStatus | null;
@@ -1681,7 +1737,21 @@ export class DrizzleRunRepository<
         ),
       )
       .returning({ status: scenarioRun.status });
-    if (updatedRun !== undefined) return { runStatus: updatedRun.status };
+    if (updatedRun !== undefined) {
+      // A GraphQL callback may have already arrived (and been persisted)
+      // while this run still had pending DISPATCH steps — at that moment
+      // recordGraphqlCallback only promotes a run that is ALREADY
+      // WAITING_ASYNC, so it has no effect yet. Re-check right after this
+      // run enters WAITING_ASYNC to avoid getting stuck forever.
+      if (updatedRun.status === 'WAITING_ASYNC') {
+        const promoted = await this.promoteWaitingAsyncIfCallbacksAlreadyMet(
+          input.runId,
+          'qstash-dispatch',
+        );
+        return { runStatus: promoted };
+      }
+      return { runStatus: updatedRun.status };
+    }
 
     const [reconciledRun] = await this.database
       .select({ status: scenarioRun.status })

@@ -559,6 +559,207 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     );
   });
 
+  it('promotes straight to VERIFYING when the GraphQL callback already arrived before the last dispatch completes', async () => {
+    // Regression: a run with multiple DISPATCH steps and expectedCallbackMin > 0
+    // could receive its GraphQL callback while still RUNNING (before every
+    // dispatch step reached a terminal status). recordGraphqlCallback only
+    // promotes WAITING_ASYNC -> VERIFYING when the run is ALREADY in
+    // WAITING_ASYNC at the moment the callback arrives; it never re-checks
+    // once the run later transitions into WAITING_ASYNC via completeDispatch,
+    // leaving the run stuck forever (found via a real run against mrv-devDan).
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          id: '00000000-0000-4000-8000-000000000030',
+          expectedCallbackMin: 1,
+          expectedCallbackMax: 1,
+          asyncWaitDeadline: new Date('2026-08-22T12:30:00.000Z'),
+        },
+        steps: [
+          {
+            stepKey: 'dispatch-1',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'dispatch-2',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const [first, second] = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items;
+
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: first.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: first.id,
+      attemptNumber: 1,
+      requestId: 'delivery-request-race-1',
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+
+    // Callback arrives while `second` is still PENDING/SCHEDULED (run is
+    // still RUNNING, not yet WAITING_ASYNC).
+    await repository.recordGraphqlCallback({
+      runId: created.run.id,
+      requestId: 'req-graphql-race-1',
+      operationName: 'atualizarCliente',
+      idClienteHash: 'a'.repeat(64),
+      idProspectHash: 'b'.repeat(64),
+      normalizedCorrelationKeyHash: 'c'.repeat(64),
+      policy: 'SUCCESS_200',
+      httpStatus: 200,
+      requestRedacted: { source: 'application/graphql', fieldNames: [] },
+      responseRedacted: { kind: 'GRAPHQL_SUCCESS' },
+      durationMs: 12,
+      actor,
+      receivedAt: new Date('2026-08-22T12:00:05.000Z'),
+    });
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'RUNNING',
+    });
+
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: second.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:06.000Z'),
+    });
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: second.id,
+      attemptNumber: 1,
+      requestId: 'delivery-request-race-2',
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:06.000Z'),
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'VERIFYING',
+    });
+  });
+
+  it('does not promote WAITING_ASYNC when the only callback already arrived was received after the deadline', async () => {
+    // Mirrors the deadline guard used by recordGraphqlCallback: a callback
+    // that arrived after asyncWaitDeadline must not count towards the
+    // threshold when completeDispatch later re-checks it.
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          id: '00000000-0000-4000-8000-000000000031',
+          expectedCallbackMin: 1,
+          expectedCallbackMax: 1,
+          asyncWaitDeadline: new Date('2026-08-22T12:00:03.000Z'),
+        },
+        steps: [
+          {
+            stepKey: 'dispatch-1',
+            ordinal: 0,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+          {
+            stepKey: 'dispatch-2',
+            ordinal: 1,
+            target: 'CLIENTE',
+            status: 'SCHEDULED',
+            requestRedacted: {},
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const [first, second] = (
+      await repository.listSteps(created.run.id, { limit: 10 })
+    ).items;
+
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: first.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: first.id,
+      attemptNumber: 1,
+      requestId: 'delivery-request-late-1',
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+
+    // Callback arrives after the deadline (12:00:05 > 12:00:03), while `second`
+    // is still pending.
+    await repository.recordGraphqlCallback({
+      runId: created.run.id,
+      requestId: 'req-graphql-late-1',
+      operationName: 'atualizarCliente',
+      idClienteHash: 'a'.repeat(64),
+      idProspectHash: 'b'.repeat(64),
+      normalizedCorrelationKeyHash: 'c'.repeat(64),
+      policy: 'SUCCESS_200',
+      httpStatus: 200,
+      requestRedacted: { source: 'application/graphql', fieldNames: [] },
+      responseRedacted: { kind: 'GRAPHQL_SUCCESS' },
+      durationMs: 12,
+      actor,
+      receivedAt: new Date('2026-08-22T12:00:05.000Z'),
+    });
+
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: second.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:06.000Z'),
+    });
+    await repository.completeDispatch({
+      runId: created.run.id,
+      stepId: second.id,
+      attemptNumber: 1,
+      requestId: 'delivery-request-late-2',
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: { transport: 'FAKE_SALESFORCE', network: false },
+      errorCode: null,
+      finishedAt: new Date('2026-08-22T12:00:06.000Z'),
+    });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'WAITING_ASYNC',
+    });
+  });
+
   it('returns the persisted dispatch envelope for the handler payload reconstruction', async () => {
     const created = await repository.createRun(createInput());
     const dispatchStep = (
