@@ -392,6 +392,196 @@ describe('run orchestration service', () => {
     ).toBe(true);
   });
 
+  it('expands duplicateCount into deterministic redeliveries with the same envelope content', async () => {
+    const duplicateScenarioDefinition = {
+      key: 'evento-duplicado-mock',
+      version: 1,
+      name: 'Evento duplicado mockado',
+      description: 'Exercita reentregas físicas do mesmo envelope.',
+      scope: 'EXTENDED',
+      tags: ['regression', 'o14', 'idempotencia'],
+      availability: 'READY',
+      variablesSchema: {
+        type: 'object',
+        properties: {
+          seed: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 64,
+          },
+          eventStartAt: {
+            type: 'string',
+            minLength: 20,
+            maxLength: 24,
+          },
+        },
+        required: ['seed', 'eventStartAt'],
+        additionalProperties: false,
+      },
+      setup: [
+        {
+          operation: 'CREATE_SYNTHETIC_ACCOUNT',
+          role: 'PRIMARY',
+          matchBy: 'ID_CLIENTE',
+          account: {
+            idCliente: { source: 'GENERATED', value: 'CLIENT_ID' },
+            idProspect: { source: 'GENERATED', value: 'PROSPECT_ID' },
+            cpf: { source: 'GENERATED', value: 'CPF' },
+            name: { source: 'GENERATED', value: 'BASE_PERSON_NAME' },
+            dataAlteracao: { source: 'GENERATED', value: 'BASELINE_TIME' },
+          },
+        },
+      ],
+      steps: [
+        {
+          key: 'cliente-update',
+          target: 'CLIENTE',
+          eventType: 'cliente-update',
+          delayMs: 0,
+          payloadTemplate: {
+            kind: 'DECLARATIVE',
+            contract: 'EVENT_GRID',
+            value: {
+              id: { source: 'GENERATED', value: 'EVENT_ID' },
+              subject: 'MS_Clientes',
+              eventType: 'cliente-update',
+              eventTime: { source: 'GENERATED', value: 'EVENT_TIME' },
+              dataVersion: '1.0',
+              metadataVersion: '1',
+              topic: '/simulator/ms-clientes',
+              data: {
+                idcliente: { source: 'GENERATED', value: 'CLIENT_ID' },
+                idprospectsalesforce: {
+                  source: 'GENERATED',
+                  value: 'PROSPECT_ID',
+                },
+                numerocpf: { source: 'GENERATED', value: 'CPF' },
+                dataalteracao: { source: 'GENERATED', value: 'EVENT_TIME' },
+                nomecompleto: { source: 'GENERATED', value: 'PERSON_NAME' },
+              },
+            },
+          },
+          deliveryPolicy: {
+            duplicateCount: 1,
+            retryOn: [],
+            maxAttempts: 1,
+          },
+        },
+      ],
+      expectedOutcomes: [
+        {
+          kind: 'BUSINESS_RESULT',
+          result: 'ACCOUNT_UPDATED_ONLY',
+          description: 'A reentrega não deve criar efeitos adicionais.',
+          checks: ['ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE'],
+        },
+      ],
+      asyncPolicy: {
+        expectedCallbacks: { min: 0, max: 0 },
+        waitTimeoutMs: 0,
+        missingCallbackResult: 'SUCCESS',
+      },
+      cleanup: [
+        {
+          operation: 'DELETE_OWNED_RECORDS',
+          target: 'ACCOUNT',
+        },
+      ],
+    } as const;
+
+    vi.resetModules();
+    vi.doMock('../scenarios/catalog', () => ({
+      scenarioCatalog: {
+        listAll: () => [duplicateScenarioDefinition],
+        listActive: () => [duplicateScenarioDefinition],
+        get: (key: string, version: number) =>
+          key === duplicateScenarioDefinition.key &&
+          version === duplicateScenarioDefinition.version
+            ? duplicateScenarioDefinition
+            : undefined,
+        getActive: (key: string) =>
+          key === duplicateScenarioDefinition.key
+            ? duplicateScenarioDefinition
+            : undefined,
+      },
+    }));
+
+    try {
+      const { createRunOrchestrationService: createMockedService } =
+        await import('./orchestration');
+      const repository = new MemoryRunRepository();
+      const scheduler = { schedule: vi.fn(), cancelPending: vi.fn() };
+      const service = createMockedService({
+        repository,
+        scheduler,
+        idempotencyPepper: 'p'.repeat(32),
+        requestedBy: 'simulator-admin-api',
+        now: () => now,
+        generateRunId: () => runId,
+      });
+
+      const result = await service.createRun({
+        idempotencyKey: '123e4567-e89b-12d3-a456-426614174000',
+        request: {
+          scenarioKey: duplicateScenarioDefinition.key,
+          scenarioVersion: 1,
+          variables: {
+            seed: 'TC001-A',
+            eventStartAt: '2026-08-21T10:00:00Z',
+          },
+          execution: { dryRun: true, speed: 1, stopOnFailure: true },
+        },
+      });
+
+      expect(result.preview?.steps).toStrictEqual([
+        {
+          key: 'cliente-update',
+          target: 'CLIENTE',
+          eventType: 'cliente-update',
+          scheduledAt: '2026-08-21T10:00:00.000Z',
+        },
+        {
+          key: 'cliente-update-redelivery-1',
+          target: 'CLIENTE',
+          eventType: 'cliente-update',
+          scheduledAt: '2026-08-21T10:00:00.500Z',
+        },
+      ]);
+      const dispatchSteps =
+        repository.steps
+          .get(runId)
+          ?.filter(({ stepKind }) => stepKind === 'DISPATCH') ?? [];
+
+      expect(
+        dispatchSteps.map(({ stepKey, ordinal, scheduledAt }) => ({
+          stepKey,
+          ordinal,
+          scheduledAt: scheduledAt?.toISOString(),
+        })),
+      ).toStrictEqual([
+        {
+          stepKey: 'cliente-update',
+          ordinal: 1,
+          scheduledAt: '2026-08-21T10:00:00.000Z',
+        },
+        {
+          stepKey: 'cliente-update-redelivery-1',
+          ordinal: 2,
+          scheduledAt: '2026-08-21T10:00:00.500Z',
+        },
+      ]);
+      expect(dispatchSteps[1]?.requestRedacted).toStrictEqual(
+        dispatchSteps[0]?.requestRedacted,
+      );
+      expect(dispatchSteps[1]?.eventEnvelope).toStrictEqual(
+        dispatchSteps[0]?.eventEnvelope,
+      );
+    } finally {
+      vi.doUnmock('../scenarios/catalog');
+      vi.resetModules();
+    }
+  });
+
   it('replays the original run and conflicts when the normalized body changes', async () => {
     const repository = new MemoryRunRepository();
     const service = createService(repository);

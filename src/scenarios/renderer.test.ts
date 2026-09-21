@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   eventGridEnvelopeSchema,
@@ -13,6 +13,8 @@ const scenarioKeys = [
   'cpf-divergente-contato-primeiro',
   'cpf-divergente-identidade-antiga',
   'cliente-insert-prospect-divergente',
+  'evento-duplicado',
+  'evento-obsoleto',
   'match-id-cliente',
   'match-cpf-sem-id-cliente',
   'no-match-cliente-insert',
@@ -24,6 +26,8 @@ const expectedStepCountByScenario = {
   'cpf-divergente-contato-primeiro': 3,
   'cpf-divergente-identidade-antiga': 3,
   'cliente-insert-prospect-divergente': 1,
+  'evento-duplicado': 1,
+  'evento-obsoleto': 1,
   'match-id-cliente': 1,
   'match-cpf-sem-id-cliente': 1,
   'no-match-cliente-insert': 1,
@@ -180,6 +184,44 @@ describe('basic scenario fixture definitions', () => {
       expectedCallbacks: { min: 1, max: 1 },
       waitTimeoutMs: 30_000,
       missingCallbackResult: 'PARTIAL',
+    });
+    expect(scenarioCatalog.get('evento-duplicado', 1)?.steps[0]).toMatchObject({
+      key: 'cliente-update',
+      deliveryPolicy: {
+        duplicateCount: 1,
+        retryOn: [],
+        maxAttempts: 1,
+      },
+    });
+    expect(scenarioCatalog.get('evento-duplicado', 1)?.expectedOutcomes[0]).toMatchObject({
+      result: 'ACCOUNT_UPDATED_ONLY',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'NO_OTHER_ACCOUNT_UPDATED',
+      ],
+    });
+    expect(scenarioCatalog.get('evento-obsoleto', 1)?.expectedOutcomes[0]).toMatchObject({
+      result: 'ACCOUNT_UPDATED_ONLY',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_SETUP',
+        'ACCOUNT_CPF_EQUALS_SETUP',
+      ],
+    });
+    expect(
+      scenarioCatalog.get('evento-obsoleto', 1)?.steps[0]?.payloadTemplate,
+    ).toMatchObject({
+      kind: 'DECLARATIVE',
+      value: {
+        data: {
+          dataalteracao: { source: 'GENERATED', value: 'EARLIER_TIME' },
+          numerocpf: { source: 'GENERATED', value: 'CPF_X' },
+        },
+      },
     });
     expect(
       scenarioCatalog.get('match-id-cliente', 1)?.expectedOutcomes[0],
@@ -558,13 +600,160 @@ describe('renderScenarioFixture', () => {
         const expectedTime = new Date(
           Date.parse(input.eventStartAt) + step.delayMs,
         ).toISOString();
+        const expectedDataAlteracao =
+          scenarioKey === 'evento-obsoleto'
+            ? '2026-08-22T14:59:54.000Z'
+            : expectedTime;
 
         expect(step.scheduledAt).toBe(expectedTime);
         expect(step.envelope[0].eventTime).toBe(expectedTime);
-        expect(step.envelope[0].data.dataalteracao).toBe(expectedTime);
+        expect(step.envelope[0].data.dataalteracao).toBe(
+          expectedDataAlteracao,
+        );
       }
     },
   );
+
+  it('renders declarative client events whose dataalteracao is older than the delivery time', async () => {
+    const obsoleteScenarioDefinition = {
+      key: 'evento-obsoleto-mock',
+      version: 1,
+      name: 'Evento obsoleto mockado',
+      description:
+        'Permite publicar um cliente-update com dataalteracao anterior ao setup.',
+      scope: 'EXTENDED',
+      tags: ['regression', 'obsolescencia'],
+      availability: 'READY',
+      variablesSchema: {
+        type: 'object',
+        properties: {
+          seed: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 64,
+          },
+          eventStartAt: {
+            type: 'string',
+            minLength: 20,
+            maxLength: 24,
+          },
+        },
+        required: ['seed', 'eventStartAt'],
+        additionalProperties: false,
+      },
+      setup: [
+        {
+          operation: 'CREATE_SYNTHETIC_ACCOUNT',
+          role: 'PRIMARY',
+          matchBy: 'ID_CLIENTE',
+          account: {
+            idCliente: { source: 'GENERATED', value: 'CLIENT_ID' },
+            idProspect: { source: 'GENERATED', value: 'PROSPECT_ID' },
+            cpf: { source: 'GENERATED', value: 'CPF' },
+            name: { source: 'GENERATED', value: 'BASE_PERSON_NAME' },
+            dataAlteracao: { source: 'GENERATED', value: 'BASELINE_TIME' },
+          },
+        },
+      ],
+      steps: [
+        {
+          key: 'cliente-update',
+          target: 'CLIENTE',
+          eventType: 'cliente-update',
+          delayMs: 0,
+          payloadTemplate: {
+            kind: 'DECLARATIVE',
+            contract: 'EVENT_GRID',
+            value: {
+              id: { source: 'GENERATED', value: 'EVENT_ID' },
+              subject: 'MS_Clientes',
+              eventType: 'cliente-update',
+              eventTime: { source: 'GENERATED', value: 'EVENT_TIME' },
+              dataVersion: '1.0',
+              metadataVersion: '1',
+              topic: '/simulator/ms-clientes',
+              data: {
+                idcliente: { source: 'GENERATED', value: 'CLIENT_ID' },
+                idprospectsalesforce: {
+                  source: 'GENERATED',
+                  value: 'PROSPECT_ID',
+                },
+                numerocpf: { source: 'GENERATED', value: 'CPF_X' },
+                dataalteracao: { source: 'GENERATED', value: 'EARLIER_TIME' },
+                nomecompleto: { source: 'GENERATED', value: 'PERSON_NAME' },
+              },
+            },
+          },
+          deliveryPolicy: {
+            duplicateCount: 0,
+            retryOn: [],
+            maxAttempts: 1,
+          },
+        },
+      ],
+      expectedOutcomes: [
+        {
+          kind: 'BUSINESS_RESULT',
+          result: 'ACCOUNT_UPDATED_ONLY',
+          description: 'Resultado mantido no setup por obsolescência.',
+          checks: ['ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE'],
+        },
+      ],
+      asyncPolicy: {
+        expectedCallbacks: { min: 0, max: 0 },
+        waitTimeoutMs: 0,
+        missingCallbackResult: 'SUCCESS',
+      },
+      cleanup: [
+        {
+          operation: 'DELETE_OWNED_RECORDS',
+          target: 'ACCOUNT',
+        },
+      ],
+    } as const;
+
+    vi.resetModules();
+    vi.doMock('./catalog', () => ({
+      scenarioCatalog: {
+        listAll: () => [obsoleteScenarioDefinition],
+        listActive: () => [obsoleteScenarioDefinition],
+        get: (key: string, version: number) =>
+          key === obsoleteScenarioDefinition.key &&
+          version === obsoleteScenarioDefinition.version
+            ? obsoleteScenarioDefinition
+            : undefined,
+        getActive: (key: string) =>
+          key === obsoleteScenarioDefinition.key
+            ? obsoleteScenarioDefinition
+            : undefined,
+      },
+    }));
+
+    try {
+      const { renderScenarioFixture: renderMockedFixture } = await import(
+        './renderer'
+      );
+
+      const fixture = renderMockedFixture({
+        scenarioKey: obsoleteScenarioDefinition.key,
+        version: 1,
+        seed: input.seed,
+        runId: input.runId,
+        eventStartAt: input.eventStartAt,
+      });
+
+      expect(fixture.steps[0]?.scheduledAt).toBe('2026-08-22T15:00:00.000Z');
+      expect(fixture.steps[0]?.envelope[0].eventTime).toBe(
+        '2026-08-22T15:00:00.000Z',
+      );
+      expect(fixture.steps[0]?.envelope[0].data.dataalteracao).toBe(
+        '2026-08-22T14:59:54.000Z',
+      );
+    } finally {
+      vi.doUnmock('./catalog');
+      vi.resetModules();
+    }
+  });
 
   it.each(scenarioKeys)(
     'passes both scanners without provenance bypass for %s',

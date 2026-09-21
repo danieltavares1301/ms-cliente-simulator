@@ -116,13 +116,66 @@ function seedAsInteger(seed: string): number {
   );
 }
 
+function cloneEnvelope<T>(envelope: T): T {
+  return structuredClone(envelope);
+}
+
+function buildDispatchSchedule(
+  fixture: ReturnType<typeof renderScenarioFixture>,
+  speed: number,
+): Array<{
+  stepKey: string;
+  target: (typeof fixture.steps)[number]['target'];
+  eventType: string;
+  scheduledAt: Date;
+  eventEnvelope: (typeof fixture.steps)[number]['envelope'];
+}> {
+  const eventStart = Date.parse(fixture.eventStartAt);
+
+  return fixture.steps.flatMap((step) => {
+    const scheduledAt = new Date(eventStart + step.delayMs / speed);
+    const deliveries: Array<{
+      stepKey: string;
+      target: (typeof fixture.steps)[number]['target'];
+      eventType: string;
+      scheduledAt: Date;
+      eventEnvelope: (typeof fixture.steps)[number]['envelope'];
+    }> = [
+      {
+        stepKey: step.key,
+        target: step.target,
+        eventType: step.eventType,
+        scheduledAt,
+        eventEnvelope: step.envelope,
+      },
+    ];
+
+    for (
+      let duplicateIndex = 1;
+      duplicateIndex <= step.deliveryPolicy.duplicateCount;
+      duplicateIndex += 1
+    ) {
+      deliveries.push({
+        stepKey: `${step.key}-redelivery-${duplicateIndex}`,
+        target: step.target,
+        eventType: step.eventType,
+        scheduledAt: new Date(
+          scheduledAt.getTime() + (duplicateIndex * 500) / speed,
+        ),
+        eventEnvelope: cloneEnvelope(step.envelope),
+      });
+    }
+
+    return deliveries;
+  });
+}
+
 function deriveSteps(
   fixture: ReturnType<typeof renderScenarioFixture>,
   dryRun: boolean,
   speed: number,
   testDataEnabled: boolean,
 ): NewRunStep[] {
-  const eventStart = Date.parse(fixture.eventStartAt);
   const nonDispatchStatus =
     testDataEnabled && !dryRun ? ('PENDING' as const) : ('SKIPPED' as const);
   const dispatchStatus = dryRun ? ('SKIPPED' as const) : ('PENDING' as const);
@@ -148,16 +201,16 @@ function deriveSteps(
       stepKind: 'SETUP' as const,
     },
   ];
-  const dispatch = fixture.steps.map((step) => ({
-    stepKey: step.key,
+  const dispatch = buildDispatchSchedule(fixture, speed).map((step) => ({
+    stepKey: step.stepKey,
     ordinal: ordinal++,
     target: step.target,
     eventType: step.eventType,
     status: dispatchStatus,
-    scheduledAt: new Date(eventStart + step.delayMs / speed),
-    eventEnvelope: step.envelope,
+    scheduledAt: step.scheduledAt,
+    eventEnvelope: step.eventEnvelope,
     requestRedacted: {
-      eventId: step.envelope[0].id,
+      eventId: step.eventEnvelope[0].id,
       eventType: step.eventType,
     },
     responseRedacted: {},
@@ -201,19 +254,20 @@ function createPreview(
   fixture: ReturnType<typeof renderScenarioFixture>,
   speed: number,
 ): DryRunPreview {
-  const eventStart = Date.parse(fixture.eventStartAt);
   return {
     eventStartAt: fixture.eventStartAt,
     setup: fixture.setup.map(({ operation }) => ({
       operation,
       target: 'ACCOUNT',
     })),
-    steps: fixture.steps.map(({ key, target, eventType, delayMs }) => ({
-      key,
-      target,
-      eventType,
-      scheduledAt: new Date(eventStart + delayMs / speed).toISOString(),
-    })),
+    steps: buildDispatchSchedule(fixture, speed).map(
+      ({ stepKey, target, eventType, scheduledAt }) => ({
+        key: stepKey,
+        target,
+        eventType,
+        scheduledAt: scheduledAt.toISOString(),
+      }),
+    ),
     assertions: fixture.expectedOutcomes.map(({ kind, checks }) => ({
       kind,
       checks: checks.map((check) =>

@@ -960,6 +960,48 @@ describe('Salesforce test data adapter verify', () => {
     );
   });
 
+  it('verifies that obsolete events leave the Account name and CPF at the setup values', async () => {
+    const rendered = fixture('match-id-cliente');
+    const setup = createSetup(rendered);
+    rendered.scenarioKey = 'evento-obsoleto';
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'ACCOUNT_UPDATED_ONLY',
+        description:
+          'Evento obsoleto não deve sobrescrever nome nem CPF persistidos.',
+        checks: ['ACCOUNT_NAME_EQUALS_SETUP', 'ACCOUNT_CPF_EQUALS_SETUP'],
+      },
+    ];
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          LastName: setup.account.name,
+          CPF__pc: setup.account.cpf,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: rendered,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_NAME_EQUALS_SETUP', passed: true },
+        { check: 'ACCOUNT_CPF_EQUALS_SETUP', passed: true },
+      ]),
+    );
+  });
+
   it('reports CPF count and stamped client id failures without throwing', async () => {
     const rendered = fixture('match-cpf-sem-id-cliente');
     const client = restClient();

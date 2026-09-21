@@ -28,6 +28,7 @@ type GeneratedValue =
   | 'EVENT_ID'
   | 'EVENT_TIME'
   | 'BASELINE_TIME'
+  | 'EARLIER_TIME'
   | 'CLIENT_ID'
   | 'CLIENT_ID_X'
   | 'PROSPECT_ID'
@@ -122,6 +123,7 @@ export function renderScenarioFixture(
     EVENT_ID: '',
     EVENT_TIME: eventStartAt,
     BASELINE_TIME: new Date(Date.parse(eventStartAt) - 1_000).toISOString(),
+    EARLIER_TIME: new Date(Date.parse(eventStartAt) - 6_000).toISOString(),
     CLIENT_ID: accountIdCliente,
     CLIENT_ID_X: controlAccountIdCliente,
     PROSPECT_ID: accountIdProspect,

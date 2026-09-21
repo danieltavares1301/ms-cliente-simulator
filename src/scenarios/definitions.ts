@@ -4,6 +4,7 @@ type GeneratedValue =
   | 'EVENT_ID'
   | 'EVENT_TIME'
   | 'BASELINE_TIME'
+  | 'EARLIER_TIME'
   | 'CLIENT_ID'
   | 'CLIENT_ID_X'
   | 'PROSPECT_ID'
@@ -61,7 +62,17 @@ const graphqlCallbackAsyncPolicy: ScenarioDefinition['asyncPolicy'] = {
 function clientPayload(
   eventType: 'cliente-insert' | 'cliente-update',
   includeProspect: boolean,
+  options: {
+    cpf?: ReturnType<typeof generated>;
+    dataAlteracao?: ReturnType<typeof generated>;
+    personName?: ReturnType<typeof generated>;
+  } = {},
 ) {
+  const {
+    cpf = generated('CPF'),
+    dataAlteracao = generated('EVENT_TIME'),
+    personName = generated('PERSON_NAME'),
+  } = options;
   return {
     kind: 'DECLARATIVE',
     contract: 'EVENT_GRID',
@@ -78,9 +89,9 @@ function clientPayload(
         ...(includeProspect
           ? { idprospectsalesforce: generated('PROSPECT_ID') }
           : {}),
-        numerocpf: generated('CPF'),
-        dataalteracao: generated('EVENT_TIME'),
-        nomecompleto: generated('PERSON_NAME'),
+        numerocpf: cpf,
+        dataalteracao: dataAlteracao,
+        nomecompleto: personName,
       },
     },
   } as const;
@@ -580,6 +591,116 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithLead,
+  },
+  {
+    key: 'evento-duplicado',
+    version: 1,
+    name: 'Reentrega genérica do mesmo evento',
+    description:
+      'Publica o mesmo cliente-update duas vezes com o mesmo envelope Event Grid para medir a idempotência real do Apex.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'o14', 'idempotencia', 'reentrega'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'cliente-update',
+        target: 'CLIENTE',
+        eventType: 'cliente-update',
+        delayMs: 0,
+        payloadTemplate: clientPayload('cliente-update', true),
+        deliveryPolicy: {
+          duplicateCount: 1,
+          retryOn: [],
+          maxAttempts: 1,
+        },
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'ACCOUNT_UPDATED_ONLY',
+        description:
+          'O mesmo envelope deve poder ser reentregue sem criar duplicidade nem corromper a Account já encontrada por Id Cliente.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          'NO_OTHER_ACCOUNT_UPDATED',
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup,
+  },
+  {
+    key: 'evento-obsoleto',
+    version: 1,
+    name: 'Evento com dataalteracao obsoleta',
+    description:
+      'Publica um cliente-update com dataalteracao anterior ao setup persistido para confirmar que o Apex preserva o estado mais novo.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'obsolescencia'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'cliente-update',
+        target: 'CLIENTE',
+        eventType: 'cliente-update',
+        delayMs: 0,
+        payloadTemplate: clientPayload('cliente-update', true, {
+          cpf: generated('CPF_X'),
+          dataAlteracao: generated('EARLIER_TIME'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'ACCOUNT_UPDATED_ONLY',
+        description:
+          'Se o evento chegar com dataalteracao mais antiga que a persistida, a Account deve permanecer com os dados do setup original.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_SETUP',
+          'ACCOUNT_CPF_EQUALS_SETUP',
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup,
   },
   {
     key: 'match-id-cliente',

@@ -331,8 +331,10 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_NOT_CREATED'
     | 'ACCOUNT_CLIENT_ID_EQUALS_EVENT'
     | 'ACCOUNT_NAME_EQUALS_EVENT'
+    | 'ACCOUNT_NAME_EQUALS_SETUP'
     | 'ACCOUNT_IS_PERSON_ACCOUNT'
     | 'ACCOUNT_CPF_EQUALS_EVENT'
+    | 'ACCOUNT_CPF_EQUALS_SETUP'
     | 'ACCOUNT_EMAIL_EXCLUDED'
     | 'ACCOUNT_MOBILE_EXCLUDED'
     | 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'
@@ -1027,6 +1029,7 @@ export function createSalesforceTestDataAdapter(
           : byCpf.length === 1
             ? byCpf[0]
             : undefined;
+      const expectedPrimaryAccount = primaryAccountSetup(fixture);
       const controlTarget = fixture.identifiers.controlAccountIdCliente
         ? accountRecords.find(
             (record) =>
@@ -1092,6 +1095,15 @@ export function createSalesforceTestDataAdapter(
                 accountTarget.LastName === clientEvent.nomecompleto,
             });
             break;
+          case 'ACCOUNT_NAME_EQUALS_SETUP':
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                expectedPrimaryAccount !== undefined &&
+                accountTarget.LastName === expectedPrimaryAccount.account.name,
+            });
+            break;
           case 'ACCOUNT_IS_PERSON_ACCOUNT':
             checks.push({
               check: checkName,
@@ -1105,6 +1117,15 @@ export function createSalesforceTestDataAdapter(
                 accountTarget !== undefined &&
                 clientEvent !== undefined &&
                 accountTarget.CPF__pc === clientEvent.numerocpf,
+            });
+            break;
+          case 'ACCOUNT_CPF_EQUALS_SETUP':
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                expectedPrimaryAccount !== undefined &&
+                accountTarget.CPF__pc === expectedPrimaryAccount.account.cpf,
             });
             break;
           case 'ACCOUNT_EMAIL_EXCLUDED':

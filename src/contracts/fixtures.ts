@@ -178,14 +178,11 @@ const renderedFixtureStepSchema = z
         path: ['envelope', 0, 'eventType'],
       });
     }
-    if (
-      event.eventTime !== scheduledAt ||
-      event.data.dataalteracao !== scheduledAt
-    ) {
+    if (event.eventTime !== scheduledAt) {
       context.addIssue({
         code: 'custom',
-        message: 'Rendered event dates must match scheduledAt',
-        path: ['envelope', 0],
+        message: 'Rendered eventTime must match scheduledAt',
+        path: ['envelope', 0, 'eventTime'],
       });
     }
   });
