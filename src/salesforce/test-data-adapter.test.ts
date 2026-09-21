@@ -1667,6 +1667,50 @@ describe('Salesforce test data adapter verify', () => {
     );
   });
 
+  it('fails the O03 account convergence checks when email, mobile and billing street diverge', async () => {
+    // Regression guard: these three checks must genuinely compare the
+    // queried Account fields against the expected fixture values, not
+    // always report true. Overwrite each field with a divergent value and
+    // confirm each check independently reports passed: false.
+    const rendered = renderScenarioFixture({
+      scenarioKey: 'ordem-mesmo-eventtime-contato-primeiro',
+      version: 1,
+      seed: 'phase-four-seed',
+      runId: 'run_phase_four_a',
+      eventStartAt: '2026-09-20T16:30:00.000Z',
+    });
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          PersonEmail: 'divergente@simulador.mrv.invalid',
+          PersonMobilePhone: '5511900000000',
+          Celular__c: '11900000000',
+          BillingStreet: 'Rua Divergente, 999',
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: rendered,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: false },
+        { check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: false },
+        { check: 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED', passed: false },
+      ]),
+    );
+  });
+
   it('passes the divergent prospect checks and queries the control Account explicitly', async () => {
     const rendered = prospectDivergenteFixture();
     const primaryAccount = accountFromFixture(rendered, {
