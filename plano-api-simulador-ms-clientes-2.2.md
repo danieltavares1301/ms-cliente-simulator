@@ -1775,6 +1775,61 @@ projeto e nao devem ser tocados.
 
 ### Fase 7: Extensao PAC, Maquina de Estado e Opportunity
 
+#### Tarefa 7.0: Proteger a integracao PAC Credito antes de qualquer teste real (CONCLUIDA)
+
+**Motivacao:** ao investigar o scaffolding de `Proponente__c`/Opportunity para
+a Tarefa 6.2/Checkpoint 6, foi descoberto que `PropostaAnaliseCreditoTrigger`
+dispara `EnvioPACCreditoQueue` (callout HTTP real) em QUALQUER insert de
+`PropostaAnaliseCredito__c` — e que, mesmo na org de dev `mrv-devDan`, essa
+integracao apontava para um Azure Service Bus de **producao**
+(`mrvqualidadecredito-servicebus-prd.servicebus.windows.net`). Como
+`NotificacaoPAC.cls` (handler real de `/PAC`) cria `PropostaAnaliseCredito__c`/
+`Proponente__c` diretamente ao processar qualquer `pac-insert`/`pac-update`,
+esse risco e inerente a QUALQUER teste funcional de `/PAC` (nao evitavel so
+por "nao fazer scaffolding") — bloqueando toda a Tarefa 7.1 ate ser resolvido.
+
+**Criterios de aceite:**
+
+- [x] Novo endpoint `POST /api/ms-clientes/pac-credito` no simulador,
+  protegido por feature flag (`PAC_CREDITO_CALLBACK_ENABLED`), validando
+  estruturalmente o header `Authorization` (`SharedAccessSignature ...`) e o
+  payload (`IdSalesforcePac`, `IdPac`, `IdJornada`, `DataCriacao`), retornando
+  201 no sucesso (contrato exato exigido por `EnvioPACCreditoQueue.cls`).
+- [x] Raio de impacto confirmado: apenas `EnvioPACCreditoQueue.cls` (+ seu
+  teste) consomem os campos `URITokenCCA__c`/`KeyNameCCA__c`/
+  `ChavePrimariaCCA__c`/`EndpointChatterCCA__c` do custom setting
+  `AzureServiceBus__c`; nenhuma outra classe afetada.
+- [x] Custom setting `AzureServiceBus__c` (`Id=a184T000000HtGdQAK`)
+  redirecionado em `mrv-devDan`: `EndpointChatterCCA__c` aponta para o
+  simulador; `URITokenCCA__c`/`KeyNameCCA__c`/`ChavePrimariaCCA__c`
+  substituidos por placeholders de dev (nao recuperaveis, mesmo padrao ja
+  aceito para o `client_secret` do `ServicoClientes` na Fase 5). Campo
+  `Endpoint__c` (outra integracao, nao relacionada) confirmado inalterado.
+- [x] **Achado adicional durante a validacao**: Remote Site Setting dedicado
+  `FilaChatterCCA` tambem precisou ser redirecionado (Salesforce bloqueia
+  qualquer callout cru para um dominio nao autorizado, independente do custom
+  setting) — corrigido via Tooling API (`RemoteProxy`, substituicao completa
+  do `Metadata` compound field, preservando os demais atributos).
+- [x] **Achado adicional durante a validacao**: schema de `DataCriacao`
+  reaproveitava `apexCompatibleUtcDateTimeSchema` (so aceita `.000`), mas o
+  Apex real serializa milissegundos arbitrarios — corrigido com um schema
+  dedicado (`pacCreditoDataCriacaoSchema`, commit `8af1cb4`), sem alterar o
+  schema original usado pelo envelope Event Grid.
+- [x] Validacao end-to-end real confirmada: `EnvioPACCreditoQueue` disparado
+  via Execute Anonymous em `mrv-devDan` → callout chega ao simulador → HTTP
+  201 → `LogIntegracao__c` (`EventType__c='EnvioPACCredito'`) registra
+  `Status2__c=success`. Nenhum dado chegou ao Azure Service Bus de producao.
+
+**Verificacao:** `docs/phase-7/pac-credito-callback-redirect-risks.md` (contrato
+real, raio de impacto, decisao de credenciais falsas, evidencia completa da
+validacao com os 3 `LogIntegracao__c` observados ao longo do diagnostico).
+
+**Dependencias:** nenhuma (bloqueador descoberto durante o Checkpoint 6,
+resolvido antes de iniciar a Tarefa 7.1).
+
+**Escopo:** pequeno (ficou maior do que o previsto por causa dos dois achados
+adicionais, mas concluido no mesmo incremento).
+
 #### Tarefa 7.1: Adicionar contratos `/PAC`
 
 **Criterios de aceite:**
