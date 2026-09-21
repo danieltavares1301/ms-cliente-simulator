@@ -12,6 +12,7 @@ import type {
   RunStepPage,
 } from '../db/run-repository';
 import type { SalesforceTestDataAdapter } from '../salesforce/test-data-adapter';
+import { scenarioCatalog } from '../scenarios/catalog';
 import { createRunOrchestrationService } from './orchestration';
 import type { Scheduler } from './scheduler';
 
@@ -390,6 +391,66 @@ describe('run orchestration service', () => {
         .flat()
         .every(({ status }) => status === 'SKIPPED'),
     ).toBe(true);
+  });
+
+  it('persists scenario GraphQL response metadata when the fixture declares a callback policy', async () => {
+    const graphqlPolicyDefinition = {
+      ...scenarioCatalog.get('cliente-insert-prospect-divergente', 1)!,
+      key: 'graphql-timeout-mock',
+      graphqlResponse: {
+        policy: 'DELAYED_RESPONSE',
+        delayMs: 8_000,
+      },
+    } as const;
+
+    vi.resetModules();
+    vi.doMock('../scenarios/catalog', () => ({
+      scenarioCatalog: {
+        listAll: () => [graphqlPolicyDefinition],
+        listActive: () => [graphqlPolicyDefinition],
+        get: (key: string, version: number) =>
+          key === graphqlPolicyDefinition.key &&
+          version === graphqlPolicyDefinition.version
+            ? graphqlPolicyDefinition
+            : undefined,
+        getActive: (key: string) =>
+          key === graphqlPolicyDefinition.key
+            ? graphqlPolicyDefinition
+            : undefined,
+      },
+    }));
+
+    try {
+      const { createRunOrchestrationService: createMockedService } =
+        await import('./orchestration');
+      const repository = new MemoryRunRepository();
+      const scheduler = { schedule: vi.fn(), cancelPending: vi.fn() };
+      const service = createMockedService({
+        repository,
+        scheduler,
+        idempotencyPepper: 'p'.repeat(32),
+        requestedBy: 'simulator-admin-api',
+        now: () => now,
+        generateRunId: () => runId,
+      });
+
+      await service.createRun({
+        idempotencyKey: '223e4567-e89b-12d3-a456-426614174000',
+        request: {
+          ...request,
+          scenarioKey: 'graphql-timeout-mock',
+        },
+      });
+
+      expect(repository.runs[0].variablesRedacted).toStrictEqual({
+        keys: ['eventStartAt', 'seed'],
+        graphqlResponsePolicy: 'DELAYED_RESPONSE',
+        graphqlResponseDelayMs: 8_000,
+      });
+    } finally {
+      vi.doUnmock('../scenarios/catalog');
+      vi.resetModules();
+    }
   });
 
   it('expands duplicateCount into deterministic redeliveries with the same envelope content', async () => {

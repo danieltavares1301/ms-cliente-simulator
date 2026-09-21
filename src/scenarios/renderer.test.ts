@@ -872,6 +872,50 @@ describe('renderScenarioFixture', () => {
     }
   });
 
+  it('renders an optional GraphQL response policy declared by the scenario', async () => {
+    const graphqlTimeoutDefinition = {
+      ...scenarioCatalog.get('cliente-insert-prospect-divergente', 1)!,
+      key: 'graphql-timeout-mock',
+      graphqlResponse: {
+        policy: 'DELAYED_RESPONSE',
+        delayMs: 8_000,
+      },
+    } as const;
+
+    vi.resetModules();
+    vi.doMock('./catalog', () => ({
+      scenarioCatalog: {
+        listAll: () => [graphqlTimeoutDefinition],
+        listActive: () => [graphqlTimeoutDefinition],
+        get: (key: string, version: number) =>
+          key === graphqlTimeoutDefinition.key &&
+          version === graphqlTimeoutDefinition.version
+            ? graphqlTimeoutDefinition
+            : undefined,
+        getActive: (key: string) =>
+          key === graphqlTimeoutDefinition.key
+            ? graphqlTimeoutDefinition
+            : undefined,
+      },
+    }));
+
+    try {
+      const { renderScenarioFixture: renderMockedFixture } = await import('./renderer');
+      const fixture = renderMockedFixture({
+        ...input,
+        scenarioKey: 'graphql-timeout-mock',
+      });
+
+      expect(fixture.graphqlResponse).toStrictEqual({
+        policy: 'DELAYED_RESPONSE',
+        delayMs: 8_000,
+      });
+    } finally {
+      vi.doUnmock('./catalog');
+      vi.resetModules();
+    }
+  });
+
   it.each(scenarioKeys)(
     'passes both scanners without provenance bypass for %s',
     (scenarioKey) => {

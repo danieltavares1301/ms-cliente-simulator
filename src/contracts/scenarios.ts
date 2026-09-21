@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { eventTypeSchema } from './event-grid.ts';
+import { graphqlResponsePolicySchema } from './graphql.ts';
 
 const kebabCasePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const safePublicTextPattern = /^[^<>\u0000-\u001f\u007f]+$/u;
@@ -273,6 +274,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_EMAIL_EQUALS_EXPECTED',
   'ACCOUNT_MOBILE_EQUALS_EXPECTED',
   'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
+  'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
   'CONTROL_ACCOUNT_UNCHANGED',
   'NO_OTHER_ACCOUNT_UPDATED',
   'LEAD_COUNT_BY_ID_EXTERNO_IS_ONE',
@@ -594,12 +596,29 @@ export const asyncPolicySchema = z
   })
   .strict();
 
+export const scenarioGraphqlResponseSchema = z
+  .object({
+    policy: graphqlResponsePolicySchema,
+    delayMs: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+  .superRefine(({ policy, delayMs }, context) => {
+    if (delayMs !== undefined && policy !== 'DELAYED_RESPONSE') {
+      context.addIssue({
+        code: 'custom',
+        message: 'delayMs is only valid for DELAYED_RESPONSE',
+        path: ['delayMs'],
+      });
+    }
+  });
+
 const scenarioDefinitionBaseSchema = scenarioMetadataSchema.extend({
   variablesSchema: scenarioVariablesSchema,
   setup: z.array(setupInstructionSchema).max(20).optional(),
   steps: z.array(scenarioStepSchema).min(1).max(100),
   expectedOutcomes: z.array(expectedOutcomeSchema).min(1).max(20),
   asyncPolicy: asyncPolicySchema,
+  graphqlResponse: scenarioGraphqlResponseSchema.optional(),
   cleanup: z.array(cleanupInstructionSchema).max(20).optional(),
 });
 

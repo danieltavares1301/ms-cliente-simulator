@@ -365,6 +365,16 @@ export function createRunOrchestrationService(
           seed: seedAsInteger(seed),
           variablesRedacted: {
             keys: Object.keys(input.request.variables).sort(),
+            ...(fixture.graphqlResponse === undefined
+              ? {}
+              : {
+                  graphqlResponsePolicy: fixture.graphqlResponse.policy,
+                  ...(fixture.graphqlResponse.delayMs === undefined
+                    ? {}
+                    : {
+                        graphqlResponseDelayMs: fixture.graphqlResponse.delayMs,
+                      }),
+                }),
           },
           fixtureSnapshot: fixture,
           dryRun: input.request.execution.dryRun,

@@ -224,6 +224,15 @@ export function renderScenarioFixture(
     waitTimeoutMs: definition.asyncPolicy.waitTimeoutMs,
     missingCallbackResult: definition.asyncPolicy.missingCallbackResult,
   };
+  const graphqlResponse =
+    definition.graphqlResponse === undefined
+      ? undefined
+      : {
+          policy: definition.graphqlResponse.policy,
+          ...(definition.graphqlResponse.delayMs === undefined
+            ? {}
+            : { delayMs: definition.graphqlResponse.delayMs }),
+        };
   const fixture = {
     scenarioKey: definition.key,
     version: definition.version,
@@ -250,6 +259,7 @@ export function renderScenarioFixture(
     steps,
     expectedOutcomes,
     asyncPolicy,
+    ...(graphqlResponse === undefined ? {} : { graphqlResponse }),
     cleanup,
   };
   return renderedScenarioFixtureSchema.parse(fixture);

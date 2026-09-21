@@ -69,6 +69,22 @@ describe('scenarioDefinitionSchema', () => {
     ).toThrow(/control/i);
   });
 
+  it('accepts optional GraphQL response policy configuration', () => {
+    const parsed = scenarioDefinitionSchema.parse({
+      ...matchIdClienteDefinition,
+      key: 'graphql-timeout-mock',
+      graphqlResponse: {
+        policy: 'DELAYED_RESPONSE',
+        delayMs: 8_000,
+      },
+    });
+
+    expect(parsed.graphqlResponse).toStrictEqual({
+      policy: 'DELAYED_RESPONSE',
+      delayMs: 8_000,
+    });
+  });
+
   it('accepts a collision Lead role and generated expected outcome values', () => {
     const parsed = scenarioDefinitionSchema.parse({
       ...noMatchDefinition,

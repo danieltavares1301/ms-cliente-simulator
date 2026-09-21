@@ -11,6 +11,7 @@ import {
   asyncPolicySchema,
   deliveryPolicySchema,
   renderedExpectedOutcomeSchema,
+  scenarioGraphqlResponseSchema,
 } from './scenarios.ts';
 
 const clientEnvelopeSchema = z
@@ -224,6 +225,7 @@ export const renderedScenarioFixtureSchema = z
     steps: z.array(renderedFixtureStepSchema).min(1).max(100),
     expectedOutcomes: z.array(renderedExpectedOutcomeSchema).min(1).max(20),
     asyncPolicy: asyncPolicySchema,
+    graphqlResponse: scenarioGraphqlResponseSchema.optional(),
     cleanup: z.array(renderedCleanupInstructionSchema).min(1).max(20),
   })
   .strict()
