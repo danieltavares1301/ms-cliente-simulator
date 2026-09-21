@@ -17,6 +17,7 @@ describe('parseServerEnvironment', () => {
       ...validEnvironment,
       ORCHESTRATION_ENABLED: false,
       AZURE_TOKEN_SIMULATOR_ENABLED: false,
+      PAC_CREDITO_CALLBACK_ENABLED: false,
       GRAPHQL_CALLBACK_ENABLED: false,
       SALESFORCE_DISPATCH_ENABLED: false,
       SALESFORCE_TEST_DATA_ENABLED: false,
@@ -28,6 +29,7 @@ describe('parseServerEnvironment', () => {
 
     expect(configuration.ORCHESTRATION_ENABLED).toBe(false);
     expect(configuration.AZURE_TOKEN_SIMULATOR_ENABLED).toBe(false);
+    expect(configuration.PAC_CREDITO_CALLBACK_ENABLED).toBe(false);
     expect(configuration.GRAPHQL_CALLBACK_ENABLED).toBe(false);
     expect(configuration.SALESFORCE_DISPATCH_ENABLED).toBe(false);
     expect(configuration.SALESFORCE_TEST_DATA_ENABLED).toBe(false);
@@ -54,6 +56,7 @@ describe('parseServerEnvironment', () => {
       ...validEnvironment,
       ORCHESTRATION_ENABLED: false,
       AZURE_TOKEN_SIMULATOR_ENABLED: false,
+      PAC_CREDITO_CALLBACK_ENABLED: false,
       GRAPHQL_CALLBACK_ENABLED: false,
       SALESFORCE_DISPATCH_ENABLED: false,
       SALESFORCE_TEST_DATA_ENABLED: false,
@@ -82,6 +85,36 @@ describe('parseServerEnvironment', () => {
       GRAPHQL_CALLBACK_ENABLED: false,
       SALESFORCE_DISPATCH_ENABLED: false,
       PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+    });
+  });
+
+  it('requires orchestration when the PAC credito callback is enabled', () => {
+    expect(() =>
+      parseServerEnvironment({
+        ...validEnvironment,
+        PAC_CREDITO_CALLBACK_ENABLED: 'true',
+      }),
+    ).toThrowError('PAC_CREDITO_CALLBACK_ENABLED');
+
+    expect(
+      parseServerEnvironment({
+        ...validEnvironment,
+        ORCHESTRATION_ENABLED: 'true',
+        PAC_CREDITO_CALLBACK_ENABLED: 'true',
+        SIMULATOR_ADMIN_API_KEY:
+          'admin-api-key-with-at-least-thirty-two-characters',
+        IDEMPOTENCY_HASH_PEPPER:
+          'idempotency-pepper-with-at-least-thirty-two-characters',
+        PUBLIC_APP_BASE_URL: 'https://simulator.example.com',
+        QSTASH_TOKEN: 'qstash-token-with-at-least-thirty-two-characters',
+        QSTASH_CURRENT_SIGNING_KEY:
+          'current-signing-key-with-at-least-thirty-two-characters',
+        QSTASH_NEXT_SIGNING_KEY:
+          'next-signing-key-with-at-least-thirty-two-characters',
+      }),
+    ).toMatchObject({
+      ORCHESTRATION_ENABLED: true,
+      PAC_CREDITO_CALLBACK_ENABLED: true,
     });
   });
 
