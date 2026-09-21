@@ -6,9 +6,11 @@ O incremento 0.4.1 entregou o adapter isolado. No incremento 0.4.3 ele passa a
 participar do state machine de runs e das entregas QStash quando
 `SALESFORCE_TEST_DATA_ENABLED=true`, que por sua vez exige orchestration e
 dispatch Salesforce habilitados. No incremento 0.6.0 o vocabulário allowlisted
-foi expandido para também preparar, verificar e limpar `Lead`, sem ainda
-amarrar essas operações a cenários novos do catálogo. O lifecycle durável está
-detalhado em [lifecycle.md](lifecycle.md).
+foi expandido para também preparar, verificar e limpar `Lead`. No incremento
+0.7.0 esse vocabulário passou a sustentar o cenário READY
+`cliente-insert-prospect-divergente`, incluindo conta de controle, verificação
+de imutabilidade e cleanup ownership para duas Accounts. O lifecycle durável
+está detalhado em [lifecycle.md](lifecycle.md).
 
 O health informa somente `testData: disabled|configured`; não abre conexão com
 Salesforce.
@@ -17,8 +19,9 @@ Salesforce.
 
 `setup`, `verify` e `cleanup` aceitam exclusivamente uma fixture validada pelo
 `renderedScenarioFixtureSchema`, acompanhada do mesmo `runId` e
-`scenarioKey`. Os cenários publicados continuam sendo os quatro `CORE` atuais:
+`scenarioKey`. Os cenários publicados passam a ser:
 
+- `cliente-insert-prospect-divergente`;
 - `match-id-cliente`;
 - `match-cpf-sem-id-cliente`;
 - `no-match-cliente-insert`;
@@ -56,8 +59,10 @@ Verificações permitidas:
 - `ACCOUNT_CLIENT_ID_EQUALS_EVENT`;
 - `ACCOUNT_IS_PERSON_ACCOUNT`;
 - `ACCOUNT_CPF_EQUALS_EVENT`;
+- `CONTROL_ACCOUNT_UNCHANGED`;
 - `NO_OTHER_ACCOUNT_UPDATED`;
 - `LEAD_COUNT_BY_ID_EXTERNO_IS_ONE`;
+- `LEAD_COUNT_BY_CPF_IS_ONE`;
 - `LEAD_CPF_EQUALS_EVENT`;
 - `LEAD_EMAIL_EQUALS_EXPECTED`;
 - `LEAD_MOBILE_EQUALS_EXPECTED`;
@@ -73,8 +78,7 @@ Cleanup permitido:
 - `DELETE_OWNED_RECORDS` com target `LEAD`.
 
 `Proponente__c`, PAC, Opportunity, objetos genéricos, DML genérico e SOQL livre
-permanecem bloqueados. O catálogo ainda não dispara as operações de Lead; elas
-existem como fundação allowlisted para os próximos incrementos da Fase 6.
+permanecem bloqueados.
 
 ## Segurança e idempotência
 
@@ -95,6 +99,11 @@ por `Id` e exige que `Id__c`, quando preenchido, seja exatamente o identificador
 por CPF ainda com `Id__c` nulo, sem inferir ownership por CPF. Sem IDs
 persistidos, cleanup é no-op fail-safe. Divergência falha fechada com
 `OWNERSHIP_MISMATCH`.
+
+Quando a fixture inclui uma conta `CONTROL`, o cleanup de `ACCOUNT` passa a
+aceitar explicitamente os dois `Id__c` namespaced (`PRIMARY` e `CONTROL`) e
+remove apenas os registros reencontrados por Salesforce Id dentro dessa
+allowlist.
 
 Para `Lead`, o ownership segue duas trilhas explícitas:
 
