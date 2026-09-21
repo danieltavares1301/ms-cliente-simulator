@@ -573,8 +573,15 @@ function buildLeadWhereClause(keys: {
   return clauses.join(' OR ');
 }
 
-function leadLookupKeysForSetup(fixture: RenderedScenarioFixture) {
-  const setup = fixture.setup[0]!;
+type LeadSetupInstruction = Extract<
+  RenderedScenarioFixture['setup'][number],
+  { operation: 'CREATE_SYNTHETIC_LEAD' | 'ENSURE_LEAD_ABSENT' }
+>;
+
+function leadLookupKeysForSetup(
+  fixture: RenderedScenarioFixture,
+  setup: LeadSetupInstruction,
+) {
   if (setup.operation === 'CREATE_SYNTHETIC_LEAD') {
     return {
       idExterno: getLeadExternalId(fixture, setup),
@@ -583,21 +590,21 @@ function leadLookupKeysForSetup(fixture: RenderedScenarioFixture) {
       celular: normalizePhoneDigits(setup.lead.celular),
     };
   }
-  if (setup.operation === 'ENSURE_LEAD_ABSENT') {
-    return {
-      idExterno: setup.keys.idExterno,
-      cpf: setup.keys.cpf,
-      email: setup.keys.email,
-      celular: normalizePhoneDigits(setup.keys.celular),
-    };
-  }
-  throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+  return {
+    idExterno: setup.keys.idExterno,
+    cpf: setup.keys.cpf,
+    email: setup.keys.email,
+    celular: normalizePhoneDigits(setup.keys.celular),
+  };
 }
 
-function leadLookupQueryForSetup(fixture: RenderedScenarioFixture) {
+function leadLookupQueryForSetup(
+  fixture: RenderedScenarioFixture,
+  setup: LeadSetupInstruction,
+) {
   return asAllowlistedQuery(
     `SELECT ${leadFields} FROM Lead WHERE ${buildLeadWhereClause(
-      leadLookupKeysForSetup(fixture),
+      leadLookupKeysForSetup(fixture, setup),
     )}`,
   );
 }
@@ -664,7 +671,9 @@ export function createSalesforceTestDataAdapter(
         }
 
         if (instruction.operation === 'ENSURE_LEAD_ABSENT') {
-          const records = await queryLeads(leadLookupQueryForSetup(fixture));
+          const records = await queryLeads(
+            leadLookupQueryForSetup(fixture, instruction),
+          );
           if (records.length > 0) {
             throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
           }
@@ -675,7 +684,9 @@ export function createSalesforceTestDataAdapter(
           const { lead } = instruction;
           const leadExternalId = getLeadExternalId(fixture, instruction);
           const normalizedCell = normalizePhoneDigits(lead.celular) ?? null;
-          const records = await queryLeads(leadLookupQueryForSetup(fixture));
+          const records = await queryLeads(
+            leadLookupQueryForSetup(fixture, instruction),
+          );
           const existing = records[0];
           const matchesFixture =
             records.length === 1 &&

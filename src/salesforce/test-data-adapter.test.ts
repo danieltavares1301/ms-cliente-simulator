@@ -461,6 +461,51 @@ describe('Salesforce test data adapter setup', () => {
     expect(client.composite).not.toHaveBeenCalled();
   });
 
+  it('resolves the ENSURE_LEAD_ABSENT keys from its own setup instruction, not from setup[0]', async () => {
+    // Regression: leadLookupKeysForSetup used to always read fixture.setup[0],
+    // which is only correct when the Lead-related setup instruction happens to
+    // be the first entry. The prospect-divergente fixture places
+    // CREATE_SYNTHETIC_ACCOUNT (CONTROL) at index 0 and ENSURE_LEAD_ABSENT at
+    // index 2, so the old code treated the Account setup as a Lead setup and
+    // threw INVALID_FIXTURE (found via a real run against mrv-devDan).
+    const rendered = prospectDivergenteFixture();
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] }) // CREATE_SYNTHETIC_ACCOUNT (control) existing check
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000001AAA' }],
+      }) // Person Account RecordType lookup
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] }) // ENSURE_ACCOUNT_ABSENT
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] }); // ENSURE_LEAD_ABSENT
+    client.composite.mockResolvedValue({
+      compositeResponse: [
+        {
+          body: { id: controlAccountId, success: true, errors: [] },
+          httpStatusCode: 201,
+          referenceId: 'createAccount',
+        },
+      ],
+    });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        prospectDivergenteInput(rendered),
+      ),
+    ).resolves.toMatchObject({ status: 'CREATED', createdCount: 1 });
+
+    const leadAbsenceQuery = String(client.query.mock.calls[3][0]);
+    const leadSetup = rendered.setup[2];
+    if (leadSetup.operation !== 'ENSURE_LEAD_ABSENT') {
+      throw new Error('Expected fixture setup[2] to be ENSURE_LEAD_ABSENT');
+    }
+    expect(leadAbsenceQuery).toContain(
+      `Id__c = '${leadSetup.keys.idExterno}'`,
+    );
+    expect(leadAbsenceQuery).toContain(`CPF__c = '${leadSetup.keys.cpf}'`);
+  });
+
   it('fails with SETUP_CONFLICT without mutating an incompatible Account', async () => {
     const client = restClient();
     client.query.mockResolvedValue({
