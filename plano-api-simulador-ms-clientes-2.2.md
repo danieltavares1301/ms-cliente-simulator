@@ -615,7 +615,7 @@ documentado como evidencia, nao assumido a priori.
 | O11 | Jornada sem `idCliente` antes do carimbo | `maquina-estado-sem-id-cliente` (parcial) | Fase 7. |
 | O12 | Contencao da Account Y apos insert | — | Avancado; exige worker de lock concorrente dedicado. Nao planejado ainda. |
 | O13 | Evento tardio do MS Cliente apos PAC aprovada | — | Fase 7. |
-| O14 | Reentrega generica do mesmo evento | `evento-duplicado` | Pendente (Tarefa 6.3). |
+| O14 | Reentrega generica do mesmo evento | `evento-duplicado` | Implementado e validado ao vivo contra `mrv-devDan`: o mesmo `cliente-update` foi reenviado com `id`, `eventTime` e payload identicos, os dois dispatches retornaram HTTP 200 e o estado final permaneceu com exatamente 1 Person Account correta, sem Lead novo nem corrupcao. |
 | O15 | Ordem temporal invertida por fuso | — (a definir) | Baixa prioridade; nao planejado ainda. |
 
 **Observacao sobre O01/O08:** ambos exigem publicar `contato-insert`/
@@ -1672,10 +1672,10 @@ segredos ou payload bruto persistido.
 **Criterios de aceite:**
 
 - [ ] Ordem invertida, duplicidade e obsolescencia cobertas:
-  - [ ] `evento-duplicado` — perfil **O14** (reentrega generica): reenviar o
+  - [x] `evento-duplicado` — perfil **O14** (reentrega generica): reenviar o
     mesmo envelope (`id`, `eventTime`, payload identicos) e confirmar
     idempotencia (nenhuma duplicidade, nenhum vinculo novo).
-  - [ ] `evento-obsoleto` — `dataalteracao` anterior ao valor ja persistido;
+  - [x] `evento-obsoleto` — `dataalteracao` anterior ao valor ja persistido;
     confirmar que o evento nao sobrescreve o estado mais novo.
   - [ ] `ordem-invertida-completa` — perfil **O03** (mesmo `eventTime`):
     publicar `cliente-*`, `contato-*` (email/celular) e `endereco-*` com o
