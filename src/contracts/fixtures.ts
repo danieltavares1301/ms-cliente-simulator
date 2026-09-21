@@ -4,15 +4,22 @@ import {
   apexCompatibleUtcDateTimeSchema,
   clienteInsertEventSchema,
   clienteUpdateEventSchema,
+  contatoInsertEventSchema,
 } from './event-grid.ts';
 import {
   asyncPolicySchema,
   deliveryPolicySchema,
-  expectedOutcomeSchema,
+  renderedExpectedOutcomeSchema,
 } from './scenarios.ts';
 
 const clientEnvelopeSchema = z
-  .array(z.union([clienteInsertEventSchema, clienteUpdateEventSchema]))
+  .array(
+    z.union([
+      clienteInsertEventSchema,
+      clienteUpdateEventSchema,
+      contatoInsertEventSchema,
+    ]),
+  )
   .length(1);
 
 const renderedAccountSchema = z
@@ -101,6 +108,7 @@ export const renderedSetupInstructionSchema = z.discriminatedUnion(
     z
       .object({
         operation: z.literal('CREATE_SYNTHETIC_LEAD'),
+        role: z.enum(['PRIMARY', 'COLLISION']),
         lead: renderedLeadSchema,
       })
       .strict(),
@@ -154,7 +162,7 @@ const renderedFixtureStepSchema = z
   .object({
     key: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     target: z.literal('CLIENTE'),
-    eventType: z.enum(['cliente-insert', 'cliente-update']),
+    eventType: z.enum(['cliente-insert', 'cliente-update', 'contato-insert']),
     delayMs: z.number().int().nonnegative(),
     scheduledAt: apexCompatibleUtcDateTimeSchema,
     deliveryPolicy: deliveryPolicySchema,
@@ -196,6 +204,7 @@ export const renderedScenarioFixtureSchema = z
         controlAccountIdCliente: z.string().min(1).max(50).optional(),
         controlAccountIdProspect: z.string().min(1).max(50).optional(),
         leadIdExterno: z.string().min(1).max(150),
+        collisionLeadIdExterno: z.string().min(1).max(150).optional(),
       })
       .strict()
       .refine(
@@ -216,7 +225,7 @@ export const renderedScenarioFixtureSchema = z
       ),
     setup: z.array(renderedSetupInstructionSchema).min(1).max(20),
     steps: z.array(renderedFixtureStepSchema).min(1).max(100),
-    expectedOutcomes: z.array(expectedOutcomeSchema).min(1).max(20),
+    expectedOutcomes: z.array(renderedExpectedOutcomeSchema).min(1).max(20),
     asyncPolicy: asyncPolicySchema,
     cleanup: z.array(renderedCleanupInstructionSchema).min(1).max(20),
   })
@@ -231,6 +240,15 @@ export const renderedScenarioFixtureSchema = z
     const controlAccounts = syntheticAccountSetups.filter(
       (instruction) => instruction.role === 'CONTROL',
     );
+    const syntheticLeadSetups = setup.filter(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
+    );
+    const primaryLeads = syntheticLeadSetups.filter(
+      (instruction) => instruction.role === 'PRIMARY',
+    );
+    const collisionLeads = syntheticLeadSetups.filter(
+      (instruction) => instruction.role === 'COLLISION',
+    );
 
     if (primaryAccounts.length > 1) {
       context.addIssue({
@@ -243,6 +261,20 @@ export const renderedScenarioFixtureSchema = z
       context.addIssue({
         code: 'custom',
         message: 'At most one CONTROL synthetic account is allowed',
+        path: ['setup'],
+      });
+    }
+    if (primaryLeads.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one PRIMARY synthetic lead is allowed',
+        path: ['setup'],
+      });
+    }
+    if (collisionLeads.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one COLLISION synthetic lead is allowed',
         path: ['setup'],
       });
     }
@@ -269,6 +301,28 @@ export const renderedScenarioFixtureSchema = z
         message:
           'Control Account identifiers are only allowed when a CONTROL account exists',
         path: ['identifiers'],
+      });
+    }
+    if (
+      collisionLeads.length === 1 &&
+      identifiers.collisionLeadIdExterno === undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Rendered fixture identifiers must include the collision Lead external id',
+        path: ['identifiers', 'collisionLeadIdExterno'],
+      });
+    }
+    if (
+      collisionLeads.length === 0 &&
+      identifiers.collisionLeadIdExterno !== undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Collision Lead identifier is only allowed when a COLLISION lead exists',
+        path: ['identifiers', 'collisionLeadIdExterno'],
       });
     }
 

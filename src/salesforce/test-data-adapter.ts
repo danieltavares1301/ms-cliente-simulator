@@ -43,17 +43,21 @@ const adapterInputSchema = z
     const controlAccountSetup = accountSetups.find(
       (instruction) => instruction.role === 'CONTROL',
     );
+    const leadSetups = fixture.setup.filter(isSyntheticLeadSetup);
+    const leadSetup = leadSetups.find(
+      (instruction) => instruction.role === 'PRIMARY',
+    );
+    const collisionLeadSetup = leadSetups.find(
+      (instruction) => instruction.role === 'COLLISION',
+    );
     const absentAccountSetup = fixture.setup.find(
       (instruction) => instruction.operation === 'ENSURE_ACCOUNT_ABSENT',
-    );
-    const leadSetup = fixture.setup.find(
-      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
     );
     const absentLeadSetup = fixture.setup.find(
       (instruction) => instruction.operation === 'ENSURE_LEAD_ABSENT',
     );
     const setupCpf =
-      fixtureEvent(fixture).numerocpf ??
+      fixtureBusinessEvent(fixture).numerocpf ??
       accountSetup?.account.cpf ??
       absentAccountSetup?.keys.cpf ??
       leadSetup?.lead.cpf ??
@@ -67,6 +71,27 @@ const adapterInputSchema = z
         code: 'custom',
         message:
           'Fixture cannot declare more than one PRIMARY synthetic account',
+        path: ['fixture', 'setup'],
+      });
+    }
+    if (
+      leadSetups.filter((instruction) => instruction.role === 'PRIMARY').length >
+      1
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Fixture cannot declare more than one PRIMARY synthetic lead',
+        path: ['fixture', 'setup'],
+      });
+    }
+    if (
+      leadSetups.filter((instruction) => instruction.role === 'COLLISION')
+        .length > 1
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Fixture cannot declare more than one COLLISION synthetic lead',
         path: ['fixture', 'setup'],
       });
     }
@@ -166,6 +191,27 @@ const adapterInputSchema = z
       });
     }
     if (
+      collisionLeadSetup?.lead.idExterno !== undefined &&
+      collisionLeadSetup.lead.idExterno !==
+        fixture.identifiers.collisionLeadIdExterno
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Fixture collision Lead external id is inconsistent',
+        path: ['fixture', 'setup'],
+      });
+    }
+    if (
+      collisionLeadSetup?.lead.idExterno !== undefined &&
+      !collisionLeadSetup.lead.idExterno.startsWith('LEAD-SIM-')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Collision Lead external id must be simulator-owned',
+        path: ['fixture', 'setup'],
+      });
+    }
+    if (
       absentLeadSetup?.keys.idExterno !== undefined &&
       absentLeadSetup.keys.idExterno !== fixture.identifiers.leadIdExterno &&
       absentLeadSetup.keys.idExterno !==
@@ -180,11 +226,25 @@ const adapterInputSchema = z
 
     for (const [index, step] of fixture.steps.entries()) {
       const event = step.envelope[0]?.data;
+      const requiresClientFields =
+        step.eventType === 'cliente-insert' ||
+        step.eventType === 'cliente-update';
+      const requiresContactFields = step.eventType === 'contato-insert';
       if (
         event === undefined ||
         event.idcliente !== fixture.identifiers.accountIdCliente ||
-        (setupCpf !== undefined && event.numerocpf !== setupCpf) ||
-        event.nomecompleto === undefined ||
+        (requiresClientFields &&
+          (!isClientFixtureEventData(event) ||
+            (setupCpf !== undefined && event.numerocpf !== setupCpf))) ||
+        (requiresClientFields &&
+          (!isClientFixtureEventData(event) ||
+            event.nomecompleto === undefined)) ||
+        (requiresContactFields &&
+          (!isContactFixtureEventData(event) ||
+            event.tipocontato === undefined)) ||
+        (requiresContactFields &&
+          (!isContactFixtureEventData(event) ||
+            event.descricao === undefined)) ||
         (event.idprospectsalesforce !== undefined &&
           event.idprospectsalesforce !==
             fixture.identifiers.accountIdProspect &&
@@ -391,6 +451,20 @@ type SyntheticAccountSetup = Extract<
   RenderedScenarioFixture['setup'][number],
   { operation: 'CREATE_SYNTHETIC_ACCOUNT' }
 >;
+type SyntheticLeadSetup = Extract<
+  RenderedScenarioFixture['setup'][number],
+  { operation: 'CREATE_SYNTHETIC_LEAD' }
+>;
+type FixtureEventData =
+  RenderedScenarioFixture['steps'][number]['envelope'][number]['data'];
+type ClientFixtureEventData = FixtureEventData & {
+  nomecompleto?: string;
+  numerocpf?: string;
+};
+type ContactFixtureEventData = FixtureEventData & {
+  tipocontato: string;
+  descricao: string;
+};
 
 const accountFields =
   'Id,Id__c,IdProspectSalesforce__c,CPF__pc,LastName,IsPersonAccount' as const;
@@ -435,6 +509,28 @@ function fixtureEvent(fixture: RenderedScenarioFixture) {
   return fixture.steps[0]!.envelope[0]!.data;
 }
 
+function fixtureBusinessEvent(fixture: RenderedScenarioFixture) {
+  return (
+    fixture.steps.find(
+      (step) =>
+        step.eventType === 'cliente-insert' ||
+        step.eventType === 'cliente-update',
+    )?.envelope[0]?.data ?? fixtureEvent(fixture)
+  );
+}
+
+function isClientFixtureEventData(
+  event: FixtureEventData,
+): event is ClientFixtureEventData {
+  return 'nomecompleto' in event;
+}
+
+function isContactFixtureEventData(
+  event: FixtureEventData,
+): event is ContactFixtureEventData {
+  return 'tipocontato' in event && 'descricao' in event;
+}
+
 function isSyntheticAccountSetup(
   instruction: RenderedScenarioFixture['setup'][number],
 ): instruction is SyntheticAccountSetup {
@@ -459,8 +555,23 @@ function controlAccountSetup(
   );
 }
 
+function isSyntheticLeadSetup(
+  instruction: RenderedScenarioFixture['setup'][number],
+): instruction is SyntheticLeadSetup {
+  return instruction.operation === 'CREATE_SYNTHETIC_LEAD';
+}
+
+function primaryLeadSetup(
+  fixture: RenderedScenarioFixture,
+): SyntheticLeadSetup | undefined {
+  return fixture.setup.find(
+    (instruction): instruction is SyntheticLeadSetup =>
+      isSyntheticLeadSetup(instruction) && instruction.role === 'PRIMARY',
+  );
+}
+
 function fixtureCpf(fixture: RenderedScenarioFixture): string {
-  const eventCpf = fixtureEvent(fixture).numerocpf;
+  const eventCpf = fixtureBusinessEvent(fixture).numerocpf;
   if (eventCpf !== undefined) {
     return eventCpf;
   }
@@ -477,9 +588,7 @@ function fixtureCpf(fixture: RenderedScenarioFixture): string {
     return absentAccountSetup.keys.cpf;
   }
 
-  const leadSetup = fixture.setup.find(
-    (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
-  );
+  const leadSetup = primaryLeadSetup(fixture);
   if (leadSetup !== undefined) {
     return leadSetup.lead.cpf;
   }
@@ -544,13 +653,20 @@ function normalizePhoneDigits(value: string | null | undefined) {
 
 function getLeadExternalId(
   fixture: RenderedScenarioFixture,
-  setup = fixture.setup.find(
-    (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
-  ),
+  setup?: LeadSetupInstruction,
 ) {
-  return setup?.operation === 'CREATE_SYNTHETIC_LEAD'
-    ? (setup.lead.idExterno ?? fixture.identifiers.leadIdExterno)
-    : fixture.identifiers.leadIdExterno;
+  if (setup?.operation === 'CREATE_SYNTHETIC_LEAD') {
+    return (
+      setup.lead.idExterno ??
+      (setup.role === 'COLLISION'
+        ? fixture.identifiers.collisionLeadIdExterno
+        : fixture.identifiers.leadIdExterno) ??
+      fixture.identifiers.leadIdExterno
+    );
+  }
+
+  const primarySetup = primaryLeadSetup(fixture);
+  return primarySetup?.lead.idExterno ?? fixture.identifiers.leadIdExterno;
 }
 
 function buildLeadWhereClause(keys: {
@@ -613,7 +729,7 @@ function leadLookupQueryForVerify(fixture: RenderedScenarioFixture) {
   return asAllowlistedQuery(
     `SELECT ${leadFields} FROM Lead WHERE ${buildLeadWhereClause({
       idExterno: getLeadExternalId(fixture),
-      cpf: fixtureEvent(fixture).numerocpf,
+      cpf: fixtureBusinessEvent(fixture).numerocpf,
     })}`,
   );
 }
@@ -856,7 +972,8 @@ export function createSalesforceTestDataAdapter(
 
     async verify(candidate): Promise<SalesforceTestDataVerifyResult> {
       const { fixture } = parseInput(candidate);
-      const event = fixtureEvent(fixture);
+      const event = fixtureBusinessEvent(fixture);
+      const clientEvent = isClientFixtureEventData(event) ? event : undefined;
       const expectedChecks = fixture.expectedOutcomes.flatMap(
         (outcome) => outcome.checks,
       );
@@ -947,7 +1064,8 @@ export function createSalesforceTestDataAdapter(
               check: checkName,
               passed:
                 accountTarget !== undefined &&
-                accountTarget.LastName === event.nomecompleto,
+                clientEvent !== undefined &&
+                accountTarget.LastName === clientEvent.nomecompleto,
             });
             break;
           case 'ACCOUNT_IS_PERSON_ACCOUNT':
@@ -961,7 +1079,8 @@ export function createSalesforceTestDataAdapter(
               check: checkName,
               passed:
                 accountTarget !== undefined &&
-                accountTarget.CPF__pc === event.numerocpf,
+                clientEvent !== undefined &&
+                accountTarget.CPF__pc === clientEvent.numerocpf,
             });
             break;
           case 'CONTROL_ACCOUNT_UNCHANGED':
@@ -984,8 +1103,9 @@ export function createSalesforceTestDataAdapter(
                 accountRecords.length === 1 &&
                 accountTarget !== undefined &&
                 accountTarget.Id__c === event.idcliente &&
-                accountTarget.CPF__pc === event.numerocpf &&
-                accountTarget.LastName === event.nomecompleto &&
+                clientEvent !== undefined &&
+                accountTarget.CPF__pc === clientEvent.numerocpf &&
+                accountTarget.LastName === clientEvent.nomecompleto &&
                 (event.idprospectsalesforce === undefined ||
                   accountTarget.IdProspectSalesforce__c ===
                     event.idprospectsalesforce),

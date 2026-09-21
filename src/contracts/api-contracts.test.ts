@@ -182,6 +182,27 @@ describe('Event Grid contracts', () => {
     ).toHaveLength(1);
   });
 
+  it('keeps contato-insert strict about tipocontato and descricao', () => {
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'contato-insert',
+          data: { ...commonData, descricao: 'sim@example.invalid' },
+        },
+      ]),
+    ).toThrow();
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'contato-insert',
+          data: { ...commonData, tipocontato: 'Email' },
+        },
+      ]),
+    ).toThrow();
+  });
+
   it('requires exactly one event and idcliente', () => {
     expect(() => eventGridEnvelopeSchema.parse([])).toThrow();
     expect(() =>

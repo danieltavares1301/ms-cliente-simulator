@@ -64,11 +64,29 @@ function createSetup(rendered = fixture()) {
   return setup;
 }
 
+function clientEventData(rendered = fixture()) {
+  const step = rendered.steps.find(
+    (candidate) =>
+      candidate.eventType === 'cliente-insert' ||
+      candidate.eventType === 'cliente-update',
+  );
+  if (!step) {
+    throw new Error('Expected fixture with cliente event');
+  }
+  return step.envelope[0].data as {
+    idcliente: string;
+    idprospectsalesforce?: string;
+    numerocpf?: string;
+    nomecompleto?: string;
+    dataalteracao?: string;
+  };
+}
+
 function accountFromFixture(
   rendered = fixture(),
   overrides: Record<string, unknown> = {},
 ) {
-  const event = rendered.steps[0].envelope[0].data;
+  const event = clientEventData(rendered);
   return {
     Id: accountId,
     Id__c: event.idcliente,
@@ -97,6 +115,7 @@ function leadFixture() {
   rendered.setup = [
     {
       operation: 'CREATE_SYNTHETIC_LEAD',
+      role: 'PRIMARY',
       lead: {
         idExterno: rendered.identifiers.leadIdExterno,
         cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
@@ -291,6 +310,105 @@ function prospectDivergenteFixture() {
   return rendered;
 }
 
+function contatoAntesClienteColisaoFixture() {
+  const rendered = JSON.parse(
+    JSON.stringify(fixture('no-match-cliente-insert')),
+  ) as ReturnType<typeof fixture> & {
+    expectedOutcomes: Array<Record<string, unknown>>;
+    setup: Array<Record<string, unknown>>;
+    cleanup: Array<Record<string, unknown>>;
+    identifiers: ReturnType<typeof fixture>['identifiers'] & {
+      collisionLeadIdExterno?: string;
+    };
+  };
+  const scheduledAt = '2026-09-20T16:30:00.000Z';
+
+  rendered.scenarioKey = 'contato-antes-cliente-colisao';
+  rendered.identifiers.collisionLeadIdExterno = 'LEAD-SIM-COL-phase-four';
+  rendered.steps = [
+    {
+      key: 'contato-email',
+      target: 'CLIENTE',
+      eventType: 'contato-insert',
+      delayMs: 0,
+      scheduledAt,
+      deliveryPolicy: {
+        duplicateCount: 0,
+        retryOn: [],
+        maxAttempts: 1,
+      },
+      envelope: [
+        {
+          id: 'EVT-SIM-contact-phase-four',
+          subject: 'MS_Clientes',
+          eventType: 'contato-insert',
+          eventTime: scheduledAt,
+          dataVersion: '1.0',
+          metadataVersion: '1',
+          topic: '/simulator/ms-clientes',
+          data: {
+            idcliente: rendered.identifiers.accountIdCliente,
+            idprospectsalesforce: rendered.identifiers.accountIdProspect,
+            tipocontato: 'Email',
+            descricao: 'colisao.phase-four@simulador.mrv.invalid',
+            dataalteracao: scheduledAt,
+          },
+        },
+      ],
+    },
+  ];
+  rendered.setup = [
+    {
+      operation: 'ENSURE_ACCOUNT_ABSENT',
+      keys: {
+        idCliente: rendered.identifiers.accountIdCliente,
+        idProspect: rendered.identifiers.accountIdProspect,
+        cpf: '53278655842',
+      },
+    },
+    {
+      operation: 'CREATE_SYNTHETIC_LEAD',
+      role: 'COLLISION',
+      lead: {
+        idExterno: rendered.identifiers.collisionLeadIdExterno,
+        cpf: '39095812030',
+        lastName: 'Terceiro Colidente',
+        email: 'colisao.phase-four@simulador.mrv.invalid',
+        status: 'Pendente de Distribuição',
+      },
+    },
+  ];
+  rendered.expectedOutcomes = [
+    {
+      kind: 'BUSINESS_RESULT',
+      result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      description:
+        'Fixture mínima para validar contato-insert e Lead de colisão.',
+      checks: ['LEAD_NOT_REQUIRED'],
+    },
+  ];
+  rendered.cleanup = [
+    {
+      operation: 'DELETE_OWNED_RECORDS',
+      target: 'LEAD',
+      ownership: {
+        idExternoPrefix: 'LEAD-SIM-',
+      },
+    },
+  ];
+  return rendered;
+}
+
+function contatoAntesClienteColisaoInput(
+  rendered = contatoAntesClienteColisaoFixture(),
+) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
 function prospectDivergenteInput(rendered = prospectDivergenteFixture()) {
   return {
     runId: rendered.runId,
@@ -326,12 +444,13 @@ function createdLeadFromFixture(
   rendered = prospectDivergenteFixture(),
   overrides: Record<string, unknown> = {},
 ) {
+  const event = clientEventData(rendered);
   return {
     Id: leadId,
     Id__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
     FirstName: 'Cliente',
-    LastName: rendered.steps[0].envelope[0].data.nomecompleto,
-    CPF__c: rendered.steps[0].envelope[0].data.numerocpf,
+    LastName: event.nomecompleto,
+    CPF__c: event.numerocpf,
     MobilePhone: null,
     CelularSemFormatacao__c: null,
     Email: null,
@@ -861,6 +980,89 @@ describe('Salesforce test data adapter verify', () => {
     expect(String(query)).not.toContain('SELECT *');
   });
 
+  it('accepts contato-insert fixtures without nomecompleto and keeps the collision Lead independent', async () => {
+    const rendered = contatoAntesClienteColisaoFixture();
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000002AAA' }],
+      });
+    client.composite.mockResolvedValue({
+      compositeResponse: [
+        {
+          httpStatusCode: 201,
+          body: { id: leadId, success: true, errors: [] },
+          referenceId: 'createLead',
+        },
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).setup(contatoAntesClienteColisaoInput(rendered));
+
+    expect(result).toMatchObject({
+      status: 'CREATED',
+      createdCount: 1,
+      recordIds: [leadId],
+    });
+    expect(String(client.query.mock.calls[1]?.[0])).toContain(
+      rendered.identifiers.collisionLeadIdExterno!,
+    );
+    expect(String(client.query.mock.calls[1]?.[0])).not.toContain(
+      rendered.identifiers.leadIdExterno,
+    );
+    expect(client.composite.mock.calls[0]?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: expect.objectContaining({
+            Id__c: rendered.identifiers.collisionLeadIdExterno,
+            CPF__c: '39095812030',
+            Email: 'colisao.phase-four@simulador.mrv.invalid',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('still rejects cliente-insert sem nomecompleto after supporting contato-insert steps', async () => {
+    const candidate = input('no-match-cliente-insert');
+    delete (
+      candidate.fixture.steps[0]?.envelope[0]?.data as {
+        nomecompleto?: string;
+      }
+    ).nomecompleto;
+    const client = restClient();
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(candidate),
+    ).rejects.toMatchObject({ code: 'INVALID_FIXTURE' });
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it('rejects collision Leads whose rendered external id diverges from fixture identifiers', async () => {
+    const rendered = contatoAntesClienteColisaoFixture();
+    (
+      rendered.setup[1] as {
+        lead: {
+          idExterno?: string;
+        };
+      }
+    ).lead.idExterno = 'LEAD-SIM-COL-diferente';
+    const client = restClient();
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        contatoAntesClienteColisaoInput(rendered),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_FIXTURE' });
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
   it('rejects unknown fixture operations and targets before querying', async () => {
     const candidate = JSON.parse(JSON.stringify(input())) as Record<
       string,
@@ -945,6 +1147,108 @@ describe('Salesforce test data adapter verify', () => {
       expect.arrayContaining([
         { check: 'LEAD_EMAIL_EXCLUDED', passed: true },
         { check: 'LEAD_MOBILE_EXCLUDED', passed: true },
+      ]),
+    );
+  });
+
+  it('verifies contato-antes-cliente-colisao against the cliente-insert outcome and not the collision lead', async () => {
+    const rendered = renderScenarioFixture({
+      scenarioKey: 'contato-antes-cliente-colisao',
+      version: 1,
+      seed: 'phase-four-seed',
+      runId: 'run_phase_four_a',
+      eventStartAt: '2026-09-20T16:30:00.000Z',
+    });
+    const controlSetup = rendered.setup.find(
+      (instruction) =>
+        instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT' &&
+        instruction.role === 'CONTROL',
+    );
+    const expectedMobile = rendered.expectedOutcomes[0]?.checks.find(
+      (check) =>
+        typeof check !== 'string' &&
+        check.check === 'LEAD_MOBILE_EQUALS_EXPECTED',
+    );
+    const clientEvent = clientEventData(rendered);
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 2,
+        done: true,
+        records: [
+          {
+            Id: accountId,
+            Id__c: clientEvent.idcliente,
+            IdProspectSalesforce__c: null,
+            CPF__pc: clientEvent.numerocpf,
+            LastName: clientEvent.nomecompleto,
+            IsPersonAccount: true,
+          },
+          {
+            Id: controlAccountId,
+            Id__c:
+              controlSetup?.operation === 'CREATE_SYNTHETIC_ACCOUNT'
+                ? controlSetup.account.idCliente
+                : null,
+            IdProspectSalesforce__c:
+              controlSetup?.operation === 'CREATE_SYNTHETIC_ACCOUNT'
+                ? controlSetup.account.idProspect
+                : null,
+            CPF__pc:
+              controlSetup?.operation === 'CREATE_SYNTHETIC_ACCOUNT'
+                ? controlSetup.account.cpf
+                : null,
+            LastName:
+              controlSetup?.operation === 'CREATE_SYNTHETIC_ACCOUNT'
+                ? controlSetup.account.name
+                : null,
+            IsPersonAccount: true,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: leadId,
+            Id__c: 'e7d66d58-7ca3-4d75-a3c8-5ca3f4210f9b',
+            FirstName: null,
+            LastName: clientEvent.nomecompleto ?? null,
+            CPF__c: clientEvent.numerocpf ?? null,
+            MobilePhone:
+              typeof expectedMobile === 'string' ? null : expectedMobile?.value,
+            CelularSemFormatacao__c:
+              typeof expectedMobile === 'string' ? null : expectedMobile?.value,
+            Email: null,
+            CidadeInteresse__c: null,
+            Marca__c: '1',
+            RecordTypeId: '012000000000002AAA',
+            ManipularFase__c: true,
+            Status: 'Pendente de Distribuição',
+            PermitirCriarLead__c: true,
+            DescricaoOrigem__c: null,
+          },
+        ],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: rendered,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(String(client.query.mock.calls[1]?.[0])).not.toContain(
+      rendered.identifiers.collisionLeadIdExterno!,
+    );
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'LEAD_EMAIL_EXCLUDED', passed: true },
+        { check: 'LEAD_MOBILE_EQUALS_EXPECTED', passed: true },
+        { check: 'CONTROL_ACCOUNT_UNCHANGED', passed: true },
       ]),
     );
   });

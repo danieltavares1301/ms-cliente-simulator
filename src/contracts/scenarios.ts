@@ -20,6 +20,26 @@ const normalizedTagSchema = z
   .toLowerCase()
   .regex(kebabCasePattern);
 
+const generatedFixtureValueSchema = z.enum([
+  'RUN_ID',
+  'STEP_ID',
+  'EVENT_ID',
+  'EVENT_TIME',
+  'BASELINE_TIME',
+  'CLIENT_ID',
+  'CLIENT_ID_X',
+  'PROSPECT_ID',
+  'PROSPECT_ID_X',
+  'CPF',
+  'CPF_X',
+  'PERSON_NAME',
+  'BASE_PERSON_NAME',
+  'COLLISION_LEAD_ID_EXTERNO',
+  'COLLISION_CPF',
+  'COLLISION_EMAIL',
+  'CLEAN_CELULAR',
+]);
+
 export const scenarioScopeSchema = z.enum(['CORE', 'EXTENDED']);
 export const scenarioAvailabilitySchema = z.enum(['CONTRACT_ONLY', 'READY']);
 
@@ -151,24 +171,22 @@ const templateReferenceSchema = z.discriminatedUnion('source', [
   z
     .object({
       source: z.literal('GENERATED'),
-      value: z.enum([
-        'RUN_ID',
-        'STEP_ID',
-        'EVENT_ID',
-        'EVENT_TIME',
-        'BASELINE_TIME',
-        'CLIENT_ID',
-        'CLIENT_ID_X',
-        'PROSPECT_ID',
-        'PROSPECT_ID_X',
-        'CPF',
-        'CPF_X',
-        'PERSON_NAME',
-        'BASE_PERSON_NAME',
-      ]),
+      value: generatedFixtureValueSchema,
     })
     .strict(),
 ]);
+
+const generatedFixtureReferenceSchema = z
+  .object({
+    source: z.literal('GENERATED'),
+    value: generatedFixtureValueSchema.exclude([
+      'RUN_ID',
+      'STEP_ID',
+      'EVENT_ID',
+      'EVENT_TIME',
+    ]),
+  })
+  .strict();
 
 type PayloadTemplateValue =
   | string
@@ -255,7 +273,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'PROPONENTE_NOT_REQUIRED',
 ]);
 
-const leadExpectedValueCheckSchema = z.discriminatedUnion('check', [
+const renderedLeadExpectedValueCheckSchema = z.discriminatedUnion('check', [
   z
     .object({
       check: z.literal('LEAD_EMAIL_EQUALS_EXPECTED'),
@@ -276,9 +294,33 @@ const leadExpectedValueCheckSchema = z.discriminatedUnion('check', [
     .strict(),
 ]);
 
+const definitionExpectedValueSchema = z.union([
+  generatedFixtureReferenceSchema,
+  z.string().trim().min(1).max(255),
+]);
+
 export const expectedOutcomeCheckSchema = z.union([
   bareExpectedOutcomeCheckSchema,
-  leadExpectedValueCheckSchema,
+  z.discriminatedUnion('check', [
+    z
+      .object({
+        check: z.literal('LEAD_EMAIL_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('LEAD_MOBILE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('LEAD_DESCRICAO_ORIGEM_EQUALS'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+  ]),
 ]);
 
 export const expectedOutcomeSchema = z
@@ -296,20 +338,23 @@ export const expectedOutcomeSchema = z
   })
   .strict();
 
-const generatedFixtureReferenceSchema = z
+export const renderedExpectedOutcomeCheckSchema = z.union([
+  bareExpectedOutcomeCheckSchema,
+  renderedLeadExpectedValueCheckSchema,
+]);
+
+export const renderedExpectedOutcomeSchema = z
   .object({
-    source: z.literal('GENERATED'),
-    value: z.enum([
-      'CLIENT_ID',
-      'CLIENT_ID_X',
-      'PROSPECT_ID',
-      'PROSPECT_ID_X',
-      'CPF',
-      'CPF_X',
-      'PERSON_NAME',
-      'BASE_PERSON_NAME',
-      'BASELINE_TIME',
+    kind: z.literal('BUSINESS_RESULT'),
+    result: z.enum([
+      'ACCOUNT_UPDATED_ONLY',
+      'CLIENT_ID_STAMPED_WITHOUT_DUPLICATE',
+      'PERSON_ACCOUNT_CREATED',
+      'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
     ]),
+    description: safePublicTextSchema,
+    checks: z.array(renderedExpectedOutcomeCheckSchema).min(1).max(20),
   })
   .strict();
 
@@ -431,6 +476,7 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
   z
     .object({
       operation: z.literal('CREATE_SYNTHETIC_LEAD'),
+      role: z.enum(['PRIMARY', 'COLLISION']).optional().default('PRIMARY'),
       lead: syntheticLeadTemplateSchema,
     })
     .strict(),
@@ -488,11 +534,21 @@ export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
       setup?.filter(
         (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
       ) ?? [];
+    const syntheticLeadSetups =
+      setup?.filter(
+        (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
+      ) ?? [];
     const primaryCount = syntheticAccountSetups.filter(
       (instruction) => instruction.role === 'PRIMARY',
     ).length;
     const controlCount = syntheticAccountSetups.filter(
       (instruction) => instruction.role === 'CONTROL',
+    ).length;
+    const primaryLeadCount = syntheticLeadSetups.filter(
+      (instruction) => instruction.role === 'PRIMARY',
+    ).length;
+    const collisionLeadCount = syntheticLeadSetups.filter(
+      (instruction) => instruction.role === 'COLLISION',
     ).length;
 
     if (primaryCount > 1) {
@@ -506,6 +562,20 @@ export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
       context.addIssue({
         code: 'custom',
         message: 'At most one CONTROL synthetic account is allowed',
+        path: ['setup'],
+      });
+    }
+    if (primaryLeadCount > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one PRIMARY synthetic lead is allowed',
+        path: ['setup'],
+      });
+    }
+    if (collisionLeadCount > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one COLLISION synthetic lead is allowed',
         path: ['setup'],
       });
     }
