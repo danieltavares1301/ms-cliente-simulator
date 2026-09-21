@@ -346,7 +346,7 @@ export const basicScenarioDefinitions = [
     version: 1,
     name: 'CPF divergente com contato antes do cliente',
     description:
-      'Perfil O01 genuíno: dois contatos chegam primeiro com a identidade nova Y e reaproveitando o prospect PROS-X da conta de controle. Hipótese inicial fixada antes da validação real: os contatos anteriores são descartados, mas o cliente-insert final ainda cria a estrutura Y e um Lead novo sem contatos.',
+      'Perfil O01 genuíno validado contra mrv-devDan: os dois contatos divergentes chegam primeiro com a identidade nova Y e o prospect PROS-X da conta de controle, são descartados sem DML e o cliente-insert final cria a estrutura Y com Lead novo sem contatos.',
     scope: 'EXTENDED',
     tags: ['o01', 'parciais-antes', 'lead', 'pos-pac', 'prospect-divergente'],
     availability: 'READY',
@@ -438,7 +438,7 @@ export const basicScenarioDefinitions = [
         kind: 'BUSINESS_RESULT',
         result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
         description:
-          'Decisão inicial antes da execução real: os contatos antecipados com PROS-X não contaminam X nem sobrevivem em Y, mas o cliente-insert final ainda cria a Person Account Y, preserva X intacta e cria um Lead novo sem contatos.',
+          'Resultado observado em execução real: os contatos antecipados com PROS-X não contaminam X nem sobrevivem em Y; o cliente-insert final preserva X intacta, cria a Person Account Y e cria um Lead novo sem contatos.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
           'ACCOUNT_IS_PERSON_ACCOUNT',

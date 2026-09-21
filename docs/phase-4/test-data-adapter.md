@@ -9,8 +9,11 @@ dispatch Salesforce habilitados. No incremento 0.6.0 o vocabulário allowlisted
 foi expandido para também preparar, verificar e limpar `Lead`. No incremento
 0.7.0 esse vocabulário passou a sustentar o cenário READY
 `cliente-insert-prospect-divergente`, incluindo conta de controle, verificação
-de imutabilidade e cleanup ownership para duas Accounts. O lifecycle durável
-está detalhado em [lifecycle.md](lifecycle.md).
+de imutabilidade e cleanup ownership para duas Accounts. No incremento 0.8.2
+ele passa a sustentar também o cenário READY
+`cpf-divergente-contato-primeiro` e ganha o check explícito
+`ACCOUNT_NOT_CREATED` para documentar cenários em que a estrutura Y nunca chega
+a ser criada. O lifecycle durável está detalhado em [lifecycle.md](lifecycle.md).
 
 O health informa somente `testData: disabled|configured`; não abre conexão com
 Salesforce.
@@ -21,6 +24,7 @@ Salesforce.
 `renderedScenarioFixtureSchema`, acompanhada do mesmo `runId` e
 `scenarioKey`. Os cenários publicados passam a ser:
 
+- `cpf-divergente-contato-primeiro`;
 - `cliente-insert-prospect-divergente`;
 - `match-id-cliente`;
 - `match-cpf-sem-id-cliente`;
@@ -55,6 +59,7 @@ Verificações permitidas:
 
 - `ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE`;
 - `ACCOUNT_COUNT_BY_CPF_IS_ONE`;
+- `ACCOUNT_NOT_CREATED`;
 - `ACCOUNT_NAME_EQUALS_EVENT`;
 - `ACCOUNT_CLIENT_ID_EQUALS_EVENT`;
 - `ACCOUNT_IS_PERSON_ACCOUNT`;

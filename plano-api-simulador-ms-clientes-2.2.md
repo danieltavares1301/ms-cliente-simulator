@@ -537,7 +537,7 @@ Para criar Proponente__c, o setup cria primeiro Opportunity e PropostaAnaliseCre
 | Chave | Cenario | Resultado principal esperado |
 |---|---|---|
 | `cpf-divergente-nova-estrutura` | Jornada X, PAC Y, Account Y inexistente | Preserva X e cria Account/Lead Y. |
-| `cpf-divergente-contato-primeiro` | `contato-*` de Y chega antes de `cliente-*` | Evento parcial e descartado; X permanece intacto. |
+| `cpf-divergente-contato-primeiro` | `contato-*` de Y chega antes de `cliente-*` | Os `contato-*` sao descartados sem DML; o `cliente-insert` final preserva X e cria Account/Lead Y sem contatos. |
 | `cpf-divergente-endereco-primeiro` | `endereco-*` chega antes de `cliente-*` | Evento parcial e descartado; X permanece intacto. |
 | `cliente-update-divergente-conta-y-existente` | Account Y ja existe | Atualiza Y sem mover prospect de X. |
 | `cliente-update-divergente-conta-y-inexistente` | Y ainda nao existe | Cria estrutura Y e preserva X. |
@@ -602,7 +602,7 @@ documentado como evidencia, nao assumido a priori.
 
 | Perfil | Nome | Chave de cenario (planejada) | Status |
 |---|---|---|---|
-| O01 | Parciais antes (`contato-insert` com `IDCLI-Y` ainda inexistente, `PROS-X`) | `cpf-divergente-contato-primeiro` | Pendente de execucao real contra `mrv-devDan`; hipotese registrada no plano ("evento parcial e descartado") ainda nao confirmada por execucao. |
+| O01 | Parciais antes (`contato-insert` com `IDCLI-Y` ainda inexistente, `PROS-X`) | `cpf-divergente-contato-primeiro` | Implementado e validado ao vivo contra `mrv-devDan`: os dois `contato-insert` retornam HTTP 200, mas sao descartados sem DML; o `cliente-insert` final cria Account/Lead Y sem contatos e preserva X intacta. |
 | O02 | Cliente antes (contato chega durante/apos o Queueable) | `contato-antes-cliente-colisao` (Fase 6, incremento 3) | Implementado e validado ao vivo contra `mrv-devDan` (9/9 checks, `run SUCCEEDED`). |
 | O03 | Mesmo `eventTime` | `ordem-invertida-completa` (variante de mesmo timestamp) | Pendente (Tarefa 6.3). |
 | O04 | PAC mutavel | `pac-atrasada-nao-restaura-prospect` (parcial) | Fase 7 (depende de `/PAC`). |
@@ -1614,12 +1614,10 @@ segredos ou payload bruto persistido.
 - [ ] Contato/endereco primeiro disponiveis:
   - [x] `contato-antes-cliente-colisao` — perfil real O02 (cliente antes,
     contato depois); validado ao vivo contra `mrv-devDan`.
-  - [ ] `cpf-divergente-contato-primeiro` — perfil O01 genuino (`contato-insert`
-    com `IDCLI-Y` ainda inexistente, `PROS-X`). **Executar contra `mrv-devDan`
-    e documentar o resultado real observado, sem assumir o comportamento a
-    priori** — a hipotese registrada nesta secao ("evento parcial e
-    descartado") deve ser confirmada ou refutada por execucao real, nao por
-    leitura estatica do Apex.
+  - [x] `cpf-divergente-contato-primeiro` — perfil O01 genuino (`contato-insert`
+    com `IDCLI-Y` ainda inexistente, `PROS-X`). Validado ao vivo contra
+    `mrv-devDan`: os dois contatos foram descartados sem DML e o
+    `cliente-insert` final criou a estrutura Y sem contatos.
   - [ ] `cpf-divergente-endereco-primeiro` — mesma logica de
     `cpf-divergente-contato-primeiro`, usando `endereco-insert`. Requer
     estender o contrato de step renderizado (`renderedFixtureStepSchema`) e o
