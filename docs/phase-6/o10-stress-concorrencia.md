@@ -1,11 +1,18 @@
-# O10 — Rajada concorrente `cliente-update`
+# O10 — Rajada concorrente (uniforme + mix de tipos)
 
 ## Objetivo
 
 Implementar o perfil **O10 ("Rajada concorrente Cliente/PAC")** no recorte
-viável do MVP atual: **N requisições `cliente-update` realmente simultâneas
-contra a mesma Person Account** (`mesmo idcliente`), sem tentar encaixar isso
-na orquestração sequencial baseada em `ScenarioDefinition`.
+viável do MVP atual, em **duas leituras complementares**:
+
+1. **modo uniforme**: **N requisições `cliente-update`** realmente simultâneas
+   contra a mesma Person Account (`mesmo idcliente`);
+2. **modo misto**: a adaptação correta do catálogo para o MVP, com
+   `cliente-update`, `contato-insert` (Email), `contato-insert` (Celular) e
+   `endereco-insert` competindo ao mesmo tempo pela **mesma linha de Account**.
+
+Tudo isso sem tentar encaixar a rajada na orquestração sequencial baseada em
+`ScenarioDefinition`.
 
 O princípio seguido foi o mesmo do catálogo: **não antecipar o resultado do
 Apex**. O script publica a rajada real, consulta o estado final observado na
@@ -25,11 +32,16 @@ Por isso, o O10 foi implementado como **ferramenta diagnóstica dedicada**, não
 como cenário do catálogo:
 
 - script TypeScript permanente:
-  `scripts/stress-o10-concurrent-cliente-update.ts`
+  `scripts/stress-o10-concurrent-events.ts`
 - wrapper executável do repositório:
   `npm run stress:o10`
 - helper de execução local:
-  `scripts/run-stress-o10-concurrent-cliente-update.cjs`
+  `scripts/run-stress-o10-concurrent-events.cjs`
+
+Os nomes antigos (`...concurrent-cliente-update...`) foram mantidos como
+**shims de compatibilidade**, mas o ponto de manutenção passa a ser o par
+`...concurrent-events...`, porque o escopo agora cobre mais de um tipo de
+evento.
 
 ### Reaproveitamento seguro de módulos existentes
 
@@ -57,11 +69,18 @@ Fluxo resumido:
    `sf org display --target-org mrv-devDan --json`;
 2. valida sandbox/host/org com o mesmo `Safety Guard` já usado no simulador;
 3. cria **1 Person Account sintética** via `CREATE_SYNTHETIC_ACCOUNT`;
-4. dispara **12 `cliente-update` concorrentes** com `Promise.all` contra
+4. monta a rajada conforme `--event-mix`:
+   - `uniform` → 12× `cliente-update`;
+   - `mixed` (novo padrão) → round-robin de `cliente-update`,
+     `contato-insert:Email`, `contato-insert:Celular` e
+     `endereco-insert:COBRANCA`;
+5. dispara todas as requisições com `Promise.all` contra
    `/services/apexrest/Cliente`;
-5. aguarda 15s;
-6. consulta estado final da Account, Leads e `LogIntegracao__c`;
-7. remove os registros criados/afetados e confirma cleanup por consulta direta.
+6. aguarda 15s;
+7. consulta estado final da Account, Leads e `LogIntegracao__c`, incluindo os
+   campos independentes `PersonEmail`, `Celular__c`/`PersonMobilePhone`,
+   `BillingStreet` e os timestamps por família de evento;
+8. remove os registros criados/afetados e confirma cleanup por consulta direta.
 
 ### Parâmetros suportados
 
@@ -73,6 +92,7 @@ O script aceita CLI/env para:
 - `waitMs`
 - `requestTimeoutMs`
 - `eventTimeStepMs`
+- `eventMix` (`mixed` | `uniform`)
 - `seed`
 - `runId`
 - `eventStartAt`
@@ -83,11 +103,13 @@ Para as execuções documentadas abaixo, usei:
 
 - **concorrência = 12**
 - **`eventTimeStepMs = 0`**
-- ou seja: **todas as 12 requisições compartilharam o mesmo
-  `eventTime` / `dataalteracao`**
+- **mesmo `eventTime` / `dataalteracao` para toda a rajada**
+- **`event-mix=mixed` como novo padrão**
+- **`event-mix=uniform` preservado explicitamente para comparação histórica**
 
 Motivo: esse modo é o mais agressivo no recorte atual e está alinhado à
-recomendação do catálogo de exercitar a dimensão de **mesmo `eventTime`**.
+mesma lógica do `PINNED_EVENT_TIME` documentado no O03: variar a ordem e o tipo
+do evento sem variar o carimbo lógico do produtor.
 
 ## Execução real em `mrv-devDan`
 
@@ -238,6 +260,105 @@ WHERE Id__c = 'PRO-SIM-dc716494f0-ce1604e077'
 
 Ou seja: os registros sintéticos usados no diagnóstico **não ficaram na org**.
 
+## Complemento corretivo — mix real de tipos
+
+O catálogo original do O10 pede:
+
+```text
+→ 6 × cliente-update ─┐
+                      ├─ 12 requisições simultâneas sobre a mesma cadeia
+→ 6 × pac-update ─────┘
+```
+
+Como o MVP atual não possui `/PAC`, a adaptação correta passou a ser um **mix
+real de tipos já suportados**, todos apontando para a **mesma Account**:
+
+- `cliente-update` → `nomecompleto = Cliente Concorrente NN`
+- `contato-insert` Email →
+  `descricao = concorrente-NN@simulador.mrv.invalid`
+- `contato-insert` Celular → `descricao = 1199000000NN`
+- `endereco-insert` → `logradouro = Rua Concorrente NN`, sem `idcidade`
+
+Com `concurrency = 12`, o modo `mixed` distribui a rajada em **3 eventos de
+cada variante**, todos com o mesmo `eventTime`/`dataalteracao`.
+
+### Rodadas mistas executadas em `mrv-devDan`
+
+| Rodada | `runId` | `idcliente` sintético | HTTP 2xx | Locks / `DmlException` | `LogIntegracao__c` | Cleanup |
+|---|---|---|---:|---|---|---|
+| M1 | `run_o10_mixed_a` | `CLI-SIM-b7da4fa847-8cfe1b2d62` | 12/12 | não observado | 3× `cliente-update`, 6× `contato-insert`, 3× `endereco-insert` — todos `success` | Account/Lead = 0 |
+| M2 | `run_o10_mixed_b` | `CLI-SIM-fc9201dd79-f281b17a25` | 12/12 | não observado | 3× `cliente-update`, 6× `contato-insert`, 3× `endereco-insert` — todos `success` | Account/Lead = 0 |
+| M3 | `run_o10_mixed_c` | `CLI-SIM-dd6df737b1-391846087a` | 12/12 | não observado | 3× `cliente-update`, 6× `contato-insert`, 3× `endereco-insert` — todos `success` | Account/Lead = 0 |
+
+Em todas as três rodadas:
+
+- **todas as 12 respostas HTTP foram `200 OK`**;
+- **nenhuma** resposta/corpo/log surfacou `UNABLE_TO_LOCK_ROW` ou
+  `DmlException`;
+- **nenhum Lead** foi criado (`leadCount = 0`);
+- a contenção apareceu no **estado final da mesma Account**, agora com
+  **vencedor por campo** em vez de um único vencedor global.
+
+### Vencedor por campo nas rodadas mistas
+
+| Rodada | `LastName` / `CPF__pc` | `PersonEmail` | `Celular__c` / `PersonMobilePhone` | `BillingStreet` |
+|---|---|---|---|---|
+| M1 | índice **9** (`cliente-update`) → `Cliente Concorrente 09` | índice **2** (`contato-insert:Email`) → `concorrente-02@simulador.mrv.invalid` | índice **7** (`contato-insert:Celular`) → `11990000007` / `5511990000007` | índice **4** (`endereco-insert`) → `Rua Concorrente 04` |
+| M2 | índice **5** (`cliente-update`) → `Cliente Concorrente 05` | índice **6** (`contato-insert:Email`) → `concorrente-06@simulador.mrv.invalid` | índice **3** (`contato-insert:Celular`) → `11990000003` / `5511990000003` | índice **4** (`endereco-insert`) → `Rua Concorrente 04` |
+| M3 | índice **9** (`cliente-update`) → `Cliente Concorrente 09` | índice **2** (`contato-insert:Email`) → `concorrente-02@simulador.mrv.invalid` | índice **11** (`contato-insert:Celular`) → `11990000011` / `5511990000011` | índice **8** (`endereco-insert`) → `Rua Concorrente 08` |
+
+### Leitura prática do experimento misto
+
+O comportamento observado foi diferente do experimento uniforme em um ponto
+importante:
+
+- no **modo uniforme**, existe um **vencedor global** (`LastName`) porque todas
+  as 12 requisições escrevem o mesmo eixo de dados;
+- no **modo misto**, surgem **quatro disputas independentes** sobre a mesma
+  linha de Account, uma por família de campo (`cliente`, `email`, `celular`,
+  `endereço`).
+
+Mesmo assim, o resultado líquido permaneceu consistente com o diagnóstico
+anterior:
+
+1. a linha de Account sofre **corrida real**;
+2. os **vencedores variam entre execuções**;
+3. o Apex/integração **não surfacou erro de lock** nem no HTTP nem no
+   `LogIntegracao__c`.
+
+Ou seja: o complemento corretivo **não mudou a conclusão sobre locks**, mas
+melhorou a fidelidade do O10 ao catálogo, provando que **tipos diferentes
+também competem pelo mesmo lock de linha** e podem terminar com vencedores
+diferentes por campo.
+
+### Cleanup externo confirmado para o experimento misto
+
+Após a rodada M3, foi feita uma consulta direta na org cobrindo **as três**
+execuções mistas:
+
+```text
+SELECT Id, Id__c, LastName
+FROM Account
+WHERE Id__c IN (
+  'CLI-SIM-b7da4fa847-8cfe1b2d62',
+  'CLI-SIM-fc9201dd79-f281b17a25',
+  'CLI-SIM-dd6df737b1-391846087a'
+)
+--> totalSize = 0
+
+SELECT Id, Id__c, CPF__c
+FROM Lead
+WHERE Id__c IN (
+  'PRO-SIM-b7da4fa847-8cfe1b2d62',
+  'PRO-SIM-fc9201dd79-f281b17a25',
+  'PRO-SIM-dd6df737b1-391846087a'
+)
+   OR CPF__c IN ('21210501406', '24961141178', '95853024469')
+--> totalSize = 0
+```
+
+Portanto, o cleanup permaneceu íntegro também no modo `mixed`.
+
 ## Decisões de design tomadas sozinho
 
 1. **manter o O10 fora do catálogo declarativo**  
@@ -254,3 +375,8 @@ Ou seja: os registros sintéticos usados no diagnóstico **não ficaram na org**
 4. **filtrar `LogIntegracao__c` por `idcliente` + `eventId`**  
    para evitar contaminar a leitura com runs muito recentes usando os mesmos
    rótulos `Cliente Concorrente NN`.
+
+5. **renomear o script principal para `...concurrent-events...`**  
+   porque o modo `mixed` deixou de ser semanticamente um stress apenas de
+   `cliente-update`; os nomes antigos foram mantidos como shims de
+   compatibilidade para não quebrar referências locais já existentes.
