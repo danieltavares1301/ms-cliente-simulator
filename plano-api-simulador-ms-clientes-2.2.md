@@ -1704,21 +1704,41 @@ segredos ou payload bruto persistido.
   17 cenarios publicados e validados ao vivo contra `mrv-devDan`).
 - [x] Account e Lead validados sem dependencia de staging (setup/verify/cleanup
   automatizados, executados repetidamente contra `mrv-devDan` real).
-- [ ] **Proponente__c nao foi implementado no MVP** — decisao de escopo tomada
-  implicitamente durante a execucao da Fase 6: nenhum cenario criou/consultou
-  `Proponente__c`, porque `insertLeadQueueable` usa Proponente__c apenas como
-  fonte OPCIONAL de contatos aprovados (com fallback automatico para os
-  campos da propria Account quando `Proponente__c` nao existe — confirmado em
-  `insertLeadQueueable.cls`). Todos os cenarios de Regra 6.6/colisao desta
-  fase exercitaram o caminho de fallback (Account), nao o caminho primario
-  via `Proponente__c`. Isso diverge da secao 4.1 original (que previa
-  Proponente__c dentro do MVP). Pendente de decisao explicita: manter
-  deferido para a Fase 7 (onde `Proponente__c` naturalmente aparece via PAC)
-  ou implementar agora como incremento adicional da Fase 6.
+- [x] **Decisao formalizada: `Proponente__c`/Opportunity/`PropostaAnaliseCredito__c`
+  ficam deferidos para a Fase 7**, nao fazem parte do MVP da Fase 6. Motivo
+  tecnico e de escopo:
+  1. `insertLeadQueueable` usa `Proponente__c` apenas como fonte OPCIONAL de
+     contatos aprovados, com fallback automatico para os campos da propria
+     Account quando `Proponente__c` nao existe — por isso nenhum cenario de
+     Regra 6.6/colisao desta fase precisou criar um, e todos exercitaram o
+     caminho de fallback (Account), nao o caminho primario via
+     `Proponente__c`. Isso diverge da secao 4.1 original (que previa
+     Proponente__c dentro do MVP), decisao agora formalizada aqui.
+  2. **Risco de seguranca operacional descoberto ao investigar o
+     scaffolding**: `PropostaAnaliseCreditoTrigger` (after insert) chama
+     `PropostaAnaliseCreditoHelper.enviarDadosPACParaCredito`, que enfileira
+     `EnvioPACCreditoQueue` — um Queueable que faz um **callout HTTP real**
+     para `AzureServiceBus__c.getOrgDefaults().EndpointChatterCCA__c`,
+     autenticado com um token SAS real gerado por
+     `AzureGenerateToken.generateSasToken`. Ou seja, **qualquer** insert de
+     `PropostaAnaliseCredito__c` — mesmo um registro criado apenas como
+     scaffolding tecnico para satisfazer o master-detail de `Proponente__c` —
+     dispara uma notificacao real a um sistema de credito externo (Azure
+     Service Bus), sem guarda de ambiente/feature-flag visivel no trigger.
+     Isso e uma categoria de risco maior do que qualquer coisa tocada pelo
+     simulador ate agora (que ficou restrito a `Account`/`Lead`, sem
+     automacao de saida). A Fase 7 precisara desenhar uma estrategia de
+     protecao dedicada para essa integracao (redirecionamento de endpoint,
+     mock, ou feature flag) antes de qualquer registro sintetico de
+     `PropostaAnaliseCredito__c` ser criado em `mrv-devDan` — o mesmo
+     cuidado ja aplicado ao redirecionamento de `VFlexMsClientes`/
+     `ServicoClientes`, mas para um sistema diferente (Azure Service Bus, nao
+     GraphQL/MS Cliente).
 - [ ] Celular/e-mail efetivos do Proponente__c e sincronizacao do
-  `IdProponente__c` — nao aplicavel sem o item acima.
-- [ ] Opportunity e PropostaAnaliseCredito__c como scaffolding — nao
-  implementado (mesma decisao de escopo acima).
+  `IdProponente__c` — deferido para a Fase 7 (ver item acima).
+- [ ] Opportunity e PropostaAnaliseCredito__c como scaffolding — deferido para
+  a Fase 7 (ver item acima; requer protecao contra `EnvioPACCreditoQueue`
+  antes de qualquer implementacao).
 - [x] Setup, verificacao e cleanup automatizados por REST/Composite allowlisted
   (Account e Lead).
 - [x] Runs aguardam Queueable/callback antes das assertions finais
@@ -1731,21 +1751,27 @@ segredos ou payload bruto persistido.
 - [ ] Aprovacao do QA para uso controlado — pendente de decisao humana, fora
   do escopo de codigo.
 
-**Achado adicional (governanca de acesso, fora do codigo do simulador):** o
+**Achado corrigido (governanca de acesso, fora do codigo do simulador):** o
 Permission Set `AcessoDeAPI`
 (`force-app/main/default/permissionsets/AcessoDeAPI.permissionset-meta.xml`,
-repositorio Salesforce) concede CRUD apenas a `Account`/`Contact`, sem
+repositorio Salesforce) concedia CRUD apenas a `Account`/`Contact`, sem
 nenhuma permissao de objeto/campo para `Lead` — apesar de o simulador criar,
-consultar e apagar `Lead` extensivamente desde o incremento 1 da Fase 6. As
-execucoes reais funcionaram porque o usuario de API por tras de
-`SALESFORCE_CLIENT_ID` aparentemente tem acesso a `Lead` por outro caminho
-(perfil ou outro Permission Set), nao documentado neste Permission Set
-especifico. Alem disso, o arquivo local desse Permission Set nunca foi
-commitado no repositorio Salesforce (`git status` mostra `??`, apesar de já
-ter sido implantado em `mrv-devDan` em fase anterior) — ha tambem outros
-arquivos nao relacionados a este trabalho (`ClienteService-conflito.cls`,
-`CHANGELOG_CONTESTACAO_PAC_2026-07-31.md`, `coverage/`, `scripts/apex/`) no
-mesmo `git status`, que NAO pertencem a este projeto e nao devem ser tocados.
+consultar e apagar `Lead` extensivamente desde o incremento 1 da Fase 6.
+**Corrigido**: CRUD completo de Lead (Create/Read/Edit/Delete) + FLS dos 8
+campos customizados usados pelo simulador (`Id__c`, `CPF__c`,
+`CelularSemFormatacao__c`, `CidadeInteresse__c`, `DescricaoOrigem__c`,
+`ManipularFase__c`, `Marca__c`, `PermitirCriarLead__c`) + visibilidade do
+RecordType `Lead.GestaoVendas` foram deployados diretamente em `mrv-devDan`
+via `sf project deploy start` (dry-run + deploy real confirmados,
+`ObjectPermissions`/`FieldPermissions` verificados por consulta direta pos-
+deploy). **Importante**: por regra deste projeto, nenhuma alteracao de
+metadado Salesforce e commitada no repositorio `com_salesforce_mrv`
+(compartilhado com outras frentes de trabalho) — apenas deployada
+diretamente na org de dev; o arquivo local permanece nao-rastreado (`??`) no
+git por design. Ha tambem outros arquivos nao relacionados a este trabalho
+(`ClienteService-conflito.cls`, `CHANGELOG_CONTESTACAO_PAC_2026-07-31.md`,
+`coverage/`, `scripts/apex/`) no mesmo repositorio, que NAO pertencem a este
+projeto e nao devem ser tocados.
 
 ### Fase 7: Extensao PAC, Maquina de Estado e Opportunity
 
