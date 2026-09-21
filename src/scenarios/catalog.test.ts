@@ -4,10 +4,17 @@ import { scenarioDefinitionSchema } from '../contracts';
 import { createScenarioCatalog, scenarioCatalog } from './catalog';
 import { basicScenarioDefinitions } from './definitions';
 
+const matchIdClienteDefinition = basicScenarioDefinitions.find(
+  ({ key }) => key === 'match-id-cliente',
+)!;
+const noMatchDefinition = basicScenarioDefinitions.find(
+  ({ key }) => key === 'no-match-cliente-insert',
+)!;
+
 describe('scenarioDefinitionSchema', () => {
   it('normalizes, deduplicates, and sorts tags', () => {
     const parsed = scenarioDefinitionSchema.parse({
-      ...basicScenarioDefinitions[0],
+      ...matchIdClienteDefinition,
       tags: [' Match ', 'core', 'match'],
     });
 
@@ -17,10 +24,10 @@ describe('scenarioDefinitionSchema', () => {
   it('rejects unsafe executable templates', () => {
     expect(() =>
       scenarioDefinitionSchema.parse({
-        ...basicScenarioDefinitions[0],
+        ...matchIdClienteDefinition,
         steps: [
           {
-            ...basicScenarioDefinitions[0].steps[0],
+            ...matchIdClienteDefinition.steps[0],
             payloadTemplate: () => ({ idcliente: 'unsafe' }),
           },
         ],
@@ -31,10 +38,10 @@ describe('scenarioDefinitionSchema', () => {
   it('rejects more than one synthetic primary account in the same fixture', () => {
     expect(() =>
       scenarioDefinitionSchema.parse({
-        ...basicScenarioDefinitions[0],
+        ...matchIdClienteDefinition,
         setup: [
-          basicScenarioDefinitions[0].setup?.[0],
-          basicScenarioDefinitions[0].setup?.[0],
+          matchIdClienteDefinition.setup?.[0],
+          matchIdClienteDefinition.setup?.[0],
         ],
       }),
     ).toThrow(/primary/i);
@@ -56,16 +63,16 @@ describe('scenarioDefinitionSchema', () => {
 
     expect(() =>
       scenarioDefinitionSchema.parse({
-        ...basicScenarioDefinitions[2],
-        setup: [controlSetup, controlSetup, ...basicScenarioDefinitions[2].setup!],
+        ...noMatchDefinition,
+        setup: [controlSetup, controlSetup, ...noMatchDefinition.setup!],
       }),
     ).toThrow(/control/i);
   });
 });
 
 describe('versioned scenario catalog', () => {
-  it('loads the four basic ready scenarios', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(4);
+  it('loads the ready scenarios with deterministic ordering', () => {
+    expect(scenarioCatalog.listActive()).toHaveLength(5);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -73,6 +80,11 @@ describe('versioned scenario catalog', () => {
         availability,
       })),
     ).toStrictEqual([
+      {
+        key: 'cliente-insert-prospect-divergente',
+        version: 1,
+        availability: 'READY',
+      },
       {
         key: 'cliente-update-nova-estrutura',
         version: 1,
@@ -99,17 +111,17 @@ describe('versioned scenario catalog', () => {
   it('rejects duplicate key and version identities', () => {
     expect(() =>
       createScenarioCatalog([
-        basicScenarioDefinitions[0],
-        basicScenarioDefinitions[0],
+        matchIdClienteDefinition,
+        matchIdClienteDefinition,
       ]),
     ).toThrow(/match-id-cliente@1/);
   });
 
   it('keeps deterministic ordering by key and version', () => {
     const catalog = createScenarioCatalog([
-      { ...basicScenarioDefinitions[0], version: 2 },
-      basicScenarioDefinitions[1],
-      basicScenarioDefinitions[0],
+      { ...matchIdClienteDefinition, version: 2 },
+      basicScenarioDefinitions.find(({ key }) => key === 'match-cpf-sem-id-cliente')!,
+      matchIdClienteDefinition,
     ]);
 
     expect(

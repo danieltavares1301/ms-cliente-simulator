@@ -9,6 +9,7 @@ import { scenarioCatalog } from './catalog';
 import { renderScenarioFixture } from './renderer';
 
 const scenarioKeys = [
+  'cliente-insert-prospect-divergente',
   'match-id-cliente',
   'match-cpf-sem-id-cliente',
   'no-match-cliente-insert',
@@ -42,6 +43,28 @@ describe('basic scenario fixture definitions', () => {
   );
 
   it('models only Apex behavior actually triggered by each core event', () => {
+    expect(
+      scenarioCatalog.get('cliente-insert-prospect-divergente', 1)
+        ?.expectedOutcomes[0],
+    ).toMatchObject({
+      result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+      checks: [
+        'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+        'ACCOUNT_IS_PERSON_ACCOUNT',
+        'ACCOUNT_NAME_EQUALS_EVENT',
+        'ACCOUNT_CPF_EQUALS_EVENT',
+        'CONTROL_ACCOUNT_UNCHANGED',
+        'LEAD_COUNT_BY_CPF_IS_ONE',
+        'LEAD_CPF_EQUALS_EVENT',
+      ],
+    });
+    expect(
+      scenarioCatalog.get('cliente-insert-prospect-divergente', 1)?.asyncPolicy,
+    ).toStrictEqual({
+      expectedCallbacks: { min: 1, max: 1 },
+      waitTimeoutMs: 30_000,
+      missingCallbackResult: 'PARTIAL',
+    });
     expect(
       scenarioCatalog.get('match-id-cliente', 1)?.expectedOutcomes[0],
     ).toMatchObject({
@@ -195,6 +218,10 @@ describe('renderScenarioFixture', () => {
   );
 
   it('describes exact allowlisted setup and cleanup operations', () => {
+    const divergent = renderScenarioFixture({
+      ...input,
+      scenarioKey: 'cliente-insert-prospect-divergente',
+    });
     const byId = renderScenarioFixture({
       ...input,
       scenarioKey: 'match-id-cliente',
@@ -235,6 +262,51 @@ describe('renderScenarioFixture', () => {
         ownership: { idCliente: noMatch.identifiers.accountIdCliente },
       },
     ]);
+    expect(divergent.identifiers.controlAccountIdCliente).toBeDefined();
+    expect(divergent.identifiers.controlAccountIdProspect).toBeDefined();
+    expect(divergent.cleanup).toStrictEqual([
+      {
+        operation: 'DELETE_OWNED_RECORDS',
+        target: 'ACCOUNT',
+        ownership: {
+          idCliente: divergent.identifiers.accountIdCliente,
+          controlAccountIdCliente:
+            divergent.identifiers.controlAccountIdCliente,
+        },
+      },
+      {
+        operation: 'DELETE_OWNED_RECORDS',
+        target: 'LEAD',
+        ownership: { idExternoPrefix: 'LEAD-SIM-' },
+      },
+    ]);
+  });
+
+  it('keeps the control identifiers deterministic and distinct from the primary account', () => {
+    const fixture = renderScenarioFixture({
+      ...input,
+      scenarioKey: 'cliente-insert-prospect-divergente',
+    });
+
+    expect(fixture.identifiers.controlAccountIdCliente).toBeDefined();
+    expect(fixture.identifiers.controlAccountIdProspect).toBeDefined();
+    expect(fixture.identifiers.controlAccountIdCliente).not.toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(fixture.identifiers.controlAccountIdProspect).not.toBe(
+      fixture.identifiers.accountIdProspect,
+    );
+    expect(fixture.setup[0]).toMatchObject({
+      operation: 'CREATE_SYNTHETIC_ACCOUNT',
+      role: 'CONTROL',
+      account: {
+        idCliente: fixture.identifiers.controlAccountIdCliente,
+        idProspect: fixture.identifiers.controlAccountIdProspect,
+      },
+    });
+    expect(
+      fixture.steps[0].envelope[0].data.idprospectsalesforce,
+    ).toBe(fixture.identifiers.controlAccountIdProspect);
   });
 
   it('emits only cliente fields consumed by the Apex contract', () => {

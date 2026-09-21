@@ -5,8 +5,11 @@ type GeneratedValue =
   | 'EVENT_TIME'
   | 'BASELINE_TIME'
   | 'CLIENT_ID'
+  | 'CLIENT_ID_X'
   | 'PROSPECT_ID'
+  | 'PROSPECT_ID_X'
   | 'CPF'
+  | 'CPF_X'
   | 'PERSON_NAME'
   | 'BASE_PERSON_NAME';
 
@@ -45,6 +48,12 @@ const asyncPolicy: ScenarioDefinition['asyncPolicy'] = {
   missingCallbackResult: 'SUCCESS',
 };
 
+const graphqlCallbackAsyncPolicy: ScenarioDefinition['asyncPolicy'] = {
+  expectedCallbacks: { min: 1, max: 1 },
+  waitTimeoutMs: 30_000,
+  missingCallbackResult: 'PARTIAL',
+};
+
 function clientPayload(
   eventType: 'cliente-insert' | 'cliente-update',
   includeProspect: boolean,
@@ -77,7 +86,100 @@ const cleanup: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
 ];
 
+const cleanupWithLead: ScenarioDefinition['cleanup'] = [
+  { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
+  { operation: 'DELETE_OWNED_RECORDS', target: 'LEAD' },
+];
+
 export const basicScenarioDefinitions = [
+  {
+    key: 'cliente-insert-prospect-divergente',
+    version: 1,
+    name: 'Cliente insert com prospect divergente',
+    description:
+      'Cria uma nova Person Account, preserva a conta dona do prospect divergente e aguarda o callback GraphQL.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'prospect-divergente', 'lead', 'pos-pac'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'CONTROL',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspect: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF_X'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'cliente-insert-divergente',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 0,
+        payloadTemplate: {
+          kind: 'DECLARATIVE',
+          contract: 'EVENT_GRID',
+          value: {
+            id: generated('EVENT_ID'),
+            subject: 'MS_Clientes',
+            eventType: 'cliente-insert',
+            eventTime: generated('EVENT_TIME'),
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/simulator/ms-clientes',
+            data: {
+              idcliente: generated('CLIENT_ID'),
+              idprospectsalesforce: generated('PROSPECT_ID_X'),
+              numerocpf: generated('CPF'),
+              dataalteracao: generated('EVENT_TIME'),
+              nomecompleto: generated('PERSON_NAME'),
+            },
+          },
+        },
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
+        description:
+          'A Account Y é criada sem herdar o prospect da conta X, um Lead novo é criado pelo CPF de Y e a Account de controle permanece intacta.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_NAME_EQUALS_EVENT',
+          'ACCOUNT_CPF_EQUALS_EVENT',
+          'CONTROL_ACCOUNT_UNCHANGED',
+          'LEAD_COUNT_BY_CPF_IS_ONE',
+          'LEAD_CPF_EQUALS_EVENT',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithLead,
+  },
   {
     key: 'match-id-cliente',
     version: 1,
