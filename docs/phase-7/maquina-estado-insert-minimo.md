@@ -256,3 +256,33 @@ reentrega e variações de resolução de cliente), mantendo este smoke test mí
 como baseline estável. Se quisermos cobrir explicitamente o caminho com
 `CidadeUnidade__c`, isso deve entrar como cenário adicional, com massa real da
 org previamente validada.
+
+## Limitações conhecidas / próximo incremento
+
+- **Dependência de dados reais e específicos da org**: o cenário depende de um
+  `Product2` (`Id__c=37dd20e6-4b3c-ea11-801d-005056856875`), um
+  `PricebookEntry` (`01u4T0000047yxRQAQ`) e um `RecordType` (`Unidade`,
+  `0124T000000YRR4QAO`) hardcoded na fixture — todos IDs reais de `mrv-devDan`,
+  não sintéticos. Se esse `Product2` for desativado, reassociado a um
+  `Cidade__c` inconsistente novamente, ou removido da org, o smoke test
+  quebra silenciosamente (sem sinalização em tempo de build). Diferente dos
+  cenários `/PAC`, que só referenciam Accounts/Opportunities/PACs
+  inteiramente sintéticos criados pelo próprio setup, este cenário depende de
+  massa de dados real que está fora do controle do simulador.
+- **Causa raiz do bloqueio original não é puramente de permissão**: a
+  investigação real mostrou que o primeiro `Product2` tentado
+  (`01tV200000AVSn3IAH`) referenciava um `Cidade__c`
+  (`a0S4T000000hBf7UAE`) que **não existe mais na org** (consulta direta
+  retornou 0 linhas mesmo com `--all-rows`) — um problema de integridade de
+  dados da org, não só de FLS/CRUD. O acesso somente-leitura a `Cidade__c`
+  adicionado ao `AcessoDeAPI` continua sendo uma correção real e necessária
+  (o Permission Set genuinamente não tinha nenhum acesso a esse objeto), mas
+  não teria, sozinho, resolvido o `Product2` original — a troca para um
+  `Product2` com `Cidade__c=null` foi o que efetivamente destravou o smoke
+  test.
+- **Mitigação recomendada para incrementos futuros**: substituir a
+  referência hardcoded a um `Product2` específico por uma resolução dinâmica
+  (ex.: consultar em tempo de setup um `Product2` ativo qualquer com
+  `PricebookEntry` ativa, sem depender de um Id fixo), ou documentar um
+  processo de revalidação periódica caso o hardcoding seja mantido por
+  simplicidade.
