@@ -29,6 +29,8 @@ const scenarioKeys = [
   'ordem-mesmo-eventtime-endereco-primeiro',
   'pac-aprovada-sincroniza-contatos',
   'pac-insert-minimo',
+  'pac-update-altera-status-sem-proponentes',
+  'pac-update-reenviando-proponentes',
 ] as const;
 
 const expectedStepCountByScenario = {
@@ -52,6 +54,8 @@ const expectedStepCountByScenario = {
   'ordem-mesmo-eventtime-endereco-primeiro': 4,
   'pac-aprovada-sincroniza-contatos': 1,
   'pac-insert-minimo': 1,
+  'pac-update-altera-status-sem-proponentes': 2,
+  'pac-update-reenviando-proponentes': 2,
 } as const;
 
 const input = {

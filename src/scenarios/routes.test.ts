@@ -22,7 +22,7 @@ describe('GET /api/v1/scenarios', () => {
         { key: 'contato-antes-cliente-colisao' },
         { key: 'cpf-divergente-contato-primeiro' },
       ],
-      pagination: { page: 2, pageSize: 2, total: 20, totalPages: 10 },
+      pagination: { page: 2, pageSize: 2, total: 22, totalPages: 11 },
     });
   });
 

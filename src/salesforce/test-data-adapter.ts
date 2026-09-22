@@ -433,7 +433,10 @@ export type SalesforceTestDataVerificationCheck = {
     | 'LEAD_NOT_CREATED'
     | 'LEAD_NOT_REQUIRED'
     | 'PROPONENTE_NOT_REQUIRED'
+    | 'PROPONENTE_NOT_PRESENT'
+    | 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE'
     | 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC'
+    | 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'
     | 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY';
   passed: boolean;
   actualCount?: number;
@@ -949,18 +952,33 @@ function buildLeadWhereClause(keys: {
 function pacFixtureEvent(
   fixture: RenderedScenarioFixture,
 ): PacFixtureEventData | undefined {
-  const event = fixture.steps.find(
-    (step) => step.eventType === 'pac-insert' || step.eventType === 'pac-update',
-  )?.envelope[0]?.data;
+  const event = [...fixture.steps]
+    .reverse()
+    .find(
+      (step) => step.eventType === 'pac-insert' || step.eventType === 'pac-update',
+    )?.envelope[0]?.data;
   return event !== undefined && isPacFixtureEventData(event) ? event : undefined;
 }
 
 function pacFixturePrimaryProponente(
   fixture: RenderedScenarioFixture,
 ): PacFixtureProponenteData | undefined {
-  return pacFixtureEvent(fixture)?.proponentes?.find(
-    (proponente) => proponente.tipoClassificacao === 'Principal',
-  );
+  for (const step of [...fixture.steps].reverse()) {
+    if (step.eventType !== 'pac-insert' && step.eventType !== 'pac-update') {
+      continue;
+    }
+    const event = step.envelope[0]?.data;
+    if (!isPacFixtureEventData(event)) {
+      continue;
+    }
+    const principal = event.proponentes?.find(
+      (proponente) => proponente.tipoClassificacao === 'Principal',
+    );
+    if (principal !== undefined) {
+      return principal;
+    }
+  }
+  return undefined;
 }
 
 function opportunityLookupQueryForSetup(setup: SyntheticOpportunitySetup) {
@@ -1772,6 +1790,20 @@ export function createSalesforceTestDataAdapter(
           case 'PROPONENTE_NOT_REQUIRED':
             checks.push({ check: checkName, passed: true });
             break;
+          case 'PROPONENTE_NOT_PRESENT':
+            checks.push({
+              check: checkName,
+              passed: proponenteRecords.length === 0,
+              actualCount: proponenteRecords.length,
+            });
+            break;
+          case 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE':
+            checks.push({
+              check: checkName,
+              passed: proponenteRecords.length === 1,
+              actualCount: proponenteRecords.length,
+            });
+            break;
           case 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC':
             checks.push({
               check: checkName,
@@ -1790,6 +1822,14 @@ export function createSalesforceTestDataAdapter(
                   (pacPrimaryProponente.email ?? null) &&
                 proponenteTarget.Celular__c ===
                   (pacPrimaryProponente.telefoneCelular ?? null),
+            });
+            break;
+          case 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED':
+            checks.push({
+              check: checkName,
+              passed:
+                typeof expectedValue === 'string' &&
+                propostaTarget?.Status__c === expectedValue,
             });
             break;
           case 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY':

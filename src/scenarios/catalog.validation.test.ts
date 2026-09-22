@@ -7,7 +7,7 @@ describe('scenario catalog build validation', () => {
   it('imports and validates every versioned definition', () => {
     const definitions = scenarioCatalog.listAll();
 
-    expect(definitions).toHaveLength(20);
+    expect(definitions).toHaveLength(22);
     for (const definition of definitions) {
       expect(() => scenarioDefinitionSchema.parse(definition)).not.toThrow();
     }

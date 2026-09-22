@@ -290,7 +290,10 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'LEAD_NOT_CREATED',
   'LEAD_NOT_REQUIRED',
   'PROPONENTE_NOT_REQUIRED',
+  'PROPONENTE_NOT_PRESENT',
+  'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
   'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+  'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
 
@@ -354,6 +357,16 @@ const renderedAccountExpectedValueCheckSchema = z.discriminatedUnion('check', [
     .strict(),
 ]);
 
+const renderedPropostaAnaliseCreditoExpectedValueCheckSchema =
+  z.discriminatedUnion('check', [
+    z
+      .object({
+        check: z.literal('PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(255),
+      })
+      .strict(),
+  ]);
+
 const definitionExpectedValueSchema = z.union([
   generatedFixtureReferenceSchema,
   z.string().trim().min(1).max(255),
@@ -410,6 +423,12 @@ export const expectedOutcomeCheckSchema = z.union([
         value: definitionExpectedValueSchema,
       })
       .strict(),
+    z
+      .object({
+        check: z.literal('PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
   ]),
 ]);
 
@@ -434,6 +453,7 @@ export const renderedExpectedOutcomeCheckSchema = z.union([
   renderedLeadExpectedValueCheckSchema,
   renderedAccountExpectedValueCheckSchema,
   renderedControlAccountExpectedValueCheckSchema,
+  renderedPropostaAnaliseCreditoExpectedValueCheckSchema,
 ]);
 
 export const renderedExpectedOutcomeSchema = z

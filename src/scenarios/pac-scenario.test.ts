@@ -165,6 +165,159 @@ describe('PAC smoke scenario definition', () => {
     );
   });
 
+  it('publishes a READY PAC update scenario that changes status and omits proponentes to exercise the real deletion branch', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-update-altera-status-sem-proponentes',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-update-altera-status-sem-proponentes',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: [
+        'fase-7',
+        'pac-update',
+        'regression',
+        'sem-proponentes',
+      ],
+    });
+    expect(scenario?.steps.map((step) => step.eventType)).toStrictEqual([
+      'pac-insert',
+      'pac-update',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        'PROPONENTE_NOT_PRESENT',
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          value: 'CREDITO_APROVADO_CONDICIONADO',
+        },
+      ]),
+    });
+  });
+
+  it('renders the PAC update-without-proponentes fixture reusing the same PAC ids and dropping the array in the second step', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-update-altera-status-sem-proponentes',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_d',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(2);
+    expect(fixture.steps.map((step) => step.eventType)).toStrictEqual([
+      'pac-insert',
+      'pac-update',
+    ]);
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      id: expect.stringMatching(/^PAC-SIM-/),
+      idjornadapac: expect.stringMatching(/^OPP-SIM-/),
+      status: 'EM_ANALISE_CREDITO',
+      proponentes: [expect.objectContaining({ tipoClassificacao: 'Principal' })],
+    });
+    expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
+      id: expect.stringMatching(/^PAC-SIM-/),
+      idjornadapac: expect.stringMatching(/^OPP-SIM-/),
+      status: 'CREDITO_APROVADO_CONDICIONADO',
+    });
+    expect(
+      (fixture.steps[1]!.envelope[0]!.data as { proponentes?: unknown })
+        .proponentes,
+    ).toBeUndefined();
+  });
+
+  it('publishes a READY PAC update scenario that replays the principal proponente with new contacts', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-update-reenviando-proponentes',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-update-reenviando-proponentes',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.tags).toEqual(
+      expect.arrayContaining([
+        'fase-7',
+        'pac-update',
+        'regression',
+        'reenvio-proponentes',
+      ]),
+    );
+    expect(scenario?.steps.map((step) => step.eventType)).toStrictEqual([
+      'pac-insert',
+      'pac-update',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+        'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+        },
+        {
+          check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          value: 'CREDITO_APROVADO_CONDICIONADO',
+        },
+      ]),
+    });
+  });
+
+  it('renders the PAC update-with-proponentes fixture keeping one principal proponente id while changing email and celular in the second step', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-update-reenviando-proponentes',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_e',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(2);
+    const insertData = fixture.steps[0]!.envelope[0]!.data as {
+      id: string;
+      proponentes: Array<{
+        id: string;
+        idPac: string;
+        email?: string;
+        telefoneCelular?: string;
+      }>;
+    };
+    const updateData = fixture.steps[1]!.envelope[0]!.data as {
+      id: string;
+      status: string;
+      proponentes: Array<{
+        id: string;
+        idPac: string;
+        email?: string;
+        telefoneCelular?: string;
+      }>;
+    };
+
+    expect(updateData.id).toBe(insertData.id);
+    expect(updateData.status).toBe('CREDITO_APROVADO_CONDICIONADO');
+    expect(updateData.proponentes).toHaveLength(1);
+    expect(updateData.proponentes[0]!.id).toBe(insertData.proponentes[0]!.id);
+    expect(updateData.proponentes[0]!.idPac).toBe(insertData.id);
+    expect(updateData.proponentes[0]!.email).not.toBe(
+      insertData.proponentes[0]!.email,
+    );
+    expect(updateData.proponentes[0]!.telefoneCelular).not.toBe(
+      insertData.proponentes[0]!.telefoneCelular,
+    );
+  });
+
   it('publishes a READY O08 PAC retest scenario with the PAC proponente targeting Y after the cliente flow leaves it empty', () => {
     const scenario = scenarioCatalog.get(
       'cpf-divergente-identidade-antiga-pac-aprovada',

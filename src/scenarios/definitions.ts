@@ -29,6 +29,15 @@ type GeneratedValue =
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
 
+type PayloadTemplateValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ReturnType<typeof generated>
+  | PayloadTemplateValue[]
+  | { [key: string]: PayloadTemplateValue };
+
 const variablesSchema: ScenarioDefinition['variablesSchema'] = {
   type: 'object',
   properties: {
@@ -185,7 +194,19 @@ function enderecoPayload(
   } as const;
 }
 
-function pacPayload(eventType: 'pac-insert' | 'pac-update') {
+function pacPayload(
+  eventType: 'pac-insert' | 'pac-update',
+  options: {
+    status?: string;
+    dataAlteracao?: ReturnType<typeof generated>;
+    proponentes?: Array<Record<string, PayloadTemplateValue>>;
+  } = {},
+): ScenarioDefinition['steps'][number]['payloadTemplate'] {
+  const {
+    status = 'EM_ANALISE_CREDITO',
+    dataAlteracao = generated('EVENT_TIME'),
+    proponentes,
+  } = options;
   return {
     kind: 'DECLARATIVE',
     contract: 'EVENT_GRID',
@@ -200,15 +221,18 @@ function pacPayload(eventType: 'pac-insert' | 'pac-update') {
       data: {
         id: generated('PAC_EXTERNAL_ID'),
         idjornadapac: generated('OPPORTUNITY_EXTERNAL_ID'),
-        status: 'EM_ANALISE_CREDITO',
-        dataalteracao: generated('EVENT_TIME'),
+        status,
+        dataalteracao: dataAlteracao,
+        ...(proponentes === undefined ? {} : { proponentes }),
       },
     },
   } as const;
 }
 
-function approvedPacWithPrincipalProponentePayload(
+function pacWithPrincipalProponentePayload(
+  eventType: 'pac-insert' | 'pac-update',
   options: {
+    status?: string;
     idCliente?: ReturnType<typeof generated>;
     cpf?: ReturnType<typeof generated>;
     personName?: ReturnType<typeof generated>;
@@ -218,6 +242,7 @@ function approvedPacWithPrincipalProponentePayload(
   } = {},
 ): ScenarioDefinition['steps'][number]['payloadTemplate'] {
   const {
+    status = 'CREDITO_APROVADO_CONDICIONADO',
     idCliente = generated('CLIENT_ID'),
     cpf = generated('CPF'),
     personName = generated('PERSON_NAME'),
@@ -226,39 +251,32 @@ function approvedPacWithPrincipalProponentePayload(
     idProponente,
   } = options;
 
-  return {
-    kind: 'DECLARATIVE',
-    contract: 'EVENT_GRID',
-    value: {
-      id: generated('EVENT_ID'),
-      subject: 'MS_Clientes',
-      eventType: 'pac-insert',
-      eventTime: generated('EVENT_TIME'),
-      dataVersion: '1.0',
-      metadataVersion: '1',
-      topic: '/simulator/ms-clientes',
-      data: {
-        id: generated('PAC_EXTERNAL_ID'),
-        idjornadapac: generated('OPPORTUNITY_EXTERNAL_ID'),
-        status: 'CREDITO_APROVADO_CONDICIONADO',
-        dataalteracao: generated('EVENT_TIME'),
-        proponentes: [
-          {
-            id: generated('PROPONENTE_EXTERNAL_ID'),
-            idPac: generated('PAC_EXTERNAL_ID'),
-            idCliente,
-            cpf,
-            tipoClassificacao: 'Principal',
-            dataAlteracao: generated('EVENT_TIME'),
-            nomeCompleto: personName,
-            email,
-            telefoneCelular: celular,
-            ...(idProponente ? { idProponente } : {}),
-          },
-        ],
+  return pacPayload(eventType, {
+    status,
+    proponentes: [
+      {
+        id: generated('PROPONENTE_EXTERNAL_ID'),
+        idPac: generated('PAC_EXTERNAL_ID'),
+        idCliente,
+        cpf,
+        tipoClassificacao: 'Principal',
+        dataAlteracao: generated('EVENT_TIME'),
+        nomeCompleto: personName,
+        email,
+        telefoneCelular: celular,
+        ...(idProponente ? { idProponente } : {}),
       },
-    },
-  };
+    ],
+  });
+}
+
+function approvedPacWithPrincipalProponentePayload(
+  options: Omit<
+    Parameters<typeof pacWithPrincipalProponentePayload>[1],
+    'status'
+  > = {},
+): ScenarioDefinition['steps'][number]['payloadTemplate'] {
+  return pacWithPrincipalProponentePayload('pac-insert', options);
 }
 
 const cleanup: ScenarioDefinition['cleanup'] = [
@@ -1862,5 +1880,166 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'pac-update-altera-status-sem-proponentes',
+    version: 1,
+    name: 'PAC update altera status sem proponentes',
+    description:
+      'Exercita o comportamento real em que um pac-update sem proponentes[] atualiza a PAC e apaga o Proponente principal já existente.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'pac-update', 'sem-proponentes'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-com-proponente',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacWithPrincipalProponentePayload('pac-insert', {
+          status: 'EM_ANALISE_CREDITO',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-update-sem-proponentes',
+        target: 'PAC',
+        eventType: 'pac-update',
+        delayMs: 5_000,
+        payloadTemplate: pacPayload('pac-update', {
+          status: 'CREDITO_APROVADO_CONDICIONADO',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC deve permanecer vinculada à Opportunity, atualizar o Status__c e refletir a deleção real do Proponente principal quando o update omite proponentes[].',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          'PROPONENTE_NOT_PRESENT',
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'CREDITO_APROVADO_CONDICIONADO',
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'pac-update-reenviando-proponentes',
+    version: 1,
+    name: 'PAC update reenviando proponentes',
+    description:
+      'Exercita o comportamento real em que um pac-update reaproveita o mesmo Proponente principal, atualiza seus contatos e sincroniza a Account aprovada.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'pac-update', 'reenvio-proponentes'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-com-proponente',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacWithPrincipalProponentePayload('pac-insert', {
+          status: 'EM_ANALISE_CREDITO',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-update-reenviando-proponente',
+        target: 'PAC',
+        eventType: 'pac-update',
+        delayMs: 5_000,
+        payloadTemplate: pacWithPrincipalProponentePayload('pac-update', {
+          status: 'CREDITO_APROVADO_CONDICIONADO',
+          email: generated('PAC_EMAIL'),
+          celular: generated('PAC_CELULAR'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC deve permanecer vinculada à Opportunity, manter um único Proponente principal via upsert e sincronizar os novos contatos aprovados na Account.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'CREDITO_APROVADO_CONDICIONADO',
+          },
+          'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('PAC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('PAC_CELULAR'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
   },
 ] as const satisfies readonly ScenarioDefinition[];

@@ -48,6 +48,46 @@ function pacApprovedInput(rendered = pacApprovedFixture()) {
   };
 }
 
+function pacUpdateWithoutProponentesFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'pac-update-altera-status-sem-proponentes',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_d',
+    eventStartAt: '2026-09-22T00:00:00.000Z',
+  });
+}
+
+function pacUpdateWithoutProponentesInput(
+  rendered = pacUpdateWithoutProponentesFixture(),
+) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
+function pacUpdateWithProponentesFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'pac-update-reenviando-proponentes',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_e',
+    eventStartAt: '2026-09-22T00:00:00.000Z',
+  });
+}
+
+function pacUpdateWithProponentesInput(
+  rendered = pacUpdateWithProponentesFixture(),
+) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
 function pacEventData(rendered = pacFixture()) {
   return rendered.steps[0]!.envelope[0]!.data as {
     id: string;
@@ -58,6 +98,38 @@ function pacEventData(rendered = pacFixture()) {
 
 function pacApprovedEventData(rendered = pacApprovedFixture()) {
   return rendered.steps[0]!.envelope[0]!.data as {
+    id: string;
+    idjornadapac: string;
+    status: string;
+    dataalteracao: string;
+    proponentes: Array<{
+      id: string;
+      idPac: string;
+      idCliente: string;
+      cpf: string;
+      tipoClassificacao: string;
+      dataAlteracao: string;
+      nomeCompleto?: string;
+      email?: string;
+      telefoneCelular?: string;
+    }>;
+  };
+}
+
+function pacUpdateWithoutProponentesFinalEventData(
+  rendered = pacUpdateWithoutProponentesFixture(),
+) {
+  return rendered.steps[1]!.envelope[0]!.data as {
+    id: string;
+    idjornadapac: string;
+    status: string;
+  };
+}
+
+function pacUpdateWithProponentesFinalEventData(
+  rendered = pacUpdateWithProponentesFixture(),
+) {
+  return rendered.steps[1]!.envelope[0]!.data as {
     id: string;
     idjornadapac: string;
     status: string;
@@ -418,6 +490,176 @@ describe('Salesforce PAC test data adapter', () => {
       check: 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
       passed: false,
     });
+  });
+
+  it('verifies the PAC update without proponentes by keeping the PAC linked, updating the status and confirming the principal Proponente is absent', async () => {
+    const rendered = pacUpdateWithoutProponentesFixture();
+    const event = pacUpdateWithoutProponentesFinalEventData(rendered);
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY') {
+      throw new Error('Expected PAC fixture opportunity scaffolding');
+    }
+
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacUpdateWithoutProponentesInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'PROPONENTE_NOT_PRESENT', passed: true, actualCount: 0 },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          passed: true,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          passed: true,
+        },
+      ]),
+    );
+  });
+
+  it('verifies the PAC update with replayed proponentes by keeping one record, updating the PAC status and synchronizing the new contacts', async () => {
+    const rendered = pacUpdateWithProponentesFixture();
+    const event = pacUpdateWithProponentesFinalEventData(rendered);
+    const proponente = event.proponentes[0]!;
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY') {
+      throw new Error('Expected PAC fixture opportunity scaffolding');
+    }
+
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: accountId,
+            Id__c: proponente.idCliente,
+            IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+            CPF__pc: proponente.cpf,
+            LastName: 'Cliente Simulado',
+            IsPersonAccount: true,
+            PersonEmail: proponente.email ?? null,
+            PersonMobilePhone: `55${proponente.telefoneCelular}`,
+            Celular__c: proponente.telefoneCelular ?? null,
+            BillingStreet: null,
+            DataAlteracaoEvento__c: event.dataalteracao,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: proponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: proponente.idCliente,
+            CpfProponente__c: proponente.cpf,
+            TipoClassificacao__c: proponente.tipoClassificacao,
+            EmailAtualizado__c: proponente.email ?? null,
+            Celular__c: proponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponente.dataAlteracao,
+            NomeCompleto__c: proponente.nomeCompleto ?? null,
+          },
+        ],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacUpdateWithProponentesInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        {
+          check: 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+          passed: true,
+          actualCount: 1,
+        },
+        {
+          check: 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+          passed: true,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          passed: true,
+        },
+        { check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
+      ]),
+    );
   });
 
   it('deletes the PAC record before deleting its synthetic Opportunity', async () => {
