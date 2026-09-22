@@ -443,6 +443,38 @@ riqueza do payload real muito além do que o simulador modela hoje (seção 1).
 **Implementado**: este achado motivou o cenário
 `maquina-estado-update-reentrega-mesmo-evento` (Tarefa 7.2, incremento 4).
 
+### 8. Evento obsoleto real confirmado em `jornadausuario-*` (informa o incremento 5 da Tarefa 7.2)
+
+Amostra de 200 registros reais com `Status2__c='success'` (não erro — o
+descarte de evento obsoleto retorna 200, é um "sucesso silencioso" do
+ponto de vista do chamador) revelou **4/200 (2%) casos reais** com a
+mensagem `EVENTO OBSOLETO` no `StackTrace__c`, todos com o mesmo padrão:
+
+```
+EVENTO OBSOLETO - EventTime recebido: 2026-09-22 14:53:32
+                 - EventTime registrado na Oportunidade: 2026-09-22 14:53:34
+```
+
+Um dos casos foi lido por completo: o evento chegou com `EventTime` **2
+segundos mais antigo** que o já persistido na Opportunity (que já estava
+com `StageName='Qualificação de Documentos'`, vindo de um evento mais
+recente processado antes). O Apex (`NotificacaoMaquinaEstado.
+retornaValidacaoEventTime`) detecta isso, **descarta silenciosamente** o
+evento obsoleto (não altera `StageName` nem nenhum outro campo), loga
+"EVENTO OBSOLETO" e ainda assim retorna sucesso (`200`) ao chamador — o
+mesmo padrão de "descarte silencioso com sucesso aparente" já confirmado
+para `/PAC` (obsolescência, Tarefa 7.1b variação 2) e para `/Cliente`
+(O14, `evento-obsoleto`).
+
+**Contrato exato confirmado por leitura do Apex** (não precisa reler,
+já documentado nesta sessão): `retornaValidacaoEventTime` compara
+estritamente (`opps[0].EventTime__c > opNova.EventTime__c`) — só descarta
+quando o existente é **estritamente mais novo**; eventos com o MESMO
+`EventTime` (caso de reentrega, seção 7) prosseguem normalmente.
+
+**Implementado**: este achado motivou o cenário
+`maquina-estado-update-evento-obsoleto` (Tarefa 7.2, incremento 5).
+
 ## Ações tomadas nesta análise
 
 - [ ] **Corrigir `pacCreditoRequestSchema`** para tolerar campos extras
