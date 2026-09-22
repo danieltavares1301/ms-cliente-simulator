@@ -2305,22 +2305,34 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   valor do passo 2 e `LogIntegracao__c` registrando `EVENTO OBSOLETO` com
   `Status2__c='success'`. Evidencia preservada em
   `docs/phase-7/maquina-estado-evento-obsoleto.md`.
+- [x] Incremento 6 implementado no simulador: cenario
+  `maquina-estado-update-estado-nao-reconhecido`, cobrindo o update real em
+  que `Estado` vem como sigla de UF (`SP`) e nao corresponde a nenhum branch
+  conhecido de `retornaValorFase`.
+- [x] Execucao real do cenario validada em `mrv-devDan`, com o passo 3
+  retornando **HTTP 200**, a `Opportunity` permanecendo em
+  **`Qualificacao de Documentos`** e `EventTime__c` avancando para o carimbo
+  mais novo do evento - comprovando que o valor desconhecido e tolerado como
+  **no-op de fase**, nao como erro ou descarte por obsolescencia. Evidencia
+  preservada em `docs/phase-7/maquina-estado-estado-nao-reconhecido.md`.
 - [x] Checkpoint tecnico parcial consolidado: smoke test de insert,
   dependencia real de ordem `/Cliente` <-> `/MaquinaEstado`, update basico,
-  reentrega real e obsolescencia agora estao cobertos no simulador.
+  reentrega real, obsolescencia e `Estado` nao reconhecido agora estao
+  cobertos no simulador.
 
-### Checkpoint 7.2 parcial (5 de N incrementos)
+### Checkpoint 7.2 parcial (6 de N incrementos)
 
-**Estado tecnico final:** 719/719 testes, build limpo (`npm run build`
-valida todas as fixtures), 7 cenarios `/MaquinaEstado` publicados no
+**Estado tecnico final:** 722/722 testes, build limpo (`npm run build`
+valida todas as fixtures), 8 cenarios `/MaquinaEstado` publicados no
 catalogo (`maquina-estado-insert-minimo`,
 `maquina-estado-insert-sem-cliente-falha`,
 `maquina-estado-insert-apos-cliente-criado`,
+`maquina-estado-update-estado-nao-reconhecido`,
 `maquina-estado-update-transicao-estado`,
 `maquina-estado-update-evento-obsoleto`,
 `maquina-estado-update-reentrega-mesmo-evento`,
 `maquina-estado-update-sem-cliente-falha`), versao do simulador em
-`0.23.0`. Verificacao de higiene da org: `mrv-devDan` reconfirmada com
+`0.24.0`. Verificacao de higiene da org: `mrv-devDan` reconfirmada com
 `totalSize=0` para todos os prefixos sinteticos (`CLI-SIM-`, `OPP-SIM-`,
 `PAC-SIM-`, `PROP-SIM-`, `CONT-SIM-`) e para `OpportunityLineItem`
 vinculado - nenhum residuo de diagnostico ficou para tras nesta
@@ -2354,6 +2366,13 @@ silencioso por obsolescencia.
   mesmo padrao: passo obsoleto retornando **HTTP 200**, `LogIntegracao__c`
   com `Status2__c='success'` e `StackTrace__c` registrando o descarte, sem
   alterar `StageName` nem `EventTime__c` da `Opportunity`.
+- A amostra real de **150 sucessos** de `jornadausuario-*` revelou
+  **`SP`/`MG`/`MT` em 82 casos (≈55%)**, todos valores de `Estado` nao
+  mapeados pelo Apex; a execucao ao vivo do cenario
+  `maquina-estado-update-estado-nao-reconhecido` confirmou o comportamento
+  esperado em `mrv-devDan`: `HTTP 200`, `StageName` preservado em
+  **`Qualificacao de Documentos`** e `EventTime__c` atualizado para o carimbo
+  mais novo do evento, caracterizando um **no-op de fase** e nao descarte.
 - **Correcao de rota durante a analise**: uma afirmacao inicial de que
   `NotificacaoMaquinaEstado.cls` nao teria nenhuma logica de retry para
   `UNABLE_TO_LOCK_ROW` estava **errada** - baseava-se apenas na leitura do
