@@ -2185,6 +2185,21 @@ apos a ultima.
 - Automacao adicional (Flow/Process Builder) em `Opportunity`/`Proponente__c`
   alem dos triggers ja lidos — nao foi feita uma varredura exaustiva
   equivalente a que encontrou o risco do `EnvioPACCreditoQueue`.
+  **ATUALIZACAO (pos-Checkpoint 7.1):** essa varredura foi iniciada e ja
+  encontrou um segundo risco real e confirmado: `Contestacao__c` possui um
+  trigger (`ContestacaoTrigger` -> `ContestacaoTriggerHandler`) que faz
+  callout real para `https://apis.mrv.com.br` (producao) ao inserir
+  qualquer `Contestacao__c` — o cenario `pac-update-com-contestacao-
+  pendente-sincroniza-contatos` (variacao 5/5) ja havia disparado esse
+  callout com sucesso em uma execucao ao vivo anterior (2 registros
+  `LogIntegracao__c` com `Status2__c='success'`, confirmados). Corrigido
+  via redirecionamento de `Endpoints__c.ContestacaoInsert__c`/
+  `ContestacaoComDocumentos__c` para o simulador (aprovado explicitamente
+  pelo usuario), reaproveitando a Remote Site Setting e o Named Credential
+  `ServicoClientes` ja redirecionados na Fase 5/Tarefa 7.0. Ver
+  `docs/phase-7/contestacao-callout-real-leak-and-redirect.md` para
+  evidencia completa. A varredura de `Proponente_1.flow-meta.xml` e dos
+  demais Flows/triggers ainda nao lidos permanece em aberto.
 
 **Conclusao:** Tarefa 7.1 (contratos `/PAC`) esta concluida e consolidada.
 Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
