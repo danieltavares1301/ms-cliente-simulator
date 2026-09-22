@@ -1437,7 +1437,13 @@ export function createSalesforceTestDataAdapter(
           verificationCheckName(check) ===
           'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
       );
-      const needsPropostaRecords = needsOpportunityRecords;
+      const needsPropostaRecords =
+        needsOpportunityRecords ||
+        expectedChecks.some((check) =>
+          verificationCheckName(check).startsWith(
+            'PROPOSTA_ANALISE_CREDITO_',
+          ),
+        );
 
       const accountRecords = needsAccountRecords
         ? await queryAccounts(accountLookupQuery(fixture))

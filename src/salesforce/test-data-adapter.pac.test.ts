@@ -557,6 +557,53 @@ describe('Salesforce PAC test data adapter', () => {
     );
   });
 
+  it('queries PropostaAnaliseCredito__c even when only PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED is expected, without PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY', async () => {
+    const rendered = pacUpdateWithoutProponentesFixture();
+    const event = pacUpdateWithoutProponentesFinalEventData(rendered);
+
+    const isolatedFixture = {
+      ...rendered,
+      expectedOutcomes: rendered.expectedOutcomes.map((outcome) => ({
+        ...outcome,
+        checks: outcome.checks.filter(
+          (check) =>
+            (typeof check === 'string' ? check : check.check) ===
+            'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+        ),
+      })),
+    };
+
+    const client = restClient();
+    client.query.mockResolvedValueOnce({
+      totalSize: 1,
+      done: true,
+      records: [
+        {
+          Id: propostaId,
+          Id__c: event.id,
+          Oportunidade__c: opportunityId,
+          Status__c: event.status,
+        },
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify({
+      runId: rendered.runId,
+      scenarioKey: rendered.scenarioKey,
+      fixture: isolatedFixture,
+    });
+
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(result.checks).toEqual([
+      {
+        check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+        passed: true,
+      },
+    ]);
+  });
+
   it('verifies the PAC update with replayed proponentes by keeping one record, updating the PAC status and synchronizing the new contacts', async () => {
     const rendered = pacUpdateWithProponentesFixture();
     const event = pacUpdateWithProponentesFinalEventData(rendered);
