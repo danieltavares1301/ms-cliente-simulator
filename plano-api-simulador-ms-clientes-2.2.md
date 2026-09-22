@@ -1930,8 +1930,8 @@ adicionais, mas concluido no mesmo incremento).
 
 #### Tarefa 7.1b: Variacoes adicionais do universo `/PAC`
 
-**Status:** iniciada. Variacoes 1 e 2 de 5 concluidas (`pac-update` basico +
-obsolescencia).
+**Status:** iniciada. Variacoes 1 a 3 de 5 concluidas (`pac-update` basico +
+obsolescencia + conflito de Proponentes principais).
 
 **Objetivo:** explorar subcomportamentos reais do endpoint `/PAC` que nao eram
 cobertos pelos tres incrementos originais da Tarefa 7.1, mantendo a mesma
@@ -1963,7 +1963,17 @@ disciplina de execucao real contra `mrv-devDan`.
     payload silenciosamente;
   - obsolescencia no nivel de `Proponente__c` atua por `id`, sem bloquear os
     outros itens do mesmo array.
-- [ ] Variacoes 3/5 a 5/5 pendentes de priorizacao.
+- [x] **Variacao 3/5 concluida:** `pac-conflito-proponentes-principais`.
+- [x] O simulador verifica automaticamente que:
+  - a PAC aprovada continua vinculada a Opportunity;
+  - os dois `Proponente__c` distintos sao persistidos;
+  - a Account permanece sem `PersonEmail`/`Celular__c` quando os dois
+    Principais divergem no mesmo payload.
+- [x] Achado arquitetural real documentado:
+  **dois Proponentes `Principal` distintos, resolvidos para a mesma Account e
+  com contatos divergentes, bloqueiam a sincronizacao de contatos para a
+  Account inteira, sem impedir o upsert de nenhum dos dois registros.**
+- [ ] Variacoes 4/5 e 5/5 pendentes de priorizacao.
 
 **Progresso real (variacao 1/5, `pac-update` basico):**
 
@@ -1996,6 +2006,25 @@ disciplina de execucao real contra `mrv-devDan`.
   reais e cleanup final sem residuos.
 
 **Evidencia:** `docs/phase-7/pac-obsolescencia.md`.
+
+**Progresso real (variacao 3/5, conflito de Proponentes principais):**
+
+- o `pac-insert` aprovado com **dois** itens em `proponentes[]`, ambos
+  `tipoClassificacao='Principal'`, ambos resolvidos para a mesma Account pelo
+  mesmo `idCliente/cpf`, retornou `200 OK`;
+- a `PropostaAnaliseCredito__c` foi criada normalmente e vinculada à
+  `Opportunity` sintética;
+- os dois `Proponente__c` distintos (`Id__c` diferentes) foram persistidos e
+  apontaram para a **mesma** Account;
+- cada `Proponente__c` preservou seu próprio email/celular divergente;
+- a `Account` permaneceu com `PersonEmail`, `PersonMobilePhone` e
+  `Celular__c` nulos, confirmando o bloqueio completo da sincronização de
+  contatos por conflito;
+- o cleanup real removeu `Proponente__c` (2x),
+  `PropostaAnaliseCredito__c`, `Opportunity` e `Account`, e as queries finais
+  retornaram `totalSize = 0` para todos os objetos.
+
+**Evidencia:** `docs/phase-7/pac-conflito-proponentes-principais.md`.
 
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
