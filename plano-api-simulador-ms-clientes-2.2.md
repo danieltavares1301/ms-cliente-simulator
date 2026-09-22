@@ -2327,12 +2327,20 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   `Product2.Id__c = 6eeda6b4-1ee9-48a2-a5db-123044783c25`,
   `PricebookEntryId = 01uV2000002uywPIAQ`, todos ativos no Price Book padrao e
   com `Cidade__c = null`.
-- [ ] Execucao real conclusiva do incremento 7 ficou **bloqueada** em
-  `mrv-devDan`: os dois cenarios (e o proprio passo inicial equivalente ao
-  smoke test minimo) retornaram **HTTP 500 / APEX_ERROR** com
-  `System.NullPointerException` em
-  `Class.NotificacaoMaquinaEstado.realizaPost: line 218, column 1`, sem criar
-  nenhuma `Opportunity`. Evidencia preservada em
+- [x] Diagnostico via `ApexLog`/Tooling API confirmou a causa real dos 500
+  observados inicialmente: o harness manual enviava payloads invalidos
+  (objeto JSON em vez de array Event Grid e, em outra tentativa, JSON com BOM
+  UTF-8), gerando erros de parse em `NotificacaoHelper`; a linha 218 de
+  `NotificacaoMaquinaEstado.realizaPost` tem um bug real de tratamento de erro
+  que mascara a excecao original com `NullPointerException`.
+- [x] Com o payload corrigido (array Event Grid real e sem BOM), a execucao
+  real do incremento 7 foi validada em `mrv-devDan`: o cenario
+  `maquina-estado-update-troca-unidade` retornou **200/200/200**, preservou
+  `StageName='Qualificacao de Documentos'` e trocou `Unidade__c` +
+  `OpportunityLineItem.Product2Id` para o segundo `Product2` real; o cenario
+  `maquina-estado-insert-troca-unidade-falha` retornou **HTTP 400** com a
+  mensagem explicita `Oportunidade nao encontrada para troca de unidade` e nao
+  criou `Opportunity`. Evidencia preservada em
   `docs/phase-7/maquina-estado-troca-unidade.md`.
 - [x] Checkpoint tecnico parcial consolidado: smoke test de insert,
   dependencia real de ordem `/Cliente` <-> `/MaquinaEstado`, update basico,

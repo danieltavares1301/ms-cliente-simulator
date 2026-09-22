@@ -2,21 +2,22 @@
 
 ## Escopo deste incremento
 
-Este incremento materializa os dois cenários derivados do achado real da seção
-10 de [`docs/staging-logs-analysis.md`](../staging-logs-analysis.md):
+Este incremento cobre o branch dedicado `troca_unidade` / `TrocarUnidade` em
+`jornadausuario-update`, motivado pelo achado real documentado na seção 10 de
+[`docs/staging-logs-analysis.md`](../staging-logs-analysis.md):
+
+- amostra real de **250** `jornadausuario-update`;
+- `Estado='troca_unidade'` / `'TrocarUnidade'` em **6/250 (~2,4%)**;
+- payload real confirmado com `IdUnidade` explícito;
+- contrato Apex com branch dedicado, preservando `StageName` da `Opportunity`
+  existente e falhando explicitamente quando ela não existe.
+
+Cenários publicados:
 
 - `maquina-estado-update-troca-unidade`
 - `maquina-estado-insert-troca-unidade-falha`
 
-Motivação objetiva do log real:
-
-- amostra de **250** `jornadausuario-update`;
-- `Estado='troca_unidade'` / `'TrocarUnidade'` em **6/250 (~2,4%)**;
-- payload real inclui um **`IdUnidade`** explícito;
-- o branch Apex é **dedicado** (não fallback), preserva `StageName` quando a
-  `Opportunity` existe e deveria falhar explicitamente quando ela não existe.
-
-## Contrato Apex confirmado antes da implementação
+## Contrato Apex confirmado
 
 ```apex
 else if (valorJson == 'troca_unidade' || valorJson == 'TrocarUnidade') {
@@ -27,14 +28,13 @@ else if (valorJson == 'troca_unidade' || valorJson == 'TrocarUnidade') {
 }
 ```
 
-Implicações esperadas pelo contrato:
+Implicações esperadas:
 
-1. `jornadausuario-update` com `estado='troca_unidade'` deve **preservar a fase
-   atual** da `Opportunity`;
-2. o campo `idunidade` continua sendo mapeado genericamente para
-   `Unidade__r` / `Unidade__c`, então a unidade deveria ser trocada;
-3. `jornadausuario-insert` com `estado='troca_unidade'` e sem `Opportunity`
-   prévia deveria falhar de forma explícita.
+1. em `update`, `StageName` deve ser **preservado**;
+2. `idunidade` continua sendo mapeado genericamente para `Unidade__c` /
+   `Unidade__r`, então a unidade real deve ser trocada;
+3. em `insert` sem `Opportunity` prévia, o resultado deve ser uma falha de
+   negócio explícita.
 
 ## TDD executado
 
@@ -55,12 +55,9 @@ Cobertura adicionada/ajustada:
 - `src/scenarios/maquina-estado-scenario.test.ts`
 - `src/salesforce/test-data-adapter.maquina-estado.test.ts`
 
-## Product2 reais usados na tentativa de execução
+## Product2 reais usados
 
-As queries abaixo foram feitas em **modo somente leitura** contra `mrv-devDan`
-antes da execução real.
-
-### Product2 base já estável do smoke test
+### Product2 base do smoke test
 
 | Campo | Valor real |
 | --- | --- |
@@ -86,13 +83,144 @@ antes da execução real.
 | `Pricebook2Id` | `01s4T000000c1bEQAQ` |
 | `PricebookEntry.IsActive` | `true` |
 
-Ou seja: o segundo `Product2` é **ativo**, tem `PricebookEntry` ativa no
-**Price Book padrão** e **não** reproduz o problema histórico de
-`Cidade__c` inconsistente/inexistente.
+Logo, o segundo `Product2` é **ativo**, possui `PricebookEntry` ativa no
+**Price Book padrão** e não reproduz o problema histórico de `Cidade__c`
+inconsistente/inexistente.
 
 ---
 
-## Execução real em `mrv-devDan`
+## Diagnóstico preciso do HTTP 500 observado inicialmente
+
+### Conclusão final do diagnóstico
+
+O **HTTP 500 inicial não era um bug funcional do branch `troca_unidade`**.
+
+Ele foi causado por **dois defeitos no harness de diagnóstico/manual usado para
+disparar os eventos**, e ambos foram **mascarados** por um bug secundário real
+do Apex em `NotificacaoMaquinaEstado.realizaPost`.
+
+### Evidência 1 — stack trace real do `ApexLog`
+
+Reprodução com `TraceFlag` temporário (`APEX_CODE=FINEST`, `DB=FINEST`) contra
+`mrv-devDan` e coleta via Tooling API:
+
+```sql
+SELECT Id, Operation, Status, StartTime, LogLength
+FROM ApexLog
+WHERE Operation = '/MaquinaEstado'
+ORDER BY StartTime DESC
+LIMIT 3
+```
+
+Log capturado: `07LHZ00000P0ulb2AB`
+
+Trecho decisivo do log:
+
+```text
+19:57:21.0 (...)|VARIABLE_ASSIGNMENT|[217]|e|
+"common.apex.runtime.impl.ExecutionException: Invalid conversion from runtime type Map<String,ANY> to List<ANY>"
+
+19:57:21.0 (...)|FATAL_ERROR|System.NullPointerException: Attempt to de-reference a null object
+
+Class.NotificacaoMaquinaEstado.realizaPost: line 218, column 1
+```
+
+### Evidência 2 — código real lido da org
+
+#### `NotificacaoMaquinaEstado.realizaPost`
+
+```apex
+13: Opportunity sObjOportunidade = null;
+14: NotificacaoHelper notificacao = null;
+...
+18: RestResponse res = RestContext.response;
+19: notificacao = new NotificacaoHelper();
+...
+216: catch ( Exception e )
+217: {
+218:     responderErroEPublicarLogIntegracao(
+            e,
+            String.valueOf(notificacao.mapData.get('EventType')),
+            sObjOportunidade != null ? sObjOportunidade : null
+        );
+219: }
+```
+
+#### `NotificacaoHelper.<init>`
+
+```apex
+24: Object objResponse = JSON.deserializeUntyped(this.req.requestBody.toString());
+27: List<Object> mapTemp = (List<Object>) objResponse;
+28: this.mapResponse = Conversor.converterMinusculo((Map<String, Object>) mapTemp[0]);
+```
+
+### Causa raiz REAL do primeiro 500
+
+No primeiro rerun com log detalhado, o request body que o harness enviou era um
+**objeto JSON simples** (`{ ... }`) em vez do **array Event Grid**
+(`[{ ... }]`).
+
+Isso provocou a exceção original:
+
+```text
+common.apex.runtime.impl.ExecutionException:
+Invalid conversion from runtime type Map<String,ANY> to List<ANY>
+```
+
+em `NotificacaoHelper`, porque:
+
+- `JSON.deserializeUntyped(...)` devolveu um **`Map<String, Object>`**;
+- a linha 27 faz cast cego para **`List<Object>`**.
+
+### Causa raiz REAL do segundo 500 durante o diagnóstico
+
+Ao corrigir a cardinalidade, um segundo erro do harness apareceu: o payload
+salvo em arquivo com `Set-Content -Encoding utf8` saiu com **BOM UTF-8**
+(`U+FEFF`) e foi enviado assim ao Apex.
+
+Trecho real do segundo `ApexLog` (`07LHZ00000P0vmT2AR`):
+
+```text
+19:59:59.6 (...)|VARIABLE_ASSIGNMENT|[217]|e|
+"common.apex.runtime.impl.ExecutionException:
+Unexpected character ('﻿' (code 65279 / 0xfeff)):
+expected a valid value (number, String, array, object, 'true', 'false' or 'null')
+at input location [1,2]"
+```
+
+Ou seja: o segundo 500 também foi disparado **antes** da regra de negócio de
+`troca_unidade`, por um JSON inválido gerado pelo harness.
+
+### Bug REAL no Apex confirmado por este diagnóstico
+
+Embora o 500 inicial não fosse causado pelo branch `troca_unidade`, o
+diagnóstico confirmou um **bug real no Apex**:
+
+- `NotificacaoMaquinaEstado.realizaPost` captura a exceção original;
+- em seguida, a linha 218 tenta acessar `notificacao.mapData.get('EventType')`;
+- quando `NotificacaoHelper` falha antes de popular `mapData`, o catch produz
+  uma **segunda exceção** (`System.NullPointerException`) e **mascara a causa
+  real**.
+
+Em outras palavras:
+
+1. **erro primário real** = parse/deserialização do request body;
+2. **erro secundário real do Apex** = o catch da linha 218 quebra ao tentar
+   montar o log de erro e apaga o contexto da falha original.
+
+Portanto, existe sim um **bug de robustez/observabilidade no Apex**,
+independente do branch `troca_unidade`.
+
+---
+
+## Execução real CORRETA após corrigir o harness
+
+Depois de corrigir o dispatch manual para:
+
+- enviar **array Event Grid real** (`[{ ... }]`);
+- gravar o JSON **sem BOM**;
+
+os cenários foram reexecutados com sucesso funcional esperado.
 
 ### Ambiente
 
@@ -102,37 +230,6 @@ Ou seja: o segundo `Product2` é **ativo**, tem `PricebookEntry` ativa no
   `https://mrvcomercial--danieldev.sandbox.my.salesforce.com`
 - **Usuário autenticado**:
   `tavares.daniel@parceiro.mrv.com.br.danieldev`
-
-### Resultado geral observado
-
-As duas execuções reais ficaram **bloqueadas por um erro inesperado do Apex
-antes mesmo de atingir a semântica específica de `troca_unidade`**:
-
-- **HTTP 500 Internal Server Error**
-- corpo real:
-
-```json
-{
-  "value": [
-    {
-      "errorCode": "APEX_ERROR",
-      "message": "System.NullPointerException: Attempt to de-reference a null object\n\nClass.NotificacaoMaquinaEstado.realizaPost: line 218, column 1"
-    }
-  ],
-  "Count": 1
-}
-```
-
-Isto aconteceu:
-
-- no passo de `jornadausuario-insert` que deveria ser equivalente ao smoke test
-  mínimo já validado em incrementos anteriores;
-- no `update(Documentacao)`;
-- no `update(troca_unidade)`;
-- e também no `insert(troca_unidade)` negativo.
-
-Portanto, **o bloqueio atual está antes da validação funcional específica deste
-incremento**.
 
 ---
 
@@ -148,16 +245,23 @@ incremento**.
 
 ### Setup real
 
-- `CREATE_SYNTHETIC_ACCOUNT` criou a `Account`
-  `001HZ000011RpTjYAK`.
+- `Account.Id = 001HZ000011Rw21YAC`
 
-### Passo 1 — `jornadausuario-insert` inicial
+### Passo 1 — `jornadausuario-insert`
 
 - endpoint: `/services/apexrest/MaquinaEstado`
 - `Event Id = EVT-SIM-a2c6bde131-ecd8ffb2`
 - `estado = SIMULACAO`
 - `idunidade = 37dd20e6-4b3c-ea11-801d-005056856875`
-- resultado real: **HTTP 500 Internal Server Error**
+- resultado real: **HTTP 200**
+
+Estado após o passo 1:
+
+- `Opportunity.Id = 006HZ00000U0Q2sYAF`
+- `StageName = Simulação`
+- `EventTime__c = 2026-09-22T23:00:00.000+0000`
+- `Unidade__c = 01t4T000002VELyQAO`
+- `Unidade__r.Id__c = 37dd20e6-4b3c-ea11-801d-005056856875`
 
 ### Passo 2 — `jornadausuario-update` para Documentação
 
@@ -165,24 +269,19 @@ incremento**.
 - `Event Id = EVT-SIM-a2c6bde131-eeda6f4c`
 - `estado = Documentacao`
 - `idunidade = 37dd20e6-4b3c-ea11-801d-005056856875`
-- resultado real: **HTTP 500 Internal Server Error**
+- resultado real: **HTTP 200**
 
-### Query direta depois do passo 2
+Query direta depois do passo 2:
 
-SOQL executada:
-
-```sql
-SELECT Id, Id__c, AccountId, StageName, EventTime__c, Pricebook2Id, RecordTypeId,
-       Unidade__c, Unidade__r.Id__c, Unidade__r.Name, CidadeUnidade__c
-FROM Opportunity
-WHERE Id__c = 'OPP-SIM-a2c6bde131-43e0bd82fb'
-```
-
-Resultado observado:
-
-- `totalSize = 0`
-- nenhuma `Opportunity` criada
-- nenhum `OpportunityLineItem` consultável, porque não houve `OpportunityId`
+- `Opportunity.Id = 006HZ00000U0Q2sYAF`
+- `StageName = Qualificação de Documentos`
+- `EventTime__c = 2026-09-22T23:00:03.000+0000`
+- `Unidade__c = 01t4T000002VELyQAO`
+- `Unidade__r.Id__c = 37dd20e6-4b3c-ea11-801d-005056856875`
+- `OpportunityLineItem.Id = 00kHZ00000BM9uLYAT`
+- `PricebookEntryId = 01u4T0000047yxRQAQ`
+- `Product2Id = 01t4T000002VELyQAO`
+- `Product2.Id__c = 37dd20e6-4b3c-ea11-801d-005056856875`
 
 ### Passo 3 — `jornadausuario-update` com `estado='troca_unidade'`
 
@@ -190,43 +289,34 @@ Resultado observado:
 - `Event Id = EVT-SIM-a2c6bde131-8a1c100b`
 - `estado = troca_unidade`
 - `idunidade = 6eeda6b4-1ee9-48a2-a5db-123044783c25`
-- resultado real: **HTTP 500 Internal Server Error**
+- resultado real: **HTTP 200**
 
-### Query direta depois do passo 3
+Query direta depois do passo 3:
 
-Mesma SOQL do passo 2:
-
-```sql
-SELECT Id, Id__c, AccountId, StageName, EventTime__c, Pricebook2Id, RecordTypeId,
-       Unidade__c, Unidade__r.Id__c, Unidade__r.Name, CidadeUnidade__c
-FROM Opportunity
-WHERE Id__c = 'OPP-SIM-a2c6bde131-43e0bd82fb'
-```
-
-Resultado observado:
-
-- `totalSize = 0`
-- nenhuma `Opportunity` criada
-- nenhuma `Unidade__c` para inspecionar
-- nenhum `OpportunityLineItem` criado
+- `Opportunity.Id = 006HZ00000U0Q2sYAF`
+- `StageName = Qualificação de Documentos`
+- `EventTime__c = 2026-09-22T23:00:06.000+0000`
+- `Unidade__c = 01tV200000AQbuDIAT`
+- `Unidade__r.Id__c = 6eeda6b4-1ee9-48a2-a5db-123044783c25`
+- `OpportunityLineItem.Id = 00kHZ00000BM9vxYAD`
+- `PricebookEntryId = 01uV2000002uywPIAQ`
+- `Product2Id = 01tV200000AQbuDIAT`
+- `Product2.Id__c = 6eeda6b4-1ee9-48a2-a5db-123044783c25`
 
 ### Conclusão objetiva do cenário A
 
-O comportamento esperado do incremento (**preservar `StageName='Qualificação de
-Documentos'` e trocar `Unidade__c` para o segundo `Product2`**) **não pôde ser
-validado**, porque o endpoint falhou antes da criação da `Opportunity` já no
-primeiro passo, com o mesmo `NullPointerException` em todos os três dispatches.
+Com o payload correto:
 
-Como o passo 1 é funcionalmente equivalente ao smoke test mínimo já consolidado,
-o bloqueio observado indica uma **regressão externa na org / no Apex atual de
-`mrv-devDan`**, e não um problema específico do branch `troca_unidade` em si.
+- o cenário inteiro retornou **200 / 200 / 200**;
+- a `Opportunity` permaneceu **a mesma** (`006HZ00000U0Q2sYAF`);
+- `StageName` foi preservado em
+  **`Qualificação de Documentos`** no passo 3;
+- `Unidade__c` foi trocada para o **segundo `Product2` real**;
+- o `OpportunityLineItem` final também passou a apontar para o **segundo
+  `Product2` / `PricebookEntry` real**.
 
-### Cleanup real
-
-- a `Account` sintética foi removida manualmente ao final;
-- contagem final pós-cleanup:
-  - `Account = 0`
-  - `Opportunity = 0`
+Isto confirma o comportamento funcional esperado do branch
+`troca_unidade`.
 
 ---
 
@@ -242,8 +332,7 @@ o bloqueio observado indica uma **regressão externa na org / no Apex atual de
 
 ### Setup real
 
-- `CREATE_SYNTHETIC_ACCOUNT` criou a `Account`
-  `001HZ000011RVlZYAW`.
+- `Account.Id = 001HZ000011RbwyYAC`
 
 ### Dispatch real
 
@@ -251,90 +340,78 @@ o bloqueio observado indica uma **regressão externa na org / no Apex atual de
 - evento: `jornadausuario-insert`
 - `estado = troca_unidade`
 - `idunidade = 37dd20e6-4b3c-ea11-801d-005056856875`
-- resultado real observado: **HTTP 500 Internal Server Error**
+- resultado real: **HTTP 400**
 
 Corpo real observado:
 
 ```json
-{
-  "value": [
-    {
-      "errorCode": "APEX_ERROR",
-      "message": "System.NullPointerException: Attempt to de-reference a null object\n\nClass.NotificacaoMaquinaEstado.realizaPost: line 218, column 1"
-    }
-  ],
-  "Count": 1
-}
+{ "Status": "Error", "Message": "Oportunidade não encontrada para troca de unidade" }
 ```
 
 ### Query direta depois do dispatch
 
-SOQL executada:
-
-```sql
-SELECT Id, Id__c, AccountId, StageName, EventTime__c, Pricebook2Id, RecordTypeId,
-       Unidade__c, Unidade__r.Id__c, Unidade__r.Name, CidadeUnidade__c
-FROM Opportunity
-WHERE Id__c = 'OPP-SIM-97b2c9a0cc-10e343f68d'
-```
-
-Resultado observado:
-
-- `totalSize = 0`
-- nenhuma `Opportunity` criada
-- nenhum `OpportunityLineItem` criado
+- `Opportunity WHERE Id__c = 'OPP-SIM-97b2c9a0cc-10e343f68d'` →
+  `totalSize = 0`
+- `OpportunityLineItem` vinculado → `totalSize = 0`
 
 ### Conclusão objetiva do cenário B
 
-O resultado real **divergiu da teoria de contrato**:
+Com o payload correto, o comportamento ficou **100% alinhado ao contrato**:
 
-- esperado pelo branch dedicado: falha explícita de negócio (ex.: HTTP 400 /
-  `NotificacaoException` “Oportunidade não encontrada para troca de unidade”);
-- observado na prática: **HTTP 500** por
-  `System.NullPointerException` em `Class.NotificacaoMaquinaEstado.realizaPost`
-  **antes** da criação de qualquer `Opportunity`.
-
-Ainda assim, ficou confirmado por query que **nenhuma `Opportunity` foi criada**.
-
-### Cleanup real
-
-- a `Account` sintética foi removida manualmente ao final;
-- contagem final pós-cleanup:
-  - `Account = 0`
-  - `Opportunity = 0`
+- o Apex retornou **HTTP 400**;
+- a mensagem de negócio foi explícita:
+  **`Oportunidade não encontrada para troca de unidade`**;
+- nenhuma `Opportunity` foi criada.
 
 ---
 
-## Conclusão final deste incremento
+## Limpeza final
 
-### O que ficou implementado no simulador
+Ao final da rodada de diagnóstico:
 
-- cenário `maquina-estado-update-troca-unidade`;
-- cenário `maquina-estado-insert-troca-unidade-falha`;
-- checks automatizados para:
-  - `OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED`
-  - `OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED`
+- `Account` residual do cenário A: `0`
+- `Opportunity` residual do cenário A: `0`
+- `Account` residual do cenário B: `0`
+- `Opportunity` residual do cenário B: `0`
+- `TraceFlag` temporária removida
+- `DebugLevel` temporária removida
 
-### O que a execução real provou
+---
 
-- o segundo `Product2` real selecionado é válido para teste (ativo, com
-  `PricebookEntry` ativa e `Cidade__c = null`);
-- **o endpoint `/MaquinaEstado` em `mrv-devDan` está atualmente bloqueado por
-  um `NullPointerException` na linha 218 de
-  `NotificacaoMaquinaEstado.realizaPost`**, inclusive no caminho inicial de
-  `jornadausuario-insert` que deveria reproduzir o smoke já consolidado;
-- por isso, **a semântica funcional específica de `troca_unidade` não pôde ser
-  confirmada ao vivo nesta rodada**.
+## Conclusão final
 
-### Bloqueio que precisa de atenção externa
+### O que estava errado
 
-Antes de reexecutar este incremento com expectativa de sucesso funcional, é
-necessário corrigir/investigar no lado Salesforce:
+Os `HTTP 500` inicialmente documentados neste incremento **não eram prova de um
+bug funcional do branch `troca_unidade`**. Eles foram causados pelo harness de
+diagnóstico/manual:
 
-1. a regressão atual de `/MaquinaEstado` em `mrv-devDan` (NPE na linha 218);
-2. por consequência, o desvio do cenário B, que hoje responde **500** em vez de
-   materializar a falha explícita de negócio esperada pelo contrato do branch
-   `troca_unidade`.
+1. primeiro enviando **objeto** em vez de **array Event Grid**;
+2. depois enviando JSON com **BOM UTF-8**.
 
-**Nenhum Permission Set foi alterado e nenhum arquivo do repositório Salesforce
-foi tocado nesta tarefa.**
+### O que o ApexLog provou
+
+O `ApexLog` com `TraceFlag` detalhada confirmou, com evidência primária:
+
+- a exceção original do primeiro caso:
+  `Invalid conversion from runtime type Map<String,ANY> to List<ANY>`;
+- a exceção original do segundo caso:
+  `Unexpected character ('﻿' code 65279 / 0xfeff)`;
+- e o bug secundário real do Apex:
+  o catch em `NotificacaoMaquinaEstado.realizaPost` linha **218** mascara o
+  erro original com um `System.NullPointerException`.
+
+### O que ficou confirmado funcionalmente
+
+Depois de corrigir o harness:
+
+- **Cenário A**: sucesso completo, com preservação de `StageName` e troca real
+  de `Unidade__c` / `OpportunityLineItem.Product2Id`;
+- **Cenário B**: falha explícita correta com **HTTP 400** e sem criação de
+  `Opportunity`.
+
+Portanto:
+
+- **não há bug funcional confirmado no branch `troca_unidade`**;
+- **há um bug real de tratamento de erro no Apex** que mascara falhas de parse
+  do request body.
