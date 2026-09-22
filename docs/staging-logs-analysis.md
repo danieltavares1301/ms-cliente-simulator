@@ -404,6 +404,45 @@ deterministicamente.
 depende dessa correção** — nenhum deles testa/afirma nada sobre a presença
 ou ausência de retry.
 
+### 7. Reentrega real confirmada em `jornadausuario-*` (informa o incremento 4 da Tarefa 7.2)
+
+Amostra de 400 registros reais (`jornadausuario-insert` +
+`jornadausuario-update` combinados) comparando o `Id` do envelope (o
+identificador do EVENTO Event Grid, não `Data.Id`, que é a Opportunity
+externa) revelou **2 casos reais de reentrega genuína** (mesmo Event Id
+entregue duas vezes):
+
+| Event Id | 1ª tentativa | 2ª tentativa (reentrega) | Intervalo |
+| --- | --- | --- | --- |
+| `e203ddcd-3379-4835-a04d-9d18249ddde9` | `error` (`19:33:59`) | `success` (`19:34:12`) | ≈13s |
+| `981a453d-5fc7-409b-9fe3-e0a6819d72a9` | `error` (`13:08:17`) | `success` (`13:08:30`) | ≈13s |
+
+Em ambos os casos, a mensagem de erro da 1ª tentativa é a mesma contenção de
+lock já documentada na seção 6 (`Registro atualmente indisponível...`),
+confirmando o padrão real completo: (1) o Apex tenta o upsert internamente
+até 5 vezes (seção 6.1); (2) se mesmo assim falhar, o erro é propagado ao
+chamador; (3) o chamador real (MS Cliente/Event Grid) reenvia o **mesmo
+evento** (mesmo Event Id, mesmo payload) alguns segundos depois; (4) a
+reentrega, chegando quando a contenção já não existe mais, tem sucesso.
+
+**Isso é diferente do padrão já testado no O14** (`/Cliente`,
+`evento-duplicado`): lá, o cenário testa reentrega de um evento que **já
+teve sucesso** na primeira tentativa (idempotência pura). Aqui, o padrão
+real é reentrega de um evento que **falhou** na primeira tentativa por uma
+condição transitória — testa se o reprocessamento do mesmo `Id__c` externo
+(via `Database.upsert`) converge corretamente para um único registro final,
+mesmo após uma tentativa anterior ter sido abortada no meio do
+processamento.
+
+**Payload real completo do caso reentregue com sucesso** (para referência,
+campos completos observados incluem `IdEmpreendimento`, `IdUnidade` reais,
+`Pac` aninhado com `status="EM_ANALISE_CREDITO"`, `ProponenteCredito.Proponentes[]`
+com CPF/documento reais, `Estado="Proposta"`) — confirma mais uma vez a
+riqueza do payload real muito além do que o simulador modela hoje (seção 1).
+
+**Implementado**: este achado motivou o cenário
+`maquina-estado-update-reentrega-mesmo-evento` (Tarefa 7.2, incremento 4).
+
 ## Ações tomadas nesta análise
 
 - [ ] **Corrigir `pacCreditoRequestSchema`** para tolerar campos extras
