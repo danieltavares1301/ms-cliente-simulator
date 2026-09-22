@@ -2379,6 +2379,14 @@ silencioso por obsolescencia.
   "qualquer 2xx" para "exatamente 200" em todo o catalogo pre-existente -
   corrigido (commit `a3f099b`) preservando a faixa 2xx original quando a
   propriedade nao e declarada.
+- **Achado de integridade documental**: a secao `Tarefa 7.3: Validar
+  corridas end-to-end` (com seus proprios criterios de aceite, distintos
+  dos da Tarefa 7.2) foi encontrada sobrescrita por uma copia duplicada dos
+  criterios da Tarefa 7.2, resultado de edicoes incrementais sucessivas
+  dos agentes ao longo dos incrementos 4 e 5. Restaurada a partir do
+  ultimo estado correto conhecido (commit `661ad41`) apos auditoria de
+  documentacao pedida pelo usuario (commit `e08a2a7`). Nenhuma outra
+  duplicacao equivalente foi encontrada no restante do documento.
 
 **Fora de escopo / deferido nesta consolidacao parcial:**
 
