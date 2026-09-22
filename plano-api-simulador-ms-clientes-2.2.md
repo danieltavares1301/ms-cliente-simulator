@@ -2193,8 +2193,8 @@ apos a ultima.
 - Automacao adicional (Flow/Process Builder) em `Opportunity`/`Proponente__c`
   alem dos triggers ja lidos — nao foi feita uma varredura exaustiva
   equivalente a que encontrou o risco do `EnvioPACCreditoQueue`.
-  **ATUALIZACAO (pos-Checkpoint 7.1):** essa varredura foi iniciada e ja
-  encontrou um segundo risco real e confirmado: `Contestacao__c` possui um
+  **ATUALIZACAO (pos-Checkpoint 7.1):** essa varredura foi concluida.
+  Encontrou um segundo risco real e confirmado: `Contestacao__c` possui um
   trigger (`ContestacaoTrigger` -> `ContestacaoTriggerHandler`) que faz
   callout real para `https://apis.mrv.com.br` (producao) ao inserir
   qualquer `Contestacao__c` — o cenario `pac-update-com-contestacao-
@@ -2204,16 +2204,33 @@ apos a ultima.
   via redirecionamento de `Endpoints__c.ContestacaoInsert__c`/
   `ContestacaoComDocumentos__c` para o simulador (aprovado explicitamente
   pelo usuario), reaproveitando a Remote Site Setting e o Named Credential
-  `ServicoClientes` ja redirecionados na Fase 5/Tarefa 7.0. Ver
+  `ServicoClientes` ja redirecionados na Fase 5/Tarefa 7.0. Os endpoints
+  receptores (`contestacao-insert` e `contestacao-documentos`) foram
+  implementados no simulador com TDD, feature flags dedicadas e validacao
+  estrutural do bearer/payload, com **deploy real em producao** (Vercel) e
+  revalidacao ao vivo confirmando `LogIntegracao__c.Status2__c='success'`
+  sem nenhum dado chegar a `apis.mrv.com.br`. Ver
   `docs/phase-7/contestacao-callout-real-leak-and-redirect.md` para
-  evidencia completa. **Atualizacao 2026-09-22:** os endpoints receptores
-  (`contestacao-insert` e `contestacao-documentos`) ja foram implementados no
-  simulador com TDD, feature flags dedicadas e validacao estrutural do
-  bearer/payload; falta apenas a revalidacao operacional ao vivo + continuidade
-  da varredura de `Proponente_1.flow-meta.xml` e dos demais Flows/triggers
-  ainda nao lidos.
+  evidencia completa.
+  **Resultado final da varredura (concluida):** verificados todos os 8
+  Flows record-triggered em `Opportunity` (`Armario_e_Forma_Pagamento_
+  Cartao`, `DispararEventGridOpportunidadeMudancaCelularConta`,
+  `NotificacaoChatterPAC`, `OportunidadeFlowTriggerAfterUpdate`/
+  `BeforeUpdate`, `Oportunidade_Armario_Boleto`, `OpportunityClearByPass`,
+  `SetarCatalogoPrecoOportunidadeArmario`) e o unico Flow record-triggered
+  em `Proponente__c` (`Proponente_1`, que so sincroniza `ReplyTo__c` da
+  Opportunity vinculada — sem acao externa). Nenhum outro callout real foi
+  encontrado: os poucos `actionCalls` existentes chamam Apex interno sem
+  `Database.AllowsCallouts` (`OportunidadeArmarioTriggerHandler`) ou
+  `customNotificationAction` (notificacao in-app). `Opportunity.workflow-
+  meta.xml` (67 field updates + 3 alerts de e-mail) nao contem nenhum
+  `outboundMessages`; `Proponente__c.workflow-meta.xml` esta vazio.
+  Reconfirmado que nao existe `Opportunity.trigger` dedicado (so
+  `OpportunityLineItem.trigger`, irrelevante para os cenarios PAC). Item
+  considerado fechado.
 
-**Conclusao:** Tarefa 7.1 (contratos `/PAC`) esta concluida e consolidada.
+**Conclusao:** Tarefa 7.1 (contratos `/PAC`) esta concluida e consolidada,
+incluindo a varredura completa de automacao em `Opportunity`/`Proponente__c`.
 Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
 
 

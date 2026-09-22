@@ -131,11 +131,20 @@ Arquivos implementados:
    `contestacao-documentos`) com TDD, feature flags separadas e validação
    estrutural do payload/header, espelhando o padrão de
    `/api/ms-clientes/pac-credito`.
-2. Revalidar o cenário de contestação ao vivo após a implementação, para
-   confirmar callback bem-sucedido sem tocar `apis.mrv.com.br`.
-3. Continuar a varredura de risco nos demais itens ainda não verificados
-   (`Proponente_1.flow-meta.xml` e os demais Flows/triggers de
-   `Opportunity`/`Proponente__c` já mapeados, mas não totalmente lidos).
+2. [x] Revalidar o cenário de contestação ao vivo após a implementação:
+   confirmado `LogIntegracao__c` com `EventType__c='paccontestacao-insert'`
+   e `Status2__c='success'`, e logs do Vercel mostrando
+   `responseStatusCode=201` para o callback recebido — nenhum dado chegou
+   a `apis.mrv.com.br`.
+3. [x] Varredura de risco concluída nos demais itens: os 8 Flows record-
+   triggered em `Opportunity` e o único Flow record-triggered em
+   `Proponente__c` (`Proponente_1`, apenas sincroniza `ReplyTo__c`, sem
+   ação externa) foram verificados. Nenhum outro callout real foi
+   encontrado. `Opportunity.workflow-meta.xml` (67 field updates + 3
+   alerts de e-mail) não contém `outboundMessages`;
+   `Proponente__c.workflow-meta.xml` está vazio. Reconfirmado que não
+   existe `Opportunity.trigger` dedicado (só `OpportunityLineItem.trigger`,
+   irrelevante para os cenários PAC).
 4. Avaliar se algum time de negócio da MRV precisa ser informado sobre o(s)
    registro(s) de contestação fictícios criados no sistema real de crédito
    durante o incidente (fora do escopo técnico deste simulador).
