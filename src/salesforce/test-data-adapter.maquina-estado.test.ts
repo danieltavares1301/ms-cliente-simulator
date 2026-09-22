@@ -48,6 +48,16 @@ function obsoleteUpdateFixture() {
   });
 }
 
+function unrecognizedEstadoUpdateFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'maquina-estado-update-estado-nao-reconhecido',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_maquina_update_d',
+    eventStartAt: '2026-09-22T00:25:00.000Z',
+  });
+}
+
 function input(rendered = fixture()) {
   return {
     runId: rendered.runId,
@@ -391,6 +401,82 @@ describe('Salesforce test data adapter for MaquinaEstado smoke scenario', () => 
               Id__c: obsoleteEventData.id,
               AccountId: accountId,
               Name: 'Opportunity Sint?tica MaquinaEstado',
+              StageName: 'Qualificação de Documentos',
+              CloseDate: '2027-12-31',
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected query: ${soql}`);
+    });
+
+    const result = await adapter.verify(input(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE', passed: true, actualCount: 1 },
+        { check: 'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT', passed: true },
+        { check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED', passed: true },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          passed: true,
+          actualCount: 1,
+        },
+      ]),
+    );
+    expect(result.recordIds).toEqual(
+      expect.arrayContaining([accountId, opportunityId, opportunityLineItemId]),
+    );
+  });
+
+  it('verifies an unrecognized estado update preserves the existing Opportunity stage', async () => {
+    const rendered = unrecognizedEstadoUpdateFixture();
+    const client = restClient();
+    const adapter = createSalesforceTestDataAdapter({ restClient: client });
+    const finalEventData = rendered.steps[2]!.envelope[0]!.data as { id: string };
+
+    client.query.mockImplementation(async (query: unknown) => {
+      const soql = String(query);
+      if (soql.includes('FROM Account')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: accountId,
+              Id__c: rendered.identifiers.accountIdCliente,
+              IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+              CPF__pc: '39095812030',
+              LastName: 'Cliente Simulado Base',
+              IsPersonAccount: true,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM OpportunityLineItem')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: opportunityLineItemId,
+              OpportunityId: opportunityId,
+              Id__c: `${opportunityId}1`,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM Opportunity')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: opportunityId,
+              Id__c: finalEventData.id,
+              AccountId: accountId,
+              Name: 'Opportunity Sintética MaquinaEstado',
               StageName: 'Qualificação de Documentos',
               CloseDate: '2027-12-31',
             },

@@ -2050,6 +2050,89 @@ export const basicScenarioDefinitions = [
     cleanup: cleanupWithOpportunity,
   },
   {
+    key: 'maquina-estado-update-estado-nao-reconhecido',
+    version: 1,
+    name: 'MaquinaEstado update com estado não reconhecido',
+    description:
+      'Cria a Opportunity, fixa a fase em Qualificação de Documentos e depois reproduz um jornadausuario-update real com estado de UF (SP), comprovando que o Apex preserva o StageName atual e ainda responde HTTP 200.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-7',
+      'maquina-estado',
+      'update',
+      'estado-nao-reconhecido',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert'),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-documentacao',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-estado-nao-reconhecido',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 6_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'SP',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'O jornadausuario-update final com estado SP deve ser tolerado como no-op: a mesma Opportunity externa permanece única, segue vinculada à Account sintética e conserva a fase Qualificação de Documentos estabelecida no passo 2.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
     key: 'maquina-estado-update-evento-obsoleto',
     version: 1,
     name: 'MaquinaEstado update com evento obsoleto',
