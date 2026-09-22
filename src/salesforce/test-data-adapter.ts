@@ -490,9 +490,11 @@ export type SalesforceTestDataVerificationCheck = {
     | 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED'
     | 'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT'
     | 'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE'
+    | 'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED'
     | 'OPPORTUNITY_NOT_CREATED'
     | 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED'
     | 'OPPORTUNITY_STAGE_EQUALS_EXPECTED'
+    | 'OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED'
     | 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'
     | 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY';
   passed: boolean;
@@ -589,6 +591,14 @@ const opportunityRecordSchema = z
     Name: nullableText,
     StageName: nullableText,
     CloseDate: nullableText,
+    Unidade__c: nullableText.optional(),
+    Unidade__r: z
+      .object({
+        Id__c: nullableText.optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
     PACAtual__c: nullableText.optional(),
   })
   .passthrough();
@@ -598,6 +608,14 @@ const opportunityLineItemRecordSchema = z
     Id: z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/),
     OpportunityId: nullableText,
     Id__c: nullableText.optional(),
+    Product2Id: nullableText.optional(),
+    Product2: z
+      .object({
+        Id__c: nullableText.optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
   })
   .passthrough();
 
@@ -785,8 +803,9 @@ const leadFields =
   'Id,Id__c,FirstName,LastName,CPF__c,MobilePhone,CelularSemFormatacao__c,Email,CidadeInteresse__c,Marca__c,RecordTypeId,ManipularFase__c,Status,PermitirCriarLead__c,DescricaoOrigem__c' as const;
 const leadSyntheticIdPrefix = 'LEAD-SIM-' as const;
 const opportunityFields =
-  'Id,Id__c,AccountId,Name,StageName,CloseDate,PACAtual__c' as const;
-const opportunityLineItemFields = 'Id,OpportunityId,Id__c' as const;
+  'Id,Id__c,AccountId,Name,StageName,CloseDate,Unidade__c,Unidade__r.Id__c,PACAtual__c' as const;
+const opportunityLineItemFields =
+  'Id,OpportunityId,Id__c,Product2Id,Product2.Id__c' as const;
 const propostaAnaliseCreditoFields =
   'Id,Id__c,Oportunidade__c,Status__c' as const;
 const contestacaoFields = 'Id,Id__c,PAC__c,DataSolucao__c' as const;
@@ -1865,7 +1884,9 @@ export function createSalesforceTestDataAdapter(
       const needsOpportunityLineItems = expectedChecks.some(
         (check) =>
           verificationCheckName(check) ===
-          'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED' ||
+          verificationCheckName(check) ===
+            'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED',
       );
       const needsPropostaRecords = expectedChecks.some((check) => {
         const checkName = verificationCheckName(check);
@@ -2379,6 +2400,14 @@ export function createSalesforceTestDataAdapter(
                 opportunityTarget?.StageName === expectedValue,
             });
             break;
+          case 'OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED':
+            checks.push({
+              check: checkName,
+              passed:
+                typeof expectedValue === 'string' &&
+                opportunityTarget?.Unidade__r?.Id__c === expectedValue,
+            });
+            break;
           case 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED':
             checks.push({
               check: checkName,
@@ -2386,6 +2415,15 @@ export function createSalesforceTestDataAdapter(
                 typeof expectedValue === 'number' &&
                 opportunityLineItems.length === expectedValue,
               actualCount: opportunityLineItems.length,
+            });
+            break;
+          case 'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED':
+            checks.push({
+              check: checkName,
+              passed:
+                typeof expectedValue === 'string' &&
+                opportunityLineItems.length === 1 &&
+                opportunityLineItems[0]?.Product2?.Id__c === expectedValue,
             });
             break;
           case 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED':

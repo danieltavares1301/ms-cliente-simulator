@@ -257,6 +257,96 @@ describe('MaquinaEstado scenario definitions', () => {
     });
   });
 
+  it('publishes a READY troca_unidade update scenario that preserves stage and swaps the unidade', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-update-troca-unidade',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-update-troca-unidade',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_ACCOUNT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+      }),
+      expect.objectContaining({
+        key: 'maquina-estado-update-documentacao',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+      }),
+      expect.objectContaining({
+        key: 'maquina-estado-update-troca-unidade',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 6_000,
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'OPPORTUNITY_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+        'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+        {
+          check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+          value: 'Qualificação de Documentos',
+        },
+        {
+          check: 'OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED',
+          value: '6eeda6b4-1ee9-48a2-a5db-123044783c25',
+        },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED',
+          value: '6eeda6b4-1ee9-48a2-a5db-123044783c25',
+        },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 1,
+        },
+      ]),
+    });
+  });
+
+  it('renders the troca_unidade fixture reusing the Opportunity id and swapping only the unidade on the last step', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'maquina-estado-update-troca-unidade',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_maquina_update_troca_unidade',
+      eventStartAt: '2026-09-22T00:12:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(3);
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      id: expect.stringMatching(/^OPP-SIM-/),
+      estado: 'SIMULACAO',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
+    });
+    expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
+      id: fixture.steps[0]!.envelope[0]!.data.id,
+      estado: 'Documentacao',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
+    });
+    expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
+      id: fixture.steps[0]!.envelope[0]!.data.id,
+      estado: 'troca_unidade',
+      idunidade: '6eeda6b4-1ee9-48a2-a5db-123044783c25',
+      dataalteracao: fixture.steps[2]!.envelope[0]!.eventTime,
+    });
+  });
+
   it('renders the update fixture reusing the same Opportunity external id across insert and update', () => {
     const fixture = renderScenarioFixture({
       scenarioKey: 'maquina-estado-update-transicao-estado',
@@ -627,6 +717,69 @@ describe('MaquinaEstado scenario definitions', () => {
           value: 0,
         },
       ]),
+    });
+  });
+
+  it('publishes a READY insert troca_unidade failure scenario with Account prévia and no Opportunity existente', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-insert-troca-unidade-falha',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-insert-troca-unidade-falha',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_ACCOUNT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        key: 'maquina-estado-insert-troca-unidade',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        expectedHttpStatus: 400,
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'EVENT_REJECTED_WITHOUT_DML',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_NOT_CREATED',
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 0,
+        },
+      ]),
+    });
+  });
+
+  it('renders the insert troca_unidade failure fixture with Account ids present and no prior Opportunity', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'maquina-estado-insert-troca-unidade-falha',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_maquina_insert_troca_unidade',
+      eventStartAt: '2026-09-22T00:30:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(1);
+    expect(fixture.steps[0]).toMatchObject({
+      target: 'MAQUINA_ESTADO',
+      eventType: 'jornadausuario-insert',
+      expectedHttpStatus: 400,
+    });
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      cliente: {
+        idCliente: fixture.identifiers.accountIdCliente,
+        idProspectSalesforce: fixture.identifiers.accountIdProspect,
+      },
+      id: expect.stringMatching(/^OPP-SIM-/),
+      estado: 'troca_unidade',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
     });
   });
 });

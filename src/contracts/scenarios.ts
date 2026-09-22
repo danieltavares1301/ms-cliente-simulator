@@ -305,7 +305,9 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
   'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
   'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+  'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED',
   'OPPORTUNITY_NOT_CREATED',
+  'OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
@@ -431,6 +433,20 @@ const renderedOpportunityExpectedValueCheckSchema = z.discriminatedUnion(
         value: z.string().trim().min(1).max(255),
       })
       .strict(),
+    z
+      .object({
+        check: z.literal('OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(255),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal(
+          'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED',
+        ),
+        value: z.string().trim().min(1).max(255),
+      })
+      .strict(),
   ],
 );
 
@@ -535,6 +551,20 @@ export const expectedOutcomeCheckSchema = z.union([
     z
       .object({
         check: z.literal('OPPORTUNITY_STAGE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal(
+          'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED',
+        ),
         value: definitionExpectedValueSchema,
       })
       .strict(),

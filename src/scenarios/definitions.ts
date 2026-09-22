@@ -82,6 +82,8 @@ const graphqlCallbackAsyncPolicy: ScenarioDefinition['asyncPolicy'] = {
 
 const MAQUINA_ESTADO_ACTIVE_PRODUCT_EXTERNAL_ID =
   '37dd20e6-4b3c-ea11-801d-005056856875';
+const MAQUINA_ESTADO_TROCA_UNIDADE_PRODUCT_EXTERNAL_ID =
+  '6eeda6b4-1ee9-48a2-a5db-123044783c25';
 
 function clientPayload(
   eventType: 'cliente-insert' | 'cliente-update',
@@ -1983,6 +1985,67 @@ export const basicScenarioDefinitions = [
     cleanup: [{ operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' }],
   },
   {
+    key: 'maquina-estado-insert-troca-unidade-falha',
+    version: 1,
+    name: 'MaquinaEstado insert troca_unidade falha sem Opportunity prévia',
+    description:
+      'Mantém uma Account sintética válida, mas envia jornadausuario-insert com estado troca_unidade como primeiro evento da Opportunity, exercitando o branch dedicado que falha explicitamente quando a Opportunity ainda não existe.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-7',
+      'maquina-estado',
+      'negative',
+      'troca-unidade',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-troca-unidade',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        expectedHttpStatus: 400,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          estado: 'troca_unidade',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'EVENT_REJECTED_WITHOUT_DML',
+        description:
+          'Com a Account existente, mas sem Opportunity prévia, o branch troca_unidade deve falhar explicitamente e não criar Opportunity nem OpportunityLineItem.',
+        checks: [
+          'OPPORTUNITY_NOT_CREATED',
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 0,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
     key: 'maquina-estado-update-transicao-estado',
     version: 1,
     name: 'MaquinaEstado update transição de estado',
@@ -2038,6 +2101,92 @@ export const basicScenarioDefinitions = [
           {
             check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
             value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'maquina-estado-update-troca-unidade',
+    version: 1,
+    name: 'MaquinaEstado update troca_unidade preserva stage',
+    description:
+      'Cria a Opportunity, avança para Documentação e depois executa o branch dedicado troca_unidade para comprovar que o StageName permanece em Qualificação de Documentos enquanto a unidade é trocada para um segundo Product2 real.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'update', 'troca-unidade'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert'),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-documentacao',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-troca-unidade',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 6_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'troca_unidade',
+          idUnidade: MAQUINA_ESTADO_TROCA_UNIDADE_PRODUCT_EXTERNAL_ID,
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'O jornadausuario-update com estado troca_unidade deve reaproveitar a Opportunity existente, preservar a fase Qualificação de Documentos e trocar a unidade/line item para o segundo Product2 real.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_UNIDADE_EXTERNAL_ID_EQUALS_EXPECTED',
+            value: MAQUINA_ESTADO_TROCA_UNIDADE_PRODUCT_EXTERNAL_ID,
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_PRODUCT_EXTERNAL_ID_EQUALS_EXPECTED',
+            value: MAQUINA_ESTADO_TROCA_UNIDADE_PRODUCT_EXTERNAL_ID,
           },
           {
             check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',

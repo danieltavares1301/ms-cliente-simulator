@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(35);
+    expect(scenarioCatalog.listActive()).toHaveLength(37);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -262,6 +262,11 @@ describe('versioned scenario catalog', () => {
         availability: 'READY',
       },
       {
+        key: 'maquina-estado-insert-troca-unidade-falha',
+        version: 1,
+        availability: 'READY',
+      },
+      {
         key: 'maquina-estado-update-estado-nao-reconhecido',
         version: 1,
         availability: 'READY',
@@ -283,6 +288,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'maquina-estado-update-transicao-estado',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'maquina-estado-update-troca-unidade',
         version: 1,
         availability: 'READY',
       },
