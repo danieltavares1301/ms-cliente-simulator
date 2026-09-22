@@ -22,6 +22,7 @@ const scenarioKeys = [
   'maquina-estado-insert-apos-cliente-criado',
   'maquina-estado-insert-minimo',
   'maquina-estado-insert-sem-cliente-falha',
+  'maquina-estado-update-evento-obsoleto',
   'maquina-estado-update-reentrega-mesmo-evento',
   'id-prospect-igual-id-cliente',
   'match-id-cliente',
@@ -54,6 +55,7 @@ const expectedStepCountByScenario = {
   'maquina-estado-insert-apos-cliente-criado': 1,
   'maquina-estado-insert-minimo': 1,
   'maquina-estado-insert-sem-cliente-falha': 1,
+  'maquina-estado-update-evento-obsoleto': 3,
   'maquina-estado-update-reentrega-mesmo-evento': 2,
   'id-prospect-igual-id-cliente': 1,
   'match-id-cliente': 1,
@@ -266,6 +268,71 @@ describe('basic scenario fixture definitions', () => {
           numerocpf: { source: 'GENERATED', value: 'CPF_X' },
         },
       },
+    });
+    expect(
+      scenarioCatalog.get('maquina-estado-update-evento-obsoleto', 1),
+    ).toMatchObject({
+      expectedOutcomes: [
+        expect.objectContaining({
+          result: 'OPPORTUNITY_CREATED_AND_LINKED',
+          checks: expect.arrayContaining([
+            'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+            'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+            {
+              check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+              value: 'Qualificação de Documentos',
+            },
+            {
+              check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+              value: 1,
+            },
+          ]),
+        }),
+      ],
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          key: 'maquina-estado-insert-inicial',
+          payloadTemplate: expect.objectContaining({
+            value: expect.objectContaining({
+              eventTime: { source: 'GENERATED', value: 'BASELINE_TIME' },
+              data: expect.objectContaining({
+                estado: 'SIMULACAO',
+                dataalteracao: {
+                  source: 'GENERATED',
+                  value: 'BASELINE_TIME',
+                },
+              }),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          key: 'maquina-estado-update-documentacao-atual',
+          payloadTemplate: expect.objectContaining({
+            value: expect.objectContaining({
+              eventTime: { source: 'GENERATED', value: 'EVENT_TIME' },
+              data: expect.objectContaining({
+                estado: 'Documentacao',
+                dataalteracao: { source: 'GENERATED', value: 'EVENT_TIME' },
+              }),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          key: 'maquina-estado-update-contrato-obsoleto',
+          payloadTemplate: expect.objectContaining({
+            value: expect.objectContaining({
+              eventTime: { source: 'GENERATED', value: 'PINNED_EVENT_TIME' },
+              data: expect.objectContaining({
+                estado: 'CONTRATO',
+                dataalteracao: {
+                  source: 'GENERATED',
+                  value: 'PINNED_EVENT_TIME',
+                },
+              }),
+            }),
+          }),
+        }),
+      ]),
     });
     expect(
       scenarioCatalog.get('graphql-erro-500', 1)?.graphqlResponse,
@@ -1103,12 +1170,25 @@ describe('renderScenarioFixture', () => {
         const expectedDataAlteracao =
           scenarioKey === 'evento-obsoleto'
             ? '2026-08-22T14:59:54.000Z'
+            : scenarioKey === 'maquina-estado-update-evento-obsoleto'
+              ? [
+                  '2026-08-22T14:59:59.000Z',
+                  '2026-08-22T15:00:03.000Z',
+                  '2026-08-22T15:00:00.000Z',
+                ][fixture.steps.indexOf(step)]
+              : isPinnedLogicalEventTime
+                ? input.eventStartAt
+                : expectedTime;
+        const expectedEventTime =
+          scenarioKey === 'maquina-estado-update-evento-obsoleto'
+            ? [
+                '2026-08-22T14:59:59.000Z',
+                '2026-08-22T15:00:03.000Z',
+                '2026-08-22T15:00:00.000Z',
+              ][fixture.steps.indexOf(step)]
             : isPinnedLogicalEventTime
               ? input.eventStartAt
               : expectedTime;
-        const expectedEventTime = isPinnedLogicalEventTime
-          ? input.eventStartAt
-          : expectedTime;
 
         expect(step.scheduledAt).toBe(expectedTime);
         expect(step.envelope[0].eventTime).toBe(expectedEventTime);

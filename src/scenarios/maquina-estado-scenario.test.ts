@@ -303,6 +303,116 @@ describe('MaquinaEstado scenario definitions', () => {
     });
   });
 
+  it('publishes a READY obsolete update scenario that silently keeps the newer Opportunity stage', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-update-evento-obsoleto',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-update-evento-obsoleto',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_ACCOUNT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+      }),
+      expect.objectContaining({
+        key: 'maquina-estado-update-documentacao-atual',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+      }),
+      expect.objectContaining({
+        key: 'maquina-estado-update-contrato-obsoleto',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 6_000,
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'OPPORTUNITY_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+        'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+        {
+          check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+          value: 'Qualificação de Documentos',
+        },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 1,
+        },
+      ]),
+    });
+  });
+
+  it('renders the obsolete update fixture with a physically later but logically older final event', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'maquina-estado-update-evento-obsoleto',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_maquina_update_c',
+      eventStartAt: '2026-09-22T00:20:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(3);
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[0]!.envelope)).toEqual(
+      fixture.steps[0]!.envelope,
+    );
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[1]!.envelope)).toEqual(
+      fixture.steps[1]!.envelope,
+    );
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[2]!.envelope)).toEqual(
+      fixture.steps[2]!.envelope,
+    );
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      id: expect.stringMatching(/^OPP-SIM-/),
+      estado: 'SIMULACAO',
+      dataalteracao: '2026-09-22T00:19:59.000Z',
+    });
+    expect(fixture.steps[0]!.envelope[0]!.eventTime).toBe(
+      '2026-09-22T00:19:59.000Z',
+    );
+    expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
+      id: fixture.steps[0]!.envelope[0]!.data.id,
+      estado: 'Documentacao',
+      dataalteracao: '2026-09-22T00:20:03.000Z',
+    });
+    expect(fixture.steps[1]!.envelope[0]!.eventTime).toBe(
+      '2026-09-22T00:20:03.000Z',
+    );
+    expect(fixture.steps[2]).toMatchObject({
+      target: 'MAQUINA_ESTADO',
+      eventType: 'jornadausuario-update',
+      delayMs: 6_000,
+    });
+    expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
+      id: fixture.steps[0]!.envelope[0]!.data.id,
+      estado: 'CONTRATO',
+      dataalteracao: '2026-09-22T00:20:00.000Z',
+    });
+    expect(fixture.steps[2]!.envelope[0]!.eventTime).toBe(
+      '2026-09-22T00:20:00.000Z',
+    );
+    expect(Date.parse(fixture.steps[2]!.scheduledAt)).toBeGreaterThan(
+      Date.parse(fixture.steps[1]!.scheduledAt),
+    );
+    expect(Date.parse(fixture.steps[2]!.envelope[0]!.eventTime)).toBeLessThan(
+      Date.parse(fixture.steps[1]!.envelope[0]!.eventTime),
+    );
+  });
+
   it('publishes a READY update redelivery scenario for the same Event Grid envelope', () => {
     const scenario = scenarioCatalog.get(
       'maquina-estado-update-reentrega-mesmo-evento',

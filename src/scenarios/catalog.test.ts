@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(33);
+    expect(scenarioCatalog.listActive()).toHaveLength(34);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -258,6 +258,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'maquina-estado-insert-sem-cliente-falha',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'maquina-estado-update-evento-obsoleto',
         version: 1,
         availability: 'READY',
       },

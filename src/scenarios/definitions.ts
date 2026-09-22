@@ -300,6 +300,7 @@ function maquinaEstadoPayload(
     idProspectSalesforce?: ReturnType<typeof generated>;
     estado?: string;
     dataAlteracao?: ReturnType<typeof generated>;
+    eventTime?: ReturnType<typeof generated>;
     idUnidade?: string;
   } = {},
 ): ScenarioDefinition['steps'][number]['payloadTemplate'] {
@@ -308,6 +309,7 @@ function maquinaEstadoPayload(
     idProspectSalesforce = generated('PROSPECT_ID'),
     estado = 'SIMULACAO',
     dataAlteracao = generated('EVENT_TIME'),
+    eventTime = generated('EVENT_TIME'),
     idUnidade = MAQUINA_ESTADO_ACTIVE_PRODUCT_EXTERNAL_ID,
   } = options;
 
@@ -318,7 +320,7 @@ function maquinaEstadoPayload(
       id: generated('EVENT_ID'),
       subject: 'MS_Clientes',
       eventType,
-      eventTime: generated('EVENT_TIME'),
+      eventTime,
       dataVersion: '1.0',
       metadataVersion: '1',
       topic: '/simulator/ms-clientes',
@@ -2030,6 +2032,88 @@ export const basicScenarioDefinitions = [
         result: 'OPPORTUNITY_CREATED_AND_LINKED',
         description:
           'O jornadausuario-update deve reutilizar a mesma Opportunity externa criada no passo anterior, mantendo apenas um OpportunityLineItem e avançando a fase para Qualificação de Documentos.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'maquina-estado-update-evento-obsoleto',
+    version: 1,
+    name: 'MaquinaEstado update com evento obsoleto',
+    description:
+      'Cria a Opportunity, aplica um update atual para Documenta??o e depois despacha um update f?sico posterior com EventTime mais antigo para comprovar o descarte silencioso do evento obsoleto.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'update', 'obsolescencia'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          dataAlteracao: generated('BASELINE_TIME'),
+          eventTime: generated('BASELINE_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-documentacao-atual',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-contrato-obsoleto',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 6_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'CONTRATO',
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'Depois de um update atual mover a Opportunity para Qualificação de Documentos, um jornadausuario-update fisicamente posterior com EventTime mais antigo deve ser descartado silenciosamente, mantendo a fase do passo 2 e sem duplicar Opportunity nem OpportunityLineItem.',
         checks: [
           'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
           'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
