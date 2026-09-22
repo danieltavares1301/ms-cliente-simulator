@@ -1981,6 +1981,125 @@ export const basicScenarioDefinitions = [
     cleanup: [{ operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' }],
   },
   {
+    key: 'maquina-estado-update-transicao-estado',
+    version: 1,
+    name: 'MaquinaEstado update transição de estado',
+    description:
+      'Cria a Opportunity via jornadausuario-insert e depois reproduz um jornadausuario-update real avançando a mesma Opportunity existente para Documentação.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'update'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert'),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-documentacao',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'O jornadausuario-update deve reutilizar a mesma Opportunity externa criada no passo anterior, mantendo apenas um OpportunityLineItem e avançando a fase para Qualificação de Documentos.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'maquina-estado-update-sem-cliente-falha',
+    version: 1,
+    name: 'MaquinaEstado update sem cliente falha',
+    description:
+      'Reexecuta o erro real de Cliente(Account) não encontrado agora com jornadausuario-update, sem Account prévia para o prospect.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'update', 'negative'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-update',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 0,
+        expectedHttpStatus: 400,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          idCliente: null,
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'EVENT_REJECTED_WITHOUT_DML',
+        description:
+          'Sem Account correspondente, o Apex deve rejeitar o jornadausuario-update com HTTP 400, sem criar Opportunity nem OpportunityLineItem.',
+        checks: [
+          'OPPORTUNITY_NOT_CREATED',
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 0,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: [{ operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' }],
+  },
+  {
     key: 'pac-aprovada-sincroniza-contatos',
     version: 1,
     name: 'PAC aprovada sincroniza contatos',

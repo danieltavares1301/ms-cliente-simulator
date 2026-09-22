@@ -209,4 +209,132 @@ describe('MaquinaEstado scenario definitions', () => {
       }),
     ]);
   });
+
+  it('publishes a READY update scenario that transitions the existing Opportunity to Documentação', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-update-transicao-estado',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-update-transicao-estado',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_ACCOUNT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+      }),
+      expect.objectContaining({
+        key: 'maquina-estado-update-documentacao',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'OPPORTUNITY_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+        'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+        {
+          check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+          value: 'Qualificação de Documentos',
+        },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 1,
+        },
+      ]),
+    });
+  });
+
+  it('renders the update fixture reusing the same Opportunity external id across insert and update', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'maquina-estado-update-transicao-estado',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_maquina_update_a',
+      eventStartAt: '2026-09-22T00:10:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(2);
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[0]!.envelope)).toEqual(
+      fixture.steps[0]!.envelope,
+    );
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[1]!.envelope)).toEqual(
+      fixture.steps[1]!.envelope,
+    );
+    expect(fixture.steps[0]).toMatchObject({
+      target: 'MAQUINA_ESTADO',
+      eventType: 'jornadausuario-insert',
+    });
+    expect(fixture.steps[1]).toMatchObject({
+      target: 'MAQUINA_ESTADO',
+      eventType: 'jornadausuario-update',
+      delayMs: 3_000,
+    });
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      cliente: {
+        idCliente: fixture.identifiers.accountIdCliente,
+        idProspectSalesforce: fixture.identifiers.accountIdProspect,
+      },
+      id: expect.stringMatching(/^OPP-SIM-/),
+      estado: 'SIMULACAO',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
+    });
+    expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
+      cliente: {
+        idCliente: fixture.identifiers.accountIdCliente,
+        idProspectSalesforce: fixture.identifiers.accountIdProspect,
+      },
+      id: fixture.steps[0]!.envelope[0]!.data.id,
+      estado: 'Documentacao',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
+    });
+  });
+
+  it('publishes a READY negative update scenario without Account prévia', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-update-sem-cliente-falha',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-update-sem-cliente-falha',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'ENSURE_ACCOUNT_ABSENT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        expectedHttpStatus: 400,
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'EVENT_REJECTED_WITHOUT_DML',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_NOT_CREATED',
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 0,
+        },
+      ]),
+    });
+  });
 });
