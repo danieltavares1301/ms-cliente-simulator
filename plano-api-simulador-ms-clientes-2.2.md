@@ -1930,7 +1930,8 @@ adicionais, mas concluido no mesmo incremento).
 
 #### Tarefa 7.1b: Variacoes adicionais do universo `/PAC`
 
-**Status:** iniciada. Variacao 1 de 5 concluida (`pac-update` basico).
+**Status:** iniciada. Variacoes 1 e 2 de 5 concluidas (`pac-update` basico +
+obsolescencia).
 
 **Objetivo:** explorar subcomportamentos reais do endpoint `/PAC` que nao eram
 cobertos pelos tres incrementos originais da Tarefa 7.1, mantendo a mesma
@@ -1948,7 +1949,21 @@ disciplina de execucao real contra `mrv-devDan`.
 - [x] Achado arquitetural real documentado:
   **`pac-update` sem `proponentes[]` apaga os `Proponente__c` existentes da
   PAC**.
-- [ ] Variacoes 2/5 a 5/5 pendentes de priorizacao.
+- [x] **Variacao 2/5 concluida:** obsolescencia coberta em dois cenarios
+  complementares:
+  - `pac-update-obsoleto-nivel-pac`
+  - `pac-update-obsoleto-nivel-proponente`
+- [x] O simulador verifica automaticamente a diferenca entre:
+  - rejeicao do payload inteiro quando `PropostaAnaliseCredito__c.DataAlteracaoEventoSTR__c`
+    ja esta mais nova;
+  - rejeicao individual do Proponente obsoleto com atualizacao do irmao valido
+    no mesmo payload.
+- [x] Achados arquiteturais reais documentados:
+  - obsolescencia no nivel da PAC usa comparacao estrita `<` e descarta todo o
+    payload silenciosamente;
+  - obsolescencia no nivel de `Proponente__c` atua por `id`, sem bloquear os
+    outros itens do mesmo array.
+- [ ] Variacoes 3/5 a 5/5 pendentes de priorizacao.
 
 **Progresso real (variacao 1/5, `pac-update` basico):**
 
@@ -1963,6 +1978,24 @@ disciplina de execucao real contra `mrv-devDan`.
   reais e cleanup final sem residuos.
 
 **Evidencia:** `docs/phase-7/pac-update-basico.md`.
+
+**Progresso real (variacao 2/5, obsolescencia):**
+
+- no cenario A, o segundo `pac-update` retornou `200`, mas a PAC manteve
+  `Status__c='EM_ANALISE_CREDITO'` e
+  `DataAlteracaoEventoSTR__c='2026-09-22T12:29:59.000Z'`, confirmando o
+  descarte silencioso do payload inteiro;
+- no mesmo cenario A, o `Proponente__c` original permaneceu intacto e a
+  Account continuou sem `PersonEmail`/`Celular__c`, provando que o ramo
+  aprovado obsoleto nao sincronizou contatos;
+- no cenario B, a PAC aceitou o timestamp novo do payload
+  (`DataAlteracaoEventoSTR__c` avancou para `2026-09-22T12:45:05.000Z`), mas o
+  Proponente da `PRIMARY` manteve os contatos do step 1 enquanto o Proponente
+  da `CONTROL` recebeu os contatos do step 2;
+- os dois cenarios foram executados ao vivo com setup/dispatch/query/cleanup
+  reais e cleanup final sem residuos.
+
+**Evidencia:** `docs/phase-7/pac-obsolescencia.md`.
 
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
