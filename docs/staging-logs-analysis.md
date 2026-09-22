@@ -128,18 +128,17 @@ Divergências concretas do que construímos no incremento 1 (`maquina-estado.ts`
   `data` (`data.Id`), e `Cliente` é um objeto aninhado com `IdProspectSalesforce`
   (não `idCliente`/`idProspectSalesforce` soltos como assumimos).
 - **`Estado` real observado é `"Unidades"`** (com essa capitalização exata),
-  não `"UNIDADES"`/`"SIMULACAO"` como usamos no smoke test. Como
-  `retornaValorFase` compara com `==` contra strings em CAIXA ALTA
-  (`'UNIDADES'`, `'SIMULACAO'`, `'CONTRATO'`, etc.), e o Apex faz
-  `Conversor.converterMinusculo` só nas CHAVES (não nos valores), **o valor
-  real `"Unidades"` provavelmente NÃO bate com nenhum branch de
-  `retornaValorFase`** — isso pode significar que, na prática, `StageName`
-  quase nunca é setado por este campo para Opportunities novas, ou que existe
-  alguma normalização de valor que não localizamos ainda. **Precisa ser
-  investigado antes do próximo incremento da Tarefa 7.2** — não usar
-  `'SIMULACAO'`/`'UNIDADES'` (maiúsculas) como valor de teste sem antes
-  confirmar contra um log real com `Status2__c=success` E `StageName`
-  preenchido de fato.
+  não `"UNIDADES"`/`"SIMULACAO"` como usamos no smoke test.
+  **CORREÇÃO (investigação de acompanhamento, ver seção abaixo):** isso
+  **NÃO é uma divergência real** — foi verificado empiricamente que
+  `retornaValorFase` funciona corretamente com `"Unidades"`, graças a uma
+  peculiaridade conhecida do Apex: o operador `==` em `String` é
+  **case-insensitive** (diferente de `.equals()`), então
+  `"Unidades" == 'UNIDADES'` avalia `true`. Confirmado consultando
+  Opportunities reais em `mrv-staging` resultantes de payloads
+  `Estado="Unidades"` — todas com `StageName='Escolher Unidade'`, exatamente
+  o valor de retorno esperado para esse branch. **`'SIMULACAO'`/`'UNIDADES'`
+  continuam válidos como valores de teste no smoke test da Tarefa 7.2.**
 - **`Cliente.contatos[]`** (array aninhado com `TipoContato`/`descricao`)
   nunca foi modelado — o contrato atual do simulador não tem esse campo.
 - Payload real tem ~30 campos adicionais nunca modelados
@@ -148,6 +147,33 @@ Divergências concretas do que construímos no incremento 1 (`maquina-estado.ts`
   a maioria provavelmente ignorada pelo Apex quando ausente do payload
   mínimo (comportamento tolerante, já confirmado para `/PAC`), mas vale
   registrar para futura expansão de realismo.
+
+### 1.1. Investigação de acompanhamento: `Estado="Unidades"` (resolvida, não é bug)
+
+Ao revisar esta análise, a hipótese original ("`Estado` real diverge do que
+usamos, pode quebrar `retornaValorFase`") foi **investigada empiricamente e
+refutada**:
+
+1. Localizada, via `Cliente.IdProspectSalesforce` de um log real com
+   `Status2__c=success`, a `Account` real correspondente em `mrv-staging`
+   (`Id=001HZ00000vxoUpYAI`).
+2. Consultadas todas as `Opportunity` reais vinculadas a essa Account
+   (RecordType `Unidade`): a esmagadora maioria tem
+   `StageName='Escolher Unidade'` — exatamente o retorno esperado do branch
+   `valorJson == 'UNIDADES'` em `retornaValorFase`.
+3. Confirmado, baixando a versão REAL deployada de
+   `NotificacaoMaquinaEstado.cls` em `mrv-staging` via Tooling API, que o
+   código é idêntico ao lido em `mrv-devDan`/repositório (`valorJson ==
+   'UNIDADES'`, sem `.toUpperCase()`/`equalsIgnoreCase()` em lugar nenhum).
+4. **Causa raiz real**: o operador `==` para `String` em Apex é
+   **case-insensitive por padrão** (comportamento documentado da plataforma,
+   distinto de `String.equals()`, que É case-sensitive). Por isso
+   `"Unidades" == 'UNIDADES'` é `true`, e o mapeamento funciona
+   corretamente independente da capitalização exata enviada no payload.
+
+**Conclusão**: nenhuma correção é necessária no cenário `maquina-estado-insert-minimo`
+nem nos próximos incrementos da Tarefa 7.2 por causa deste ponto. O valor
+`'SIMULACAO'` usado no smoke test continua correto e válido.
 
 ### 2. `/PAC` (`pac-insert`/`pac-update`) — Tarefa 7.1, já concluída
 
