@@ -1973,7 +1973,18 @@ disciplina de execucao real contra `mrv-devDan`.
   **dois Proponentes `Principal` distintos, resolvidos para a mesma Account e
   com contatos divergentes, bloqueiam a sincronizacao de contatos para a
   Account inteira, sem impedir o upsert de nenhum dos dois registros.**
-- [ ] Variacoes 4/5 e 5/5 pendentes de priorizacao.
+- [x] **Variacao 4/5 concluida:** `pac-insert-opportunity-perdida-forca-cancelado`.
+- [x] O simulador verifica automaticamente que:
+  - a PAC continua vinculada a Opportunity sintetica com `StageName='Perdido'`;
+  - o `Status__c` persistido replica o valor do payload
+    (`CREDITO_APROVADO_CONDICIONADO`);
+  - o cenario registra explicitamente a divergencia entre a hipotese teórica do
+    override para `Cancelado` e o comportamento real observado na org.
+- [x] Achado arquitetural real documentado:
+  **em `mrv-devDan`, um `pac-insert` vinculado a Opportunity com
+  `StageName='Perdido'` nao forcou `Status__c='Cancelado'`; a PAC foi gravada
+  com o mesmo status enviado no payload.**
+- [ ] Variacao 5/5 pendente: contestacao (nao iniciada).
 
 **Progresso real (variacao 1/5, `pac-update` basico):**
 
@@ -2025,6 +2036,23 @@ disciplina de execucao real contra `mrv-devDan`.
   retornaram `totalSize = 0` para todos os objetos.
 
 **Evidencia:** `docs/phase-7/pac-conflito-proponentes-principais.md`.
+
+**Progresso real (variacao 4/5, Opportunity Perdido):**
+
+- o valor exato `Perdido` foi confirmado no picklist real de
+  `Opportunity.StageName` em `mrv-devDan`;
+- o setup sintetico do simulador ja aceitava `stageName` parametrico em
+  `CREATE_SYNTHETIC_OPPORTUNITY`, sem hardcode obrigatorio em `Simulacao`;
+- no `pac-insert` executado ao vivo com payload
+  `status='CREDITO_APROVADO_CONDICIONADO'` e Opportunity sintetica perdida,
+  a `PropostaAnaliseCredito__c` foi criada normalmente e vinculada a
+  Opportunity;
+- a query direta na PAC mostrou `Status__c='CREDITO_APROVADO_CONDICIONADO'`,
+  contrariando a expectativa teorica de override para `Cancelado`;
+- o cleanup real removeu `PropostaAnaliseCredito__c`, `Opportunity` e
+  `Account`, e as queries finais retornaram `totalSize = 0`.
+
+**Evidencia:** `docs/phase-7/pac-perdido-forca-cancelado.md`.
 
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
