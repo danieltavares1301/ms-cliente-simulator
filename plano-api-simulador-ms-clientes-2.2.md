@@ -2270,6 +2270,21 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
 - [x] Execução real de ambos os cenários validada em `mrv-devDan`, com cleanup
   confirmado por query direta. Evidência preservada em
   `docs/phase-7/maquina-estado-sem-cliente.md`.
+- [x] Incremento 3 implementado no simulador: cenários
+  `maquina-estado-update-transicao-estado` e
+  `maquina-estado-update-sem-cliente-falha`, cobrindo o update básico de uma
+  `Opportunity` já existente e o reteste do `HTTP 400` real sem `Account`.
+- [x] Releitura do Apex confirmou o branch
+  `DOCUMENTACAO -> 'Qualificação de Documentos'` em
+  `NotificacaoMaquinaEstado.retornaValorFase`.
+- [x] Execução real de ambos os cenários de update validada em `mrv-devDan`,
+  incluindo query antes/depois provando que o update reutiliza a **mesma**
+  `Opportunity` Salesforce e não cria duplicata. Evidência preservada em
+  `docs/phase-7/maquina-estado-update.md`.
+- [ ] Candidato natural a checkpoint técnico: smoke test de insert,
+  dependência real de ordem `/Cliente` ↔ `/MaquinaEstado` e update básico já
+  estão cobertos; ainda faltam obsolescência/reentrega para consolidar o
+  fechamento formal da Tarefa 7.2.
 
 **Criterios de aceite:**
 
