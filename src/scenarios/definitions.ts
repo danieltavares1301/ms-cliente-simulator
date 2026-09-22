@@ -2,6 +2,7 @@ import type { ScenarioDefinition } from '../contracts/scenarios.ts';
 
 type GeneratedValue =
   | 'EVENT_ID'
+  | 'REDELIVERY_EVENT_ID'
   | 'EVENT_TIME'
   | 'PINNED_EVENT_TIME'
   | 'BASELINE_TIME'
@@ -298,6 +299,7 @@ function approvedPacWithPrincipalProponentePayload(
 function maquinaEstadoPayload(
   eventType: 'jornadausuario-insert' | 'jornadausuario-update',
   options: {
+    envelopeId?: ReturnType<typeof generated>;
     idCliente?: ReturnType<typeof generated> | null;
     idProspectSalesforce?: ReturnType<typeof generated>;
     estado?: string;
@@ -307,6 +309,7 @@ function maquinaEstadoPayload(
   } = {},
 ): ScenarioDefinition['steps'][number]['payloadTemplate'] {
   const {
+    envelopeId = generated('EVENT_ID'),
     idCliente = generated('CLIENT_ID'),
     idProspectSalesforce = generated('PROSPECT_ID'),
     estado = 'SIMULACAO',
@@ -319,7 +322,7 @@ function maquinaEstadoPayload(
     kind: 'DECLARATIVE',
     contract: 'EVENT_GRID',
     value: {
-      id: generated('EVENT_ID'),
+      id: envelopeId,
       subject: 'MS_Clientes',
       eventType,
       eventTime,
@@ -1511,6 +1514,322 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithLeadProponenteAndOpportunity,
+  },
+  {
+    key: 'e2e-opportunity-permanece-conta-aprovada',
+    version: 1,
+    name: 'Cross-endpoint mantém Opportunity na Account aprovada',
+    description:
+      'Combina /MaquinaEstado, /Cliente e /PAC para confirmar que um jornadausuario-update posterior, resolvendo a identidade antiga apenas por prospect, não reassocia a Opportunity depois que a PAC aprovada já a moveu para a Account nova.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'cross-endpoint', 'o08', 'pac', 'maquina-estado'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'CONTROL',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspect: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF_X'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-conta-antiga',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspectSalesforce: generated('PROSPECT_ID_X'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert-conta-aprovada',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: {
+          kind: 'DECLARATIVE',
+          contract: 'EVENT_GRID',
+          value: {
+            id: generated('EVENT_ID'),
+            subject: 'MS_Clientes',
+            eventType: 'cliente-insert',
+            eventTime: generated('EVENT_TIME'),
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/simulator/ms-clientes',
+            data: {
+              idcliente: generated('CLIENT_ID'),
+              idprospectsalesforce: generated('PROSPECT_ID_X'),
+              numerocpf: generated('CPF'),
+              dataalteracao: generated('EVENT_TIME'),
+              nomecompleto: generated('PERSON_NAME'),
+            },
+          },
+        },
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-insert-aprovado',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 3_000,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload({
+          idCliente: generated('CLIENT_ID'),
+          cpf: generated('CPF'),
+          personName: generated('PERSON_NAME'),
+          email: generated('PAC_EMAIL'),
+          celular: generated('PAC_CELULAR'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-identidade-antiga',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 4_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          idCliente: null,
+          idProspectSalesforce: generated('PROSPECT_ID_X'),
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC aprovada reassocia a Opportunity para a Account PRIMARY; quando um jornadausuario-update posterior volta a resolver a identidade antiga apenas por `ID_PROSPECT`, a Opportunity deve permanecer na Account aprovada e ainda aceitar a transição de fase.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'CREDITO_APROVADO_CONDICIONADO',
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+          'LEAD_COUNT_BY_CPF_IS_ONE',
+          {
+            check: 'LEAD_EMAIL_EQUALS_EXPECTED',
+            value: generated('PAC_EMAIL'),
+          },
+          {
+            check: 'LEAD_MOBILE_EQUALS_EXPECTED',
+            value: generated('PAC_CELULAR'),
+          },
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithLeadProponenteAndOpportunity,
+  },
+  {
+    key: 'e2e-evento-obsoleto-sem-cliente-ignorado',
+    version: 1,
+    name: 'Cross-endpoint ignora evento obsoleto sem cliente',
+    description:
+      'Cria a Opportunity, avança a fase com um update atual e em seguida envia um jornadausuario-update mais antigo, sem qualquer Account resolvível, para comprovar o retorno HTTP 200 com descarte silencioso.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'cross-endpoint', 'maquina-estado', 'obsoleto'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          estado: 'SIMULACAO',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-documentacao-atual',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-obsoleto-sem-cliente',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 6_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspectSalesforce: generated('PROSPECT_ID_X'),
+          estado: 'CONTRATO',
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'O update atual move a Opportunity para Qualificação de Documentos; um update posterior, mais antigo e sem cliente resolvível, deve retornar sucesso de transporte e deixar a Opportunity intacta, sem fila manual.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'e2e-evento-atual-reentregue-apos-cliente-insert',
+    version: 1,
+    name: 'Cross-endpoint reentrega evento atual após cliente-insert',
+    description:
+      'Reenvia exatamente o mesmo jornadausuario-insert após um /Cliente criar a Account correspondente, registrando o comportamento real observado em mrv-devDan para essa reentrega cross-endpoint.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'cross-endpoint', 'maquina-estado', 'reentrega'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-sem-cliente',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        expectedHttpStatus: 400,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          envelopeId: generated('REDELIVERY_EVENT_ID'),
+          idCliente: null,
+          idProspectSalesforce: generated('PROSPECT_ID'),
+          estado: 'SIMULACAO',
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert-cria-account',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: clientPayload('cliente-insert', true),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-insert-reentregue',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 4_000,
+        expectedHttpStatus: 400,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          envelopeId: generated('REDELIVERY_EVENT_ID'),
+          idCliente: null,
+          idProspectSalesforce: generated('PROSPECT_ID'),
+          estado: 'SIMULACAO',
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'EVENT_REJECTED_WITHOUT_DML',
+        description:
+          'Divergência real observada em mrv-devDan: o /Cliente cria a Account, mas não carimba `IdProspectSalesforce__c`; por isso a reentrega exata do mesmo jornadausuario-insert continua falhando com `Cliente(Account) não encontrado`, sem criar Opportunity.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
+          'OPPORTUNITY_NOT_CREATED',
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 0,
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithOpportunity,
   },
   {
     key: 'evento-duplicado',

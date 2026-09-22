@@ -26,6 +26,7 @@ type GeneratedValue =
   | 'RUN_ID'
   | 'STEP_ID'
   | 'EVENT_ID'
+  | 'REDELIVERY_EVENT_ID'
   | 'EVENT_TIME'
   | 'PINNED_EVENT_TIME'
   | 'BASELINE_TIME'
@@ -126,6 +127,7 @@ export function renderScenarioFixture(
   const controlSyntheticProponenteExternalId = `PROP-SIM-X-${namespaceToken}-${seedToken}`;
   const syntheticContestacaoExternalId = `CONT-SIM-${namespaceToken}-${seedToken}`;
   const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
+  const redeliveryEventId = `EVT-SIM-R-${namespaceToken}-${seedToken}`;
   const collisionCpf = generateSyntheticCpf(
     `${input.seed}:collision`,
     input.runId,
@@ -148,6 +150,7 @@ export function renderScenarioFixture(
     RUN_ID: input.runId,
     STEP_ID: '',
     EVENT_ID: '',
+    REDELIVERY_EVENT_ID: redeliveryEventId,
     EVENT_TIME: eventStartAt,
     PINNED_EVENT_TIME: eventStartAt,
     BASELINE_TIME: new Date(Date.parse(eventStartAt) - 1_000).toISOString(),

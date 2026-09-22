@@ -25,6 +25,7 @@ const generatedFixtureValueSchema = z.enum([
   'RUN_ID',
   'STEP_ID',
   'EVENT_ID',
+  'REDELIVERY_EVENT_ID',
   'EVENT_TIME',
   'PINNED_EVENT_TIME',
   'BASELINE_TIME',

@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(37);
+    expect(scenarioCatalog.listActive()).toHaveLength(40);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -213,6 +213,21 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'cpf-divergente-identidade-antiga-pac-aprovada',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'e2e-evento-atual-reentregue-apos-cliente-insert',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'e2e-evento-obsoleto-sem-cliente-ignorado',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'e2e-opportunity-permanece-conta-aprovada',
         version: 1,
         availability: 'READY',
       },

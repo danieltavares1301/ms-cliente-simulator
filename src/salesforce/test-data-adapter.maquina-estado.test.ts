@@ -58,6 +58,26 @@ function obsoleteUpdateFixture() {
   });
 }
 
+function approvedAccountFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'e2e-opportunity-permanece-conta-aprovada',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_cross_keep_account',
+    eventStartAt: '2026-09-22T22:00:00.000Z',
+  });
+}
+
+function obsoleteWithoutClientFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'e2e-evento-obsoleto-sem-cliente-ignorado',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_cross_obsolete',
+    eventStartAt: '2026-09-22T22:10:00.000Z',
+  });
+}
+
 function unrecognizedEstadoUpdateFixture() {
   return renderScenarioFixture({
     scenarioKey: 'maquina-estado-update-estado-nao-reconhecido',
@@ -526,6 +546,243 @@ describe('Salesforce test data adapter for MaquinaEstado smoke scenario', () => 
     );
     expect(result.recordIds).toEqual(
       expect.arrayContaining([accountId, opportunityId, opportunityLineItemId]),
+    );
+  });
+
+  it('verifies the cross-endpoint PAC scenario keeps the Opportunity linked to the approved PRIMARY Account', async () => {
+    const rendered = approvedAccountFixture();
+    const client = restClient();
+    const adapter = createSalesforceTestDataAdapter({ restClient: client });
+    const pacEventData = rendered.steps[2]!.envelope[0]!.data as {
+      id: string;
+      proponentes: Array<{
+        id: string;
+        cpf: string;
+        email?: string;
+        telefoneCelular?: string;
+      }>;
+    };
+    const proponente = pacEventData.proponentes[0]!;
+
+    client.query.mockImplementation(async (query: unknown) => {
+      const soql = String(query);
+      if (soql.includes('FROM Account')) {
+        return {
+          totalSize: 2,
+          done: true,
+          records: [
+            {
+              Id: '001000000000002AAA',
+              Id__c: rendered.identifiers.controlAccountIdCliente,
+              IdProspectSalesforce__c: rendered.identifiers.controlAccountIdProspect,
+              CPF__pc: '26026568043',
+              LastName: 'Cliente Controle',
+              IsPersonAccount: true,
+            },
+            {
+              Id: accountId,
+              Id__c: rendered.identifiers.accountIdCliente,
+              IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+              CPF__pc: '39095812030',
+              LastName: 'Cliente Aprovado',
+              IsPersonAccount: true,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM Lead')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: '00Q000000000001AAA',
+              Id__c: 'legacy-routed-lead',
+              FirstName: null,
+              CPF__c: proponente.cpf,
+              LastName: 'Lead Aprovado',
+              Email: proponente.email,
+              MobilePhone: proponente.telefoneCelular,
+              CelularSemFormatacao__c: proponente.telefoneCelular,
+              CidadeInteresse__c: null,
+              Marca__c: '1',
+              RecordTypeId: '012000000000001AAA',
+              ManipularFase__c: true,
+              Status: 'Pendente de Distribuição',
+              PermitirCriarLead__c: true,
+              DescricaoOrigem__c: null,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM OpportunityLineItem')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: opportunityLineItemId,
+              OpportunityId: opportunityId,
+              Id__c: `${opportunityId}1`,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM Opportunity')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: opportunityId,
+              Id__c: rendered.steps[0]!.envelope[0]!.data.id,
+              AccountId: accountId,
+              Name: 'Opportunity Sintética MaquinaEstado',
+              StageName: 'Qualificação de Documentos',
+              CloseDate: '2027-12-31',
+              PACAtual__c: 'a0k000000000001AAA',
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM PropostaAnaliseCredito__c')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: 'a0k000000000001AAA',
+              Id__c: pacEventData.id,
+              Oportunidade__c: opportunityId,
+              Status__c: 'CREDITO_APROVADO_CONDICIONADO',
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM Proponente__c')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: 'a0j000000000001AAA',
+              Id__c: proponente.id,
+              Proponente__c: accountId,
+              PropostaAnaliseCredito__c: 'a0k000000000001AAA',
+              IdCliente__c: rendered.identifiers.accountIdCliente,
+              CpfProponente__c: proponente.cpf,
+              TipoClassificacao__c: 'Principal',
+              EmailAtualizado__c: proponente.email,
+              Celular__c: proponente.telefoneCelular,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected query: ${soql}`);
+    });
+
+    const result = await adapter.verify(input(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY', passed: true },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          passed: true,
+        },
+        {
+          check: 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+          passed: true,
+        },
+        { check: 'LEAD_COUNT_BY_CPF_IS_ONE', passed: true, actualCount: 1 },
+        { check: 'LEAD_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'LEAD_MOBILE_EQUALS_EXPECTED', passed: true },
+        { check: 'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT', passed: true },
+        { check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED', passed: true },
+      ]),
+    );
+    expect(result.recordIds).toEqual(
+      expect.arrayContaining([
+        accountId,
+        opportunityId,
+        opportunityLineItemId,
+        '00Q000000000001AAA',
+        'a0k000000000001AAA',
+        'a0j000000000001AAA',
+      ]),
+    );
+  });
+
+  it('verifies the cross-endpoint obsolete event fixture even when the final update uses synthetic no-match identifiers', async () => {
+    const rendered = obsoleteWithoutClientFixture();
+    const client = restClient();
+    const adapter = createSalesforceTestDataAdapter({ restClient: client });
+
+    client.query.mockImplementation(async (query: unknown) => {
+      const soql = String(query);
+      if (soql.includes('FROM Account')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: accountId,
+              Id__c: rendered.identifiers.accountIdCliente,
+              IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+              CPF__pc: '39095812030',
+              LastName: 'Cliente Simulado Base',
+              IsPersonAccount: true,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM OpportunityLineItem')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: opportunityLineItemId,
+              OpportunityId: opportunityId,
+              Id__c: `${opportunityId}1`,
+            },
+          ],
+        };
+      }
+      if (soql.includes('FROM Opportunity')) {
+        return {
+          totalSize: 1,
+          done: true,
+          records: [
+            {
+              Id: opportunityId,
+              Id__c: rendered.steps[0]!.envelope[0]!.data.id,
+              AccountId: accountId,
+              Name: 'Opportunity Sintética MaquinaEstado',
+              StageName: 'Qualificação de Documentos',
+              CloseDate: '2027-12-31',
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected query: ${soql}`);
+    });
+
+    const result = await adapter.verify(input(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE', passed: true, actualCount: 1 },
+        { check: 'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT', passed: true },
+        { check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED', passed: true },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          passed: true,
+          actualCount: 1,
+        },
+      ]),
     );
   });
 

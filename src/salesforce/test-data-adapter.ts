@@ -248,6 +248,9 @@ const adapterInputSchema = z
       const requiresContactFields = step.eventType === 'contato-insert';
       const requiresAddressFields = step.eventType === 'endereco-insert';
       const opportunitySetup = opportunitySetups[0];
+      const expectedOpportunityExternalId =
+        opportunitySetup?.opportunity.idExterno ??
+        maquinaEstadoFixtureEvent(fixture)?.id;
       const pacPrimaryProponente =
         event !== undefined && isPacFixtureEventData(event)
           ? event.proponentes?.find(
@@ -281,25 +284,51 @@ const adapterInputSchema = z
         fixture.identifiers.accountIdCliente,
         fixture.identifiers.controlAccountIdCliente,
       ].filter((value): value is string => value !== undefined);
+      const usesAllowedMaquinaEstadoIdentity =
+        isMaquinaEstadoFixtureEventData(event) &&
+        event.id.startsWith('OPP-SIM-') &&
+        ((event.cliente.idCliente === fixture.identifiers.accountIdCliente &&
+          event.cliente.idProspectSalesforce ===
+            fixture.identifiers.accountIdProspect) ||
+          (fixture.identifiers.controlAccountIdCliente !== undefined &&
+            event.cliente.idCliente ===
+              fixture.identifiers.controlAccountIdCliente &&
+            event.cliente.idProspectSalesforce ===
+              fixture.identifiers.controlAccountIdProspect) ||
+          (fixture.identifiers.controlAccountIdProspect !== undefined &&
+            event.cliente.idCliente === null &&
+            event.cliente.idProspectSalesforce ===
+              fixture.identifiers.controlAccountIdProspect) ||
+          (absentAccountSetup !== undefined &&
+            event.cliente.idCliente === null &&
+            event.cliente.idProspectSalesforce ===
+              fixture.identifiers.accountIdProspect) ||
+          (fixture.identifiers.controlAccountIdCliente === undefined &&
+            event.cliente.idCliente?.startsWith('CLI-SIM-X-') === true &&
+            event.cliente.idProspectSalesforce.startsWith('PRO-SIM-X-')));
       const usesAllowedIdentity =
         !requiresPacFields &&
-        ((eventIdCliente !== undefined &&
-          eventIdCliente === fixture.identifiers.accountIdCliente) ||
-          (requiresMaquinaEstadoFields &&
-            absentAccountSetup !== undefined &&
-            eventIdCliente === null) ||
-          (!requiresClientFields &&
-            fixture.identifiers.controlAccountIdCliente !== undefined &&
-            eventIdCliente === fixture.identifiers.controlAccountIdCliente));
+        (requiresMaquinaEstadoFields
+          ? usesAllowedMaquinaEstadoIdentity
+          : (eventIdCliente !== undefined &&
+              eventIdCliente === fixture.identifiers.accountIdCliente) ||
+            (!requiresClientFields &&
+              fixture.identifiers.controlAccountIdCliente !== undefined &&
+              eventIdCliente === fixture.identifiers.controlAccountIdCliente));
       const allowsEchoedClientId =
         requiresClientFields &&
         eventIdProspect === fixture.identifiers.accountIdCliente;
+      const allowsSyntheticNoMatchProspect =
+        requiresMaquinaEstadoFields &&
+        fixture.identifiers.controlAccountIdProspect === undefined &&
+        eventIdCliente?.startsWith('CLI-SIM-X-') === true &&
+        eventIdProspect?.startsWith('PRO-SIM-X-') === true;
       if (
         event === undefined ||
         (requiresPacFields &&
           (!isPacFixtureEventData(event) ||
-            opportunitySetup === undefined ||
-            event.idjornadapac !== opportunitySetup.opportunity.idExterno ||
+            expectedOpportunityExternalId === undefined ||
+            event.idjornadapac !== expectedOpportunityExternalId ||
             (event.proponentes !== undefined &&
               event.proponentes.some(
                 (proponente) =>
@@ -309,16 +338,7 @@ const adapterInputSchema = z
               )) ||
             (pacPrimaryProponente !== undefined &&
               pacPrimaryProponente.cpf !== fixtureCpf(fixture)))) ||
-        (requiresMaquinaEstadoFields &&
-          !(
-            isMaquinaEstadoFixtureEventData(event) &&
-            (event.cliente.idCliente === fixture.identifiers.accountIdCliente ||
-              (absentAccountSetup !== undefined &&
-                event.cliente.idCliente === null)) &&
-            event.cliente.idProspectSalesforce ===
-              fixture.identifiers.accountIdProspect &&
-            event.id.startsWith('OPP-SIM-')
-          )) ||
+        (requiresMaquinaEstadoFields && !usesAllowedMaquinaEstadoIdentity) ||
         (!requiresPacFields && !usesAllowedIdentity) ||
         (requiresClientFields &&
           (!isClientFixtureEventData(event) ||
@@ -343,6 +363,7 @@ const adapterInputSchema = z
             fixture.identifiers.accountIdProspect &&
           eventIdProspect !==
             fixture.identifiers.controlAccountIdProspect &&
+          !allowsSyntheticNoMatchProspect &&
           !allowsEchoedClientId)
       ) {
         context.addIssue({

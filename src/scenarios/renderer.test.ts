@@ -14,6 +14,9 @@ const scenarioKeys = [
   'cpf-divergente-contato-primeiro',
   'cpf-divergente-identidade-antiga',
   'cliente-insert-prospect-divergente',
+  'e2e-evento-atual-reentregue-apos-cliente-insert',
+  'e2e-evento-obsoleto-sem-cliente-ignorado',
+  'e2e-opportunity-permanece-conta-aprovada',
   'evento-duplicado',
   'evento-obsoleto',
   'graphql-erro-500',
@@ -47,6 +50,9 @@ const expectedStepCountByScenario = {
   'cpf-divergente-contato-primeiro': 3,
   'cpf-divergente-identidade-antiga': 3,
   'cliente-insert-prospect-divergente': 1,
+  'e2e-evento-atual-reentregue-apos-cliente-insert': 3,
+  'e2e-evento-obsoleto-sem-cliente-ignorado': 3,
+  'e2e-opportunity-permanece-conta-aprovada': 4,
   'evento-duplicado': 1,
   'evento-obsoleto': 1,
   'graphql-erro-500': 1,
@@ -1176,6 +1182,19 @@ describe('renderScenarioFixture', () => {
                   '2026-08-22T15:00:03.000Z',
                   '2026-08-22T15:00:00.000Z',
                 ][fixture.steps.indexOf(step)]
+              : scenarioKey === 'e2e-evento-obsoleto-sem-cliente-ignorado'
+                ? [
+                    '2026-08-22T15:00:00.000Z',
+                    '2026-08-22T15:00:03.000Z',
+                    '2026-08-22T15:00:00.000Z',
+                  ][fixture.steps.indexOf(step)]
+                : scenarioKey ===
+                    'e2e-evento-atual-reentregue-apos-cliente-insert'
+                  ? [
+                      '2026-08-22T15:00:00.000Z',
+                      '2026-08-22T15:00:02.000Z',
+                      '2026-08-22T15:00:00.000Z',
+                    ][fixture.steps.indexOf(step)]
               : isPinnedLogicalEventTime
                 ? input.eventStartAt
                 : expectedTime;
@@ -1186,6 +1205,19 @@ describe('renderScenarioFixture', () => {
                 '2026-08-22T15:00:03.000Z',
                 '2026-08-22T15:00:00.000Z',
               ][fixture.steps.indexOf(step)]
+            : scenarioKey === 'e2e-evento-obsoleto-sem-cliente-ignorado'
+              ? [
+                  '2026-08-22T15:00:00.000Z',
+                  '2026-08-22T15:00:03.000Z',
+                  '2026-08-22T15:00:00.000Z',
+                ][fixture.steps.indexOf(step)]
+              : scenarioKey ===
+                  'e2e-evento-atual-reentregue-apos-cliente-insert'
+                ? [
+                    '2026-08-22T15:00:00.000Z',
+                    '2026-08-22T15:00:02.000Z',
+                    '2026-08-22T15:00:00.000Z',
+                  ][fixture.steps.indexOf(step)]
             : isPinnedLogicalEventTime
               ? input.eventStartAt
               : expectedTime;
