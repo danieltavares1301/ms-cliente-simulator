@@ -1834,7 +1834,11 @@ adicionais, mas concluido no mesmo incremento).
 
 **Criterios de aceite:**
 
-- [ ] Fixtures validadas por contrato, determinismo e ausencia de segredos.
+- [x] **Incremento 1 concluido:** fixture `pac-insert-minimo` validada por
+  contrato/determinismo/ausencia de segredos; `target: 'PAC'` suportado no
+  renderer/dispatch; setup allowlisted de `Opportunity`; assertion minima de
+  vinculo `PropostaAnaliseCredito__c -> Opportunity` implementada e validada
+  ao vivo em `mrv-devDan`.
 - [ ] Ordem relativa a cliente e configuravel.
 - [ ] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
 - [ ] Retestar `cpf-divergente-identidade-antiga` (O08) com uma PAC aprovada
@@ -1848,6 +1852,27 @@ adicionais, mas concluido no mesmo incremento).
 **Dependencias:** MVP.
 
 **Escopo:** medio.
+
+**Progresso real (incremento 1, smoke test minimo):**
+
+- `pac-insert` real processado por `NotificacaoPAC.cls` via
+  `/services/apexrest/PAC`, sem enviar `proponentes`.
+- Opportunity sintetica criada com sucesso usando apenas `Name`,
+  `StageName='Simulação'`, `CloseDate`, `Id__c` e `AccountId`; `RecordTypeId`
+  nao foi necessario neste incremento.
+- `PropostaAnaliseCredito__c` criada e vinculada corretamente a Opportunity
+  sintetica; `Opportunity.PACAtual__c` atualizado pelo Apex como esperado.
+- Callback assíncrono de `EnvioPACCreditoQueue` observado com
+  `LogIntegracao__c.EventType__c='EnvioPACCredito'` e `Status2__c='success'`.
+- Cleanup real executado ao final do diagnostico (Account + Opportunity +
+  PropostaAnaliseCredito__c removidas via fluxo allowlisted).
+
+**Ainda falta nesta tarefa 7.1:**
+
+- ordem relativa entre eventos de `/Cliente` e `/PAC`;
+- modelagem/fixture/assertions de `Proponente__c`;
+- revisita da Regra 6.6 / O08 com PAC aprovada e contatos aprovados;
+- eventuais asserts adicionais alem do smoke test minimo deste incremento.
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
 
