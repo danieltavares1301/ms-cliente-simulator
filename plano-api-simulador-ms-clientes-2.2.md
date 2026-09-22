@@ -2095,6 +2095,101 @@ disciplina de execucao real contra `mrv-devDan`.
 **Evidencia:** `docs/phase-7/pac-contestacao-pendente.md`.
 
 
+### Checkpoint 7.1: `/PAC` consolidado
+
+**Escopo coberto (Tarefa 7.0 + 7.1 + 7.1b), com execucao real contra
+`mrv-devDan` em todos os itens:**
+
+- Protecao do callout de producao `EnvioPACCreditoQueue` (Tarefa 7.0).
+- Caminho minimo `/PAC` (Opportunity sintetica -> `pac-insert` -> PAC criada e
+  vinculada).
+- `proponentes[]`/PAC aprovada sincronizando contatos da Account (Regra 6.6
+  revisitada).
+- Reteste do O08 com PAC aprovada, confirmando que a sincronizacao pos-PAC
+  corrige a Account que o `/Cliente` sozinho deixa vazia.
+- `pac-update` basico (upsert e a descoberta de que update sem
+  `proponentes[]` apaga os Proponentes existentes).
+- Obsolescencia no nivel da PAC e no nivel do Proponente individual.
+- Conflito de Proponentes Principais (bloqueio de sincronizacao sem bloquear
+  o upsert).
+- Opportunity `StageName='Perdido'` (divergencia real documentada: sem
+  override para `Cancelado`).
+- Contestacao pendente (sincronizacao de contatos sem exigir
+  `tipoClassificacao='Principal'`).
+
+**Estado tecnico final:** 642/642 testes, build limpo (`npm run build`
+valida 27 fixtures), 8 cenarios `/PAC` publicados no catalogo, versao do
+simulador em `0.17.0`.
+
+**Achados reais relevantes (resumo, ver secoes acima para evidencia
+completa):**
+
+- `pac-update` sem `proponentes[]` apaga os Proponentes da PAC.
+- Obsolescencia no nivel da PAC descarta o payload inteiro (comparacao
+  estrita `<`); no nivel do Proponente e avaliada por `id` individualmente.
+- Conflito entre dois Proponentes `Principal` da mesma Account bloqueia toda
+  a sincronizacao de contatos daquela Account.
+- `StageName='Perdido'` **nao** forcou `Status__c='Cancelado'` na execucao
+  real (diverge da leitura teorica do Apex; causa raiz nao identificada,
+  documentado como comportamento real observado).
+- Contestacao pendente sincroniza contatos por um caminho paralelo que nao
+  exige `Principal`.
+- Dois bugs reais de seguranca no proprio simulador foram encontrados em
+  revisao de codigo independente e corrigidos com TDD (RED/GREEN
+  confirmado): um gate de verificacao incompleto (`PROPOSTA_ANALISE_CREDITO_
+  STATUS_EQUALS_EXPECTED` sem query correspondente quando usado isolado) e uma
+  vulnerabilidade de cross-pairing no cleanup de multiplos Proponentes
+  (`Id__c`/`IdCliente__c` comparados em listas independentes em vez de pares).
+
+**Ajustes de infraestrutura na org (`mrv-devDan`), todos deploy-only e nunca
+commitados em `com_salesforce_mrv`, conforme regra da sessao:**
+
+- Permission Set `AcessoDeAPI`: CRUD completo + FLS adicionados para
+  `Opportunity`, `PropostaAnaliseCredito__c`, `Proponente__c` e
+  `Contestacao__c` (todos os campos custom nao-formula, mais os 3 campos
+  formula como somente leitura), alem dos campos de `Account` usados pela
+  sincronizacao de contatos pos-PAC.
+- Deploy de 14 campos de `Contestacao__c` que existiam no repositorio desde
+  2020 mas nunca haviam sido deployados neste sandbox (drift real, nao um bug
+  do simulador).
+
+**Higiene da org:** a verificacao final desta consolidacao encontrou **3
+execucoes de diagnostico intermediarias** (nao as evidencias finais
+documentadas em cada `docs/phase-7/*.md`) que ficaram orfas na org — resultado
+de iteracoes de validacao ao vivo durante o desenvolvimento dos incrementos 2
+e 5, cujo cleanup automatico so cobriu a ultima execucao usada como evidencia.
+Todas foram identificadas e removidas manualmente nesta consolidacao (Account,
+Opportunity, PropostaAnaliseCredito__c e Proponente__c); a org foi
+reconfirmada com `totalSize=0` para todos os prefixos sinteticos
+(`CLI-SIM-`, `OPP-SIM-`, `PAC-SIM-`, `PROP-SIM-`, `CONT-SIM-`) apos a limpeza.
+Isso e registrado como um gap de disciplina a observar em incrementos
+futuros: cleanup real deveria rodar apos CADA execucao de diagnostico, nao so
+apos a ultima.
+
+**Fora de escopo / deferido (nao bloqueia o inicio da Tarefa 7.2):**
+
+- Ordem relativa entre eventos `/Cliente` e `/PAC` como capacidade
+  configuravel independente.
+- Assert formal sobre o reparenting da Opportunity para a Account aprovada
+  (observado como efeito colateral no reteste do O08, nunca validado como
+  requisito obrigatorio de nenhum cenario).
+- `resolverContestacao()`/resolucao efetiva de uma contestacao (os cenarios
+  desta sequencia usaram status neutro deliberadamente para isolar so a
+  sincronizacao de contatos; a transicao `Solucionada__c: false -> true` via
+  `DataSolucao__c` nunca foi exercitada ao vivo).
+- `AtualizaClientesRelacionadosService.atualizaClientesDaJornada`/
+  `ClientesRelacionados__c` (chamado em todo `pac-insert`/`pac-update` com
+  `proponentes[]`, mas sempre no-op nos cenarios desta sequencia por
+  ausencia de dados de `ClientesRelacionados__c`; nunca testado como caminho
+  ativo).
+- Automacao adicional (Flow/Process Builder) em `Opportunity`/`Proponente__c`
+  alem dos triggers ja lidos — nao foi feita uma varredura exaustiva
+  equivalente a que encontrou o risco do `EnvioPACCreditoQueue`.
+
+**Conclusao:** Tarefa 7.1 (contratos `/PAC`) esta concluida e consolidada.
+Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
+
+
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
 
 **Criterios de aceite:**
