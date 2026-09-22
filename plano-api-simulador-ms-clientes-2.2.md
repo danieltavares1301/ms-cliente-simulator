@@ -2245,9 +2245,11 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   Price Book padrão, `UsuarioPadraoClientes__c`, `Product2`/`PricebookEntry`
   ativos).
 - [x] Execução real rodada contra `mrv-devDan` com cleanup validado.
-- [ ] Fluxo funcional ainda bloqueado: o endpoint respondeu `400
-  Cliente(Account) não encontrado` mesmo com a Account sintética confirmada por
-  query direta antes do dispatch. Ver evidência em
+- [ ] Fluxo funcional ainda bloqueado: o Debug Log confirmou que a Account é
+  encontrada (`ClienteSelector.obterClientePorIdCliente` retorna `Rows:1`), mas
+  o `upsert` da `Opportunity` falha com `INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`
+  no lookup `CidadeUnidade__c = a0S4T000000hBf7UAE`, herdado do `Product2`
+  escolhido (`01tV200000AVSn3IAH`). Ver evidência em
   `docs/phase-7/maquina-estado-insert-minimo.md`.
 
 **Criterios de aceite:**

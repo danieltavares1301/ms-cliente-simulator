@@ -58,13 +58,15 @@ Também foi confirmada a leitura do metadata de mapeamento:
 ### Dispatch real
 
 - Endpoint chamado: `/services/apexrest/MaquinaEstado`
-- Status HTTP observado pelo simulador: **400 Bad Request**
-- Reprodução direta via REST, capturando o corpo sem redaction:
+- Primeira execução real: **400 Bad Request**
+- Segunda execução real (repetindo o mesmo payload, mas com `idCliente`
+  copiado exatamente da Account persistida): **400 Bad Request**
+- Corpo devolvido nas duas execuções:
 
 ```json
 {
   "Status": "Error",
-  "Message": "Cliente(Account) não encontrado no Salesforce. clienteProspect.idClient: CLI-SIM-bce7213a22-5aa56b80d1. clienteProspect.idProspectSalesforce: PRO-SIM-bce7213a22-5aa56b80d1."
+  "Message": "Upsert failed. First exception on row 0; first error: INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY, insufficient access rights on cross-reference id: a0S4T000000hBf7: []"
 }
 ```
 
@@ -76,9 +78,110 @@ Também foi confirmada a leitura do metadata de mapeamento:
   - `OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE = 0`
   - `OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED = 0`
 
+## Rodada diagnóstica adicional (com Debug Log real)
+
+Foi executada uma rodada diagnóstica dedicada contra `mrv-devDan`, mantendo a
+Account viva até a coleta completa da evidência.
+
+### Evidência objetiva coletada
+
+- `Account.Id__c` continua configurado com `externalId=true` e `unique=true`.
+- A Account sintética da rodada diagnóstica foi criada como
+  `001HZ000011QqNZYA0`.
+- Query direta **antes** do dispatch encontrou a Account com:
+  - `Id__c = CLI-SIM-0130d92390-9e01dbc74f`
+  - `IdProspectSalesforce__c = PRO-SIM-0130d92390-9e01dbc74f`
+- Query direta **depois** da falha encontrou a mesma Account, sem alteração do
+  `Id__c`.
+- Comparação programática payload × registro persistido:
+  - `payloadEqualsAccountId = true`
+  - `payloadLength = 29`
+  - `accountLength = 29`
+  - `payloadHex = 434c492d53494d2d303133306439323339302d39653031646263373466`
+  - `accountHex = 434c492d53494d2d303133306439323339302d39653031646263373466`
+- Segunda tentativa reaproveitou o `idCliente` lido diretamente da Account
+  persistida; o valor copiado era byte-a-byte idêntico ao original e a falha
+  foi exatamente a mesma.
+
+### O que o Debug Log provou
+
+O Debug Log elimina a hipótese de que o `/MaquinaEstado` não esteja encontrando
+o cliente:
+
+- `ClienteService.getClientePosPacComOrigem(...)` foi chamado.
+- `ClienteSelector.obterClientePorIdCliente(...)` foi chamado.
+- A SOQL executada foi:
+
+```sql
+SELECT Id, Id__c, CPF__pc, IdProspectSalesforce__c, PersonEmail, Celular__c,
+       CelularSemFormatacao__c, PersonMobilePhone, PersonHomePhone,
+       RendaFamiliar__c, Name, LastName, LastModifiedDate, BillingCountry,
+       DataAlteracaoEventoContatoCelular__c, DataAlteracaoEventoContatoEmail__c,
+       DataAlteracaoEvento__c, DataAlteracaoEventoEndereco__c,
+       DataAlteracaoEventoContatoTelefone__c, CPFSemFormatacao__c
+FROM Account
+WHERE Id__c = :tmpVar1
+ORDER BY LastModifiedDate DESC NULLS FIRST
+LIMIT 1
+```
+
+- Resultado da query: `Rows:1`.
+- O log mostra `this.cliente` preenchido com a Account sintética
+  `001HZ000011QqNZYA0`.
+
+Portanto, o erro observado na primeira rodada (`Cliente(Account) não
+encontrado`) não se reproduziu sob inspeção controlada. O lookup do cliente
+funciona.
+
+### Nova causa raiz observada
+
+Na mesma execução, o log mostra a `Opportunity` sendo montada assim antes do
+`upsert`:
+
+- `AccountId = 001HZ000011QqNZYA0`
+- `StageName = Simulação`
+- `Pricebook2Id = 01s4T000000c1bEQAQ`
+- `RecordTypeId = 0124T000000YRR4QAO`
+- `CidadeUnidade__c = a0S4T000000hBf7UAE`
+
+Também foi confirmado por query que o `Product2` escolhido
+(`01tV200000AVSn3IAH`) referencia exatamente:
+
+- `Cidade__c = a0S4T000000hBf7UAE`
+
+O `upsert` então falha com:
+
+```text
+INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY
+insufficient access rights on cross-reference id: a0S4T000000hBf7
+```
+
+Consultas adicionais mostraram:
+
+- Prefixo `a0S` resolve para o objeto `Cidade__c`.
+- `Opportunity.CidadeUnidade__c` é um `Lookup(Cidade)`.
+- `Product2.Cidade__c` também é um `Lookup(Cidade)`.
+- Query direta em `Cidade__c` para `a0S4T000000hBf7UAE` retornou **0 linhas**,
+  inclusive com `--all-rows`, embora o `Product2` continue apontando para esse
+  Id.
+
+### Interpretação da rodada diagnóstica
+
+O bloqueio real desta tarefa **não está no match da Account** nem em erro de
+serialização do `idCliente`. O bloqueio atual está no dado/permissão associado
+ao `Product2` real escolhido:
+
+- o Apex encontra a Account;
+- herda `Cidade__c` do `Product2` para `Opportunity.CidadeUnidade__c`;
+- o `upsert` da `Opportunity` quebra ao referenciar `a0S4T000000hBf7UAE`
+  (`Cidade__c`).
+
+Na prática, o `Product2` ativo usado no smoke test carrega um lookup de cidade
+que está inacessível ou inconsistente para esta operação.
+
 ## Cleanup real
 
-- O cleanup removeu a Account sintética criada no setup.
+- O cleanup removeu a Account sintética criada no setup/diagnóstico.
 - Estado final pós-cleanup:
   - `Account`: 0 registros
   - `Opportunity`: 0 registros
@@ -88,13 +191,13 @@ Também foi confirmada a leitura do metadata de mapeamento:
 
 O simulador agora cobre corretamente o contrato mínimo, o roteamento e o
 cleanup de `OpportunityLineItem`. O bloqueio remanescente está no comportamento
-real do Apex em `mrv-devDan`: mesmo com a Account sintética existente e
-confirmada por query direta antes do dispatch, `NotificacaoMaquinaEstado`
-retorna `Cliente(Account) não encontrado`.
+real da org `mrv-devDan`: o fluxo encontra a Account corretamente, mas falha no
+`upsert` da `Opportunity` ao tentar gravar `CidadeUnidade__c` com o Id
+`a0S4T000000hBf7UAE` herdado do `Product2` selecionado.
 
 ## Próximo passo sugerido
 
-Investigar por que `ClienteService.getClientePosPac(...)` não localiza a
-Account criada pelo adapter neste fluxo específico de `/MaquinaEstado`
-(diferença de lookup pós-PAC / requisitos adicionais do setup), antes de ampliar
-os cenários de Tarefa 7.2.
+Validar no Salesforce qual `Product2`/`Cidade__c` real pode ser usado sem
+gerar `INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`, ou corrigir a
+consistência/permissão do lookup `Cidade__c` na org antes de ampliar os
+cenários de Tarefa 7.2.
