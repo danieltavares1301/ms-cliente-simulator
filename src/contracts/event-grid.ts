@@ -95,6 +95,17 @@ const enderecoDataSchema = forbidDataId(
     .strict(),
 );
 
+const pacDataSchema = z
+  .object({
+    id: z.string().min(1),
+    idjornadapac: z.string().min(1),
+    status: optionalText,
+    datavalidade: z.iso.date().optional(),
+    dataaprovacao: apexCompatibleUtcDateTimeSchema.optional(),
+    dataalteracao: apexCompatibleUtcDateTimeSchema.optional(),
+  })
+  .strict();
+
 const eventGridEnvelopeItemShape = {
   id: z.string().min(1),
   subject: z.string(),
@@ -124,6 +135,8 @@ export const eventTypeSchema = z.enum([
   'contato-update',
   'endereco-insert',
   'endereco-update',
+  'pac-insert',
+  'pac-update',
 ]);
 
 export const clienteInsertEventSchema = eventVariant(
@@ -150,6 +163,8 @@ export const enderecoUpdateEventSchema = eventVariant(
   'endereco-update',
   enderecoDataSchema,
 );
+export const pacInsertEventSchema = eventVariant('pac-insert', pacDataSchema);
+export const pacUpdateEventSchema = eventVariant('pac-update', pacDataSchema);
 
 export const eventGridEventSchema = z.discriminatedUnion('eventType', [
   clienteInsertEventSchema,
@@ -158,6 +173,8 @@ export const eventGridEventSchema = z.discriminatedUnion('eventType', [
   contatoUpdateEventSchema,
   enderecoInsertEventSchema,
   enderecoUpdateEventSchema,
+  pacInsertEventSchema,
+  pacUpdateEventSchema,
 ]);
 
 export const eventGridEnvelopeSchema = z.array(eventGridEventSchema).length(1);

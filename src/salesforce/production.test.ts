@@ -75,6 +75,7 @@ describe('Salesforce production composition', () => {
       runId: '11111111-1111-4111-8111-111111111111',
       stepId: '22222222-2222-4222-8222-222222222222',
       attemptNumber: 1,
+      target: 'CLIENTE',
       envelope: fixture.steps[0]!.envelope,
     });
 

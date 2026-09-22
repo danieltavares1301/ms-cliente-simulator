@@ -43,7 +43,9 @@ type GeneratedValue =
   | 'COLLISION_EMAIL'
   | 'CLEAN_CELULAR'
   | 'SYNTHETIC_EMAIL'
-  | 'SYNTHETIC_STREET';
+  | 'SYNTHETIC_STREET'
+  | 'OPPORTUNITY_EXTERNAL_ID'
+  | 'PAC_EXTERNAL_ID';
 
 type RenderContext = Readonly<Record<GeneratedValue, string>>;
 
@@ -113,6 +115,8 @@ export function renderScenarioFixture(
     `${input.seed}:x`,
     input.runId,
   );
+  const syntheticOpportunityExternalId = `OPP-SIM-${namespaceToken}-${seedToken}`;
+  const syntheticPacExternalId = `PAC-SIM-${namespaceToken}-${seedToken}`;
   const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
   const collisionCpf = generateSyntheticCpf(`${input.seed}:collision`, input.runId);
   const collisionEmail = `colisao.${seedToken}@simulador.mrv.invalid`;
@@ -142,6 +146,8 @@ export function renderScenarioFixture(
     CLEAN_CELULAR: cleanCelular,
     SYNTHETIC_EMAIL: `cliente.${seedToken}@simulador.mrv.invalid`,
     SYNTHETIC_STREET: `Rua Simulada ${seedToken}`,
+    OPPORTUNITY_EXTERNAL_ID: syntheticOpportunityExternalId,
+    PAC_EXTERNAL_ID: syntheticPacExternalId,
   } satisfies RenderContext;
   const hasControlAccount =
     definition.setup?.some(
@@ -158,12 +164,9 @@ export function renderScenarioFixture(
 
   const setup = resolveTemplate(definition.setup ?? [], baseContext);
   const steps = definition.steps.map((step) => {
-    if (
-      step.target !== 'CLIENTE' ||
-      step.payloadTemplate.kind !== 'DECLARATIVE'
-    )
+    if (step.payloadTemplate.kind !== 'DECLARATIVE')
       throw new Error(
-        'Core fixture step must be declarative and target CLIENTE',
+        'Core fixture step must be declarative',
       );
 
     const scheduledAt = new Date(
@@ -198,6 +201,16 @@ export function renderScenarioFixture(
         operation: instruction.operation,
         target: instruction.target,
         ownership: { idExternoPrefix: 'LEAD-SIM-' as const },
+      };
+    }
+    if (instruction.target === 'OPPORTUNITY') {
+      return {
+        operation: instruction.operation,
+        target: instruction.target,
+        ownership: {
+          idExterno: syntheticOpportunityExternalId,
+          pacIdExterno: syntheticPacExternalId,
+        },
       };
     }
 

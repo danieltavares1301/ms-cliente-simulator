@@ -110,15 +110,18 @@ function leadFixture() {
   rendered.scenarioKey = 'phase6-lead-adapter';
   rendered.identifiers.accountIdProspect = 'LEAD-SIM-owned';
   rendered.identifiers.leadIdExterno = 'LEAD-SIM-owned';
-  rendered.steps[0].envelope[0].data.idprospectsalesforce =
-    rendered.identifiers.leadIdExterno;
+  const stepData = rendered.steps[0].envelope[0].data as {
+    idprospectsalesforce?: string;
+    numerocpf?: string;
+  };
+  stepData.idprospectsalesforce = rendered.identifiers.leadIdExterno;
   rendered.setup = [
     {
       operation: 'CREATE_SYNTHETIC_LEAD',
       role: 'PRIMARY',
       lead: {
         idExterno: rendered.identifiers.leadIdExterno,
-        cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
+        cpf: stepData.numerocpf ?? '53278655842',
         firstName: 'Cliente',
         lastName: 'Simulado',
         email: 'lead@example.com',
@@ -244,8 +247,11 @@ function prospectDivergenteFixture() {
   rendered.identifiers.controlAccountIdCliente = 'CLI-SIM-X-phase-four';
   rendered.identifiers.controlAccountIdProspect = 'PRO-SIM-X-phase-four';
   rendered.steps[0].key = 'cliente-insert-divergente';
-  rendered.steps[0].envelope[0].data.idprospectsalesforce =
-    rendered.identifiers.controlAccountIdProspect;
+  const stepData = rendered.steps[0].envelope[0].data as {
+    idprospectsalesforce?: string;
+    numerocpf?: string;
+  };
+  stepData.idprospectsalesforce = rendered.identifiers.controlAccountIdProspect;
   rendered.setup = [
     {
       operation: 'CREATE_SYNTHETIC_ACCOUNT',
@@ -264,14 +270,14 @@ function prospectDivergenteFixture() {
       keys: {
         idCliente: rendered.identifiers.accountIdCliente,
         idProspect: rendered.identifiers.accountIdProspect,
-        cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
+        cpf: stepData.numerocpf ?? '53278655842',
       },
     },
     {
       operation: 'ENSURE_LEAD_ABSENT',
       keys: {
         idExterno: rendered.identifiers.controlAccountIdProspect,
-        cpf: rendered.steps[0].envelope[0].data.numerocpf ?? '53278655842',
+        cpf: stepData.numerocpf ?? '53278655842',
       },
     },
   ];
@@ -416,8 +422,11 @@ function idProspectIgualIdClienteFixture() {
     expectedOutcomes: Array<Record<string, unknown>>;
   };
   rendered.scenarioKey = 'id-prospect-igual-id-cliente';
-  rendered.steps[0].envelope[0].data.idprospectsalesforce =
-    rendered.identifiers.accountIdCliente;
+  (
+    rendered.steps[0].envelope[0].data as {
+      idprospectsalesforce?: string;
+    }
+  ).idprospectsalesforce = rendered.identifiers.accountIdCliente;
   rendered.expectedOutcomes = [
     {
       kind: 'BUSINESS_RESULT',
@@ -856,13 +865,16 @@ describe('Salesforce test data adapter setup', () => {
     const rendered = ensureLeadAbsentFixture();
     rendered.identifiers.accountIdProspect = "LEAD-SIM-x' OR Name != null";
     rendered.identifiers.leadIdExterno = rendered.identifiers.accountIdProspect;
-    rendered.steps[0].envelope[0].data.idprospectsalesforce =
-      rendered.identifiers.leadIdExterno;
+    const stepData = rendered.steps[0].envelope[0].data as {
+      idprospectsalesforce?: string;
+      numerocpf?: string;
+    };
+    stepData.idprospectsalesforce = rendered.identifiers.leadIdExterno;
     rendered.setup[0] = {
       operation: 'ENSURE_LEAD_ABSENT',
       keys: {
         idExterno: rendered.identifiers.leadIdExterno,
-        cpf: rendered.steps[0].envelope[0].data.numerocpf,
+        cpf: stepData.numerocpf,
         email: "lead'@example.com",
         celular: "31999'990000",
       },
@@ -1133,9 +1145,7 @@ describe('Salesforce test data adapter verify', () => {
 
     const query = client.query.mock.calls[0][0] as AllowlistedQuery;
     expect(String(query)).toContain(rendered.identifiers.accountIdCliente);
-    expect(String(query)).toContain(
-      rendered.steps[0].envelope[0].data.numerocpf,
-    );
+    expect(String(query)).toContain(clientEventData(rendered).numerocpf);
     expect(String(query)).not.toContain('SELECT *');
   });
 
@@ -1280,7 +1290,7 @@ describe('Salesforce test data adapter verify', () => {
       cleanup: Array<Record<string, unknown>>;
     };
     rendered.setup[0].operation = 'CREATE_LEAD';
-    rendered.cleanup[0].target = 'OPPORTUNITY';
+    rendered.cleanup[0].target = 'PIPELINE';
     const client = restClient();
 
     await expect(

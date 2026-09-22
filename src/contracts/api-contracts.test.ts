@@ -174,6 +174,25 @@ describe('Event Grid contracts', () => {
       eventType: 'endereco-update',
       data: { ...commonData, tipoendereco: 'COBRANCA', numero: '1' },
     },
+    {
+      eventType: 'pac-insert',
+      data: {
+        id: 'PAC-SIM-001',
+        idjornadapac: 'OPP-SIM-001',
+        status: 'EM_ANALISE_CREDITO',
+        datavalidade: '2026-09-30',
+        dataaprovacao: '2026-08-21T10:00:00.000Z',
+        dataalteracao: '2026-08-21T10:00:00.000Z',
+      },
+    },
+    {
+      eventType: 'pac-update',
+      data: {
+        id: 'PAC-SIM-002',
+        idjornadapac: 'OPP-SIM-002',
+        dataalteracao: '2026-08-21T10:00:00.000Z',
+      },
+    },
   ] as const;
 
   it.each(variants)('accepts $eventType', (variant) => {
@@ -217,6 +236,33 @@ describe('Event Grid contracts', () => {
           ...commonEvent,
           eventType: 'cliente-insert',
           data: { dataalteracao: commonData.dataalteracao },
+        },
+      ]),
+    ).toThrow();
+  });
+
+  it('requires pac events to declare both id and idjornadapac', () => {
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'pac-insert',
+          data: {
+            idjornadapac: 'OPP-SIM-001',
+            dataalteracao: commonData.dataalteracao,
+          },
+        },
+      ]),
+    ).toThrow();
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'pac-update',
+          data: {
+            id: 'PAC-SIM-001',
+            dataalteracao: commonData.dataalteracao,
+          },
         },
       ]),
     ).toThrow();
@@ -313,7 +359,12 @@ describe('Event Grid contracts', () => {
     ).not.toThrow();
   });
 
-  it.each(variants)(
+  it.each(
+    variants.filter(
+      (variant) =>
+        variant.eventType !== 'pac-insert' && variant.eventType !== 'pac-update',
+    ),
+  )(
     'rejects populated data.id for $eventType because Apex requires fallback to data.idcliente',
     (variant) => {
       for (const id of [commonData.idcliente, 'DIFFERENT-ID']) {

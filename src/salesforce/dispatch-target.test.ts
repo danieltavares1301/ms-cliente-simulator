@@ -78,6 +78,7 @@ describe('Salesforce dispatch target', () => {
       runId: '11111111-1111-4111-8111-111111111111',
       stepId: '22222222-2222-4222-8222-222222222222',
       attemptNumber: 1,
+      target: 'CLIENTE',
       envelope,
     });
 
@@ -134,6 +135,7 @@ describe('Salesforce dispatch target', () => {
       runId: '11111111-1111-4111-8111-111111111111',
       stepId: '22222222-2222-4222-8222-222222222222',
       attemptNumber: 1,
+      target: 'CLIENTE',
       envelope,
     });
 
@@ -175,6 +177,7 @@ describe('Salesforce dispatch target', () => {
       runId: '11111111-1111-4111-8111-111111111111',
       stepId: '22222222-2222-4222-8222-222222222222',
       attemptNumber: 1,
+      target: 'CLIENTE',
       envelope,
     });
 
@@ -233,11 +236,65 @@ describe('Salesforce dispatch target', () => {
       runId: '11111111-1111-4111-8111-111111111111',
       stepId: '22222222-2222-4222-8222-222222222222',
       attemptNumber: 1,
+      target: 'CLIENTE',
       envelope,
     });
 
     expect(result.httpStatus).toBe(200);
     expect(oauthClient.invalidateToken).toHaveBeenCalledTimes(1);
     expect(safetyGuard.validate).toHaveBeenCalledTimes(2);
+  });
+
+  it('routes PAC steps to the /PAC Apex REST endpoint', async () => {
+    const oauthClient = {
+      getAccess: vi.fn(),
+      invalidateToken: vi.fn(),
+    };
+    const safetyGuard = {
+      validate: vi.fn().mockResolvedValue({
+        accessToken: 'token-1',
+        instanceUrl: 'https://example.my.salesforce.com',
+      }),
+    };
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('', { status: 200, statusText: 'OK' }),
+    );
+    const target = createSalesforceDispatchTarget({
+      oauthClient,
+      safetyGuard,
+      fetchFn,
+      now: () => new Date('2026-08-22T12:00:01.000Z'),
+    });
+
+    const result = await target.dispatch({
+      runId: '11111111-1111-4111-8111-111111111111',
+      stepId: '22222222-2222-4222-8222-222222222222',
+      attemptNumber: 1,
+      target: 'PAC',
+      envelope: [
+        {
+          id: 'evt-pac-1',
+          subject: 'pac/evt-pac-1',
+          eventType: 'pac-insert',
+          eventTime: '2026-08-21T10:00:00Z',
+          dataVersion: '1.0',
+          metadataVersion: '1',
+          topic: '/subscriptions/test/topics/pac',
+          data: {
+            id: 'PAC-SIM-001',
+            idjornadapac: 'OPP-SIM-001',
+            dataalteracao: '2026-08-21T10:00:00Z',
+          },
+        },
+      ],
+    });
+
+    expect(result.httpStatus).toBe(200);
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/apexrest/PAC',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
   });
 });

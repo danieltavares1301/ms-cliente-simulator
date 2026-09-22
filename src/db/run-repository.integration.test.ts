@@ -771,7 +771,10 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
         runId: created.run.id,
         stepId: dispatchStep.id,
       }),
-    ).resolves.toStrictEqual(createInput().steps[1]?.eventEnvelope);
+    ).resolves.toStrictEqual({
+      target: createInput().steps[1]?.target,
+      envelope: createInput().steps[1]?.eventEnvelope,
+    });
   });
 
   it('completes a dispatch through a Neon-compatible adapter that rejects transactions', async () => {

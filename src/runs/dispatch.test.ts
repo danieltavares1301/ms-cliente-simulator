@@ -201,7 +201,9 @@ describe('internal QStash dispatch handler', () => {
           testDataEnabled: false,
         }),
         claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
-        getDispatchPayload: vi.fn().mockResolvedValue(eventEnvelope),
+        getDispatchPayload: vi
+          .fn()
+          .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope }),
         completeDispatch: vi.fn().mockResolvedValue({ runStatus: 'RUNNING' }),
       }),
       environment: {
@@ -390,15 +392,27 @@ describe('internal QStash dispatch handler', () => {
 
   it('executes the deterministic fake target once and records only sanitized result metadata', async () => {
     const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'CLAIMED' });
-    const getDispatchPayload = vi.fn().mockResolvedValue(eventEnvelope);
+    const getDispatchPayload = vi.fn().mockResolvedValue({
+      target: 'PAC',
+      envelope: eventEnvelope,
+    });
     const completeDispatch = vi.fn().mockResolvedValue({
       runStatus: 'VERIFYING',
     });
+    const target = { dispatch: vi.fn().mockResolvedValue({
+      httpStatus: 200,
+      durationMs: 0,
+      responseRedacted: {
+        transport: 'FAKE_SALESFORCE',
+        network: false,
+      },
+    }) };
 
     const raw = JSON.stringify(payload);
-    const handler = createDispatchHandler(
-      dependencies({ claimDispatch, completeDispatch, getDispatchPayload }),
-    );
+    const handler = createDispatchHandler({
+      ...dependencies({ claimDispatch, completeDispatch, getDispatchPayload }),
+      target,
+    });
 
     const response = await handler(request(raw, sign(raw)));
 
@@ -407,6 +421,13 @@ describe('internal QStash dispatch handler', () => {
       runId: payload.runId,
       stepId: payload.stepId,
     });
+    expect(target.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...payload,
+        target: 'PAC',
+        envelope: eventEnvelope,
+      }),
+    );
     expect(completeDispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         ...payload,
@@ -437,7 +458,9 @@ describe('internal QStash dispatch handler', () => {
           testDataEnabled: true,
         }),
         claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
-        getDispatchPayload: vi.fn().mockResolvedValue(eventEnvelope),
+        getDispatchPayload: vi
+          .fn()
+          .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope }),
         completeDispatch: vi.fn().mockResolvedValue({
           runStatus: 'VERIFYING',
         }),
@@ -470,7 +493,9 @@ describe('internal QStash dispatch handler', () => {
           testDataEnabled: true,
         }),
         claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
-        getDispatchPayload: vi.fn().mockResolvedValue(eventEnvelope),
+        getDispatchPayload: vi
+          .fn()
+          .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope }),
         completeDispatch: vi
           .fn()
           .mockResolvedValue({ runStatus: 'WAITING_ASYNC' }),
@@ -512,7 +537,9 @@ describe('internal QStash dispatch handler', () => {
           testDataEnabled: true,
         }),
         claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
-        getDispatchPayload: vi.fn().mockResolvedValue(eventEnvelope),
+        getDispatchPayload: vi
+          .fn()
+          .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope }),
         completeDispatch: vi.fn().mockResolvedValue({ runStatus }),
       }),
       environment: {
@@ -539,7 +566,9 @@ describe('internal QStash dispatch handler', () => {
 
   it('reports a persistence failure after a successful target without relabeling or repeating the target', async () => {
     const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'CLAIMED' });
-    const getDispatchPayload = vi.fn().mockResolvedValue(eventEnvelope);
+    const getDispatchPayload = vi
+      .fn()
+      .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope });
     const completeDispatch = vi
       .fn()
       .mockRejectedValue(new Error('database unavailable'));
@@ -570,7 +599,9 @@ describe('internal QStash dispatch handler', () => {
   });
 
   it('labels only a target failure as DISPATCH_TARGET_FAILED', async () => {
-    const getDispatchPayload = vi.fn().mockResolvedValue(eventEnvelope);
+    const getDispatchPayload = vi
+      .fn()
+      .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope });
     const completeDispatch = vi.fn().mockResolvedValue({
       runStatus: 'FAILED',
     });
@@ -627,7 +658,9 @@ describe('internal QStash dispatch handler', () => {
       .fn()
       .mockResolvedValueOnce({ outcome: 'CLAIMED' })
       .mockResolvedValueOnce({ outcome: 'TERMINAL' });
-    const getDispatchPayload = vi.fn().mockResolvedValue(eventEnvelope);
+    const getDispatchPayload = vi
+      .fn()
+      .mockResolvedValue({ target: 'CLIENTE', envelope: eventEnvelope });
     const completeDispatch = vi
       .fn()
       .mockRejectedValueOnce(new Error('partial persistence failure'));

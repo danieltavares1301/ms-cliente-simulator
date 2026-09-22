@@ -18,7 +18,11 @@ export type AllowlistedQuery = string & {
   readonly [allowlistedQueryBrand]: true;
 };
 
-export type AllowlistedObjectApiName = 'Account' | 'Lead';
+export type AllowlistedObjectApiName =
+  | 'Account'
+  | 'Lead'
+  | 'Opportunity'
+  | 'PropostaAnaliseCredito__c';
 
 type SalesforceAccountCompositeRequest = {
   method: 'POST';
@@ -56,8 +60,24 @@ type SalesforceLeadCompositeRequest = {
   };
 };
 
+export type SalesforceOpportunityCompositeRequest = {
+  method: 'POST';
+  url: `/services/data/${typeof SALESFORCE_API_VERSION}/sobjects/Opportunity`;
+  referenceId: 'createOpportunity';
+  body: {
+    Name: string;
+    StageName: string;
+    CloseDate: string;
+    Id__c: string;
+    AccountId: string;
+    RecordTypeId?: string;
+  };
+};
+
 export type SalesforceCompositeRequest =
-  SalesforceAccountCompositeRequest | SalesforceLeadCompositeRequest;
+  | SalesforceAccountCompositeRequest
+  | SalesforceLeadCompositeRequest
+  | SalesforceOpportunityCompositeRequest;
 
 export interface SalesforceRestClient {
   query<T>(soql: AllowlistedQuery): Promise<T>;
@@ -185,6 +205,23 @@ const compositeRequestsSchema = z
               Status: z.string().min(1).max(80),
               PermitirCriarLead__c: z.boolean(),
               DescricaoOrigem__c: z.string().min(1).max(255).optional(),
+            })
+            .strict(),
+        })
+        .strict(),
+      z
+        .object({
+          method: z.literal('POST'),
+          url: z.literal('/services/data/v61.0/sobjects/Opportunity'),
+          referenceId: z.literal('createOpportunity'),
+          body: z
+            .object({
+              Name: z.string().min(1).max(120),
+              StageName: z.string().min(1).max(255),
+              CloseDate: z.iso.date(),
+              Id__c: z.string().min(1).max(50),
+              AccountId: salesforceIdSchema,
+              RecordTypeId: salesforceIdSchema.optional(),
             })
             .strict(),
         })
@@ -366,7 +403,12 @@ export function createSalesforceRestClient(
       id: string,
     ): Promise<void> {
       if (
-        (objectApiName !== 'Account' && objectApiName !== 'Lead') ||
+        ![
+          'Account',
+          'Lead',
+          'Opportunity',
+          'PropostaAnaliseCredito__c',
+        ].includes(objectApiName) ||
         !salesforceIdSchema.safeParse(id).success
       ) {
         throw new SalesforceRestError('SALESFORCE_OPERATION_NOT_ALLOWED');

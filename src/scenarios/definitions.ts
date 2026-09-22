@@ -19,7 +19,9 @@ type GeneratedValue =
   | 'COLLISION_EMAIL'
   | 'CLEAN_CELULAR'
   | 'SYNTHETIC_EMAIL'
-  | 'SYNTHETIC_STREET';
+  | 'SYNTHETIC_STREET'
+  | 'OPPORTUNITY_EXTERNAL_ID'
+  | 'PAC_EXTERNAL_ID';
 
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
@@ -180,6 +182,28 @@ function enderecoPayload(
   } as const;
 }
 
+function pacPayload(eventType: 'pac-insert' | 'pac-update') {
+  return {
+    kind: 'DECLARATIVE',
+    contract: 'EVENT_GRID',
+    value: {
+      id: generated('EVENT_ID'),
+      subject: 'MS_Clientes',
+      eventType,
+      eventTime: generated('EVENT_TIME'),
+      dataVersion: '1.0',
+      metadataVersion: '1',
+      topic: '/simulator/ms-clientes',
+      data: {
+        id: generated('PAC_EXTERNAL_ID'),
+        idjornadapac: generated('OPPORTUNITY_EXTERNAL_ID'),
+        status: 'EM_ANALISE_CREDITO',
+        dataalteracao: generated('EVENT_TIME'),
+      },
+    },
+  } as const;
+}
+
 const cleanup: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
 ];
@@ -187,6 +211,11 @@ const cleanup: ScenarioDefinition['cleanup'] = [
 const cleanupWithLead: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
   { operation: 'DELETE_OWNED_RECORDS', target: 'LEAD' },
+];
+
+const cleanupWithOpportunity: ScenarioDefinition['cleanup'] = [
+  { operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' },
+  { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
 ];
 
 function prospectDivergenteSetup(): NonNullable<ScenarioDefinition['setup']> {
@@ -1510,5 +1539,61 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy,
     cleanup,
+  },
+  {
+    key: 'pac-insert-minimo',
+    version: 1,
+    name: 'PAC insert mínimo',
+    description:
+      'Smoke test mínimo do contrato /PAC com Opportunity sintética e callback protegido.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'pac-minimo'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacPayload('pac-insert'),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC deve ser criada com o Id externo esperado e vinculada à Opportunity sintética.',
+        checks: ['PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY'],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithOpportunity,
   },
 ] as const satisfies readonly ScenarioDefinition[];

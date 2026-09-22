@@ -2,10 +2,7 @@ import { z } from 'zod';
 
 import {
   apexCompatibleUtcDateTimeSchema,
-  clienteInsertEventSchema,
-  clienteUpdateEventSchema,
-  contatoInsertEventSchema,
-  enderecoInsertEventSchema,
+  eventGridEnvelopeSchema,
 } from './event-grid.ts';
 import {
   asyncPolicySchema,
@@ -14,16 +11,7 @@ import {
   scenarioGraphqlResponseSchema,
 } from './scenarios.ts';
 
-const clientEnvelopeSchema = z
-  .array(
-    z.union([
-      clienteInsertEventSchema,
-      clienteUpdateEventSchema,
-      contatoInsertEventSchema,
-      enderecoInsertEventSchema,
-    ]),
-  )
-  .length(1);
+const renderedEnvelopeSchema = eventGridEnvelopeSchema;
 
 const renderedAccountSchema = z
   .object({
@@ -46,6 +34,16 @@ const renderedLeadSchema = z
     cidadeInteresse: z.string().min(1).max(255).optional(),
     status: z.string().min(1).max(80).default('Pendente de Distribuição'),
     descricaoOrigem: z.string().min(1).max(255).optional(),
+  })
+  .strict();
+
+const renderedOpportunitySchema = z
+  .object({
+    idExterno: z.string().min(1).max(50),
+    accountId: z.string().min(1).max(50),
+    name: z.string().min(1).max(120),
+    stageName: z.string().min(1).max(255),
+    closeDate: z.iso.date(),
   })
   .strict();
 
@@ -117,6 +115,12 @@ export const renderedSetupInstructionSchema = z.discriminatedUnion(
       .strict(),
     z
       .object({
+        operation: z.literal('CREATE_SYNTHETIC_OPPORTUNITY'),
+        opportunity: renderedOpportunitySchema,
+      })
+      .strict(),
+    z
+      .object({
         operation: z.literal('ENSURE_LEAD_ABSENT'),
         keys: renderedLeadAbsentKeysSchema,
       })
@@ -159,31 +163,63 @@ const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      operation: z.literal('DELETE_OWNED_RECORDS'),
+      target: z.literal('OPPORTUNITY'),
+      ownership: z
+        .object({
+          idExterno: z.string().min(1).max(50),
+          pacIdExterno: z.string().min(1).max(50),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
+
+const pacEventTypeSchema = z.enum(['pac-insert', 'pac-update']);
 
 const renderedFixtureStepSchema = z
   .object({
     key: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-    target: z.literal('CLIENTE'),
-    eventType: z.enum([
-      'cliente-insert',
-      'cliente-update',
-      'contato-insert',
-      'endereco-insert',
+    target: z.enum(['CLIENTE', 'PAC']),
+    eventType: z.union([
+      z.enum([
+        'cliente-insert',
+        'cliente-update',
+        'contato-insert',
+        'endereco-insert',
+      ]),
+      pacEventTypeSchema,
     ]),
     delayMs: z.number().int().nonnegative(),
     scheduledAt: apexCompatibleUtcDateTimeSchema,
     deliveryPolicy: deliveryPolicySchema,
-    envelope: clientEnvelopeSchema,
+    envelope: renderedEnvelopeSchema,
   })
   .strict()
-  .superRefine(({ eventType, envelope, scheduledAt }, context) => {
+  .superRefine(({ target, eventType, envelope }, context) => {
     const event = envelope[0];
     if (event.eventType !== eventType) {
       context.addIssue({
         code: 'custom',
         message: 'Rendered event type must match its step',
         path: ['envelope', 0, 'eventType'],
+      });
+    }
+    const isPacEvent = pacEventTypeSchema.safeParse(eventType).success;
+    if (target === 'PAC' && !isPacEvent) {
+      context.addIssue({
+        code: 'custom',
+        message: 'PAC steps only accept pac-insert or pac-update events',
+        path: ['target'],
+      });
+    }
+    if (target === 'CLIENTE' && isPacEvent) {
+      context.addIssue({
+        code: 'custom',
+        message: 'CLIENTE steps cannot dispatch PAC events',
+        path: ['target'],
       });
     }
   });
@@ -242,6 +278,9 @@ export const renderedScenarioFixtureSchema = z
     const syntheticLeadSetups = setup.filter(
       (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
     );
+    const syntheticOpportunitySetups = setup.filter(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
     const primaryLeads = syntheticLeadSetups.filter(
       (instruction) => instruction.role === 'PRIMARY',
     );
@@ -274,6 +313,13 @@ export const renderedScenarioFixtureSchema = z
       context.addIssue({
         code: 'custom',
         message: 'At most one COLLISION synthetic lead is allowed',
+        path: ['setup'],
+      });
+    }
+    if (syntheticOpportunitySetups.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one synthetic Opportunity is allowed',
         path: ['setup'],
       });
     }
@@ -326,30 +372,43 @@ export const renderedScenarioFixtureSchema = z
     }
 
     for (const [index, cleanupInstruction] of cleanup.entries()) {
-      if (cleanupInstruction.target !== 'ACCOUNT') {
-        continue;
-      }
-      if (controlAccounts.length === 1) {
+      if (cleanupInstruction.target === 'ACCOUNT') {
+        if (controlAccounts.length === 1) {
+          if (
+            cleanupInstruction.ownership.controlAccountIdCliente !==
+            identifiers.controlAccountIdCliente
+          ) {
+            context.addIssue({
+              code: 'custom',
+              message:
+                'Account cleanup must include the control Account ownership id',
+              path: ['cleanup', index, 'ownership', 'controlAccountIdCliente'],
+            });
+          }
+          continue;
+        }
+
         if (
-          cleanupInstruction.ownership.controlAccountIdCliente !==
-          identifiers.controlAccountIdCliente
+          cleanupInstruction.ownership.controlAccountIdCliente !== undefined
         ) {
           context.addIssue({
             code: 'custom',
             message:
-              'Account cleanup must include the control Account ownership id',
+              'Account cleanup cannot declare a control ownership id without a CONTROL account',
             path: ['cleanup', index, 'ownership', 'controlAccountIdCliente'],
           });
         }
         continue;
       }
-
-      if (cleanupInstruction.ownership.controlAccountIdCliente !== undefined) {
+      if (
+        cleanupInstruction.target === 'OPPORTUNITY' &&
+        syntheticOpportunitySetups[0]?.opportunity.idExterno !==
+          cleanupInstruction.ownership.idExterno
+      ) {
         context.addIssue({
           code: 'custom',
-          message:
-            'Account cleanup cannot declare a control ownership id without a CONTROL account',
-          path: ['cleanup', index, 'ownership', 'controlAccountIdCliente'],
+          message: 'Opportunity cleanup ownership must match the setup',
+          path: ['cleanup', index, 'ownership', 'idExterno'],
         });
       }
     }

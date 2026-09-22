@@ -33,7 +33,7 @@ export interface DispatchReceiver {
 }
 
 export interface DispatchTarget {
-  dispatch(input: DispatchRequest & { envelope: EventGridEnvelope }): Promise<{
+  dispatch(input: DispatchRequest & { target: string; envelope: EventGridEnvelope }): Promise<{
     httpStatus: number;
     durationMs: number;
     responseRedacted: Record<string, unknown>;
@@ -42,7 +42,7 @@ export interface DispatchTarget {
 
 export class FakeSalesforceDispatchTarget implements DispatchTarget {
   async dispatch(
-    input: DispatchRequest & { envelope: EventGridEnvelope },
+    input: DispatchRequest & { target: string; envelope: EventGridEnvelope },
   ): Promise<{
     httpStatus: number;
     durationMs: number;
@@ -323,9 +323,9 @@ export function createDispatchHandler(
     }
 
     const requestId = requestIdFactory();
-    let envelope: EventGridEnvelope | null;
+    let payload: { target: string; envelope: EventGridEnvelope } | null;
     try {
-      envelope = await repository.getDispatchPayload({
+      payload = await repository.getDispatchPayload({
         runId: parsed.data.runId,
         stepId: parsed.data.stepId,
       });
@@ -337,7 +337,7 @@ export function createDispatchHandler(
         { 'Retry-After': '1' },
       );
     }
-    if (envelope === null) {
+    if (payload === null) {
       return errorResponse(
         503,
         'DISPATCH_PERSISTENCE_FAILED',
@@ -351,7 +351,8 @@ export function createDispatchHandler(
     try {
       result = await target.dispatch({
         ...parsed.data,
-        envelope,
+        target: payload.target,
+        envelope: payload.envelope,
       });
     } catch {
       targetFailed = true;

@@ -20,8 +20,20 @@ type SalesforceDispatchTargetInput = {
 };
 
 type DispatchTargetPayload = DispatchRequest & {
+  target: string;
   envelope: EventGridEnvelope;
 };
+
+function apexRestPath(target: string): '/services/apexrest/Cliente' | '/services/apexrest/PAC' {
+  switch (target) {
+    case 'CLIENTE':
+      return '/services/apexrest/Cliente';
+    case 'PAC':
+      return '/services/apexrest/PAC';
+    default:
+      throw new Error(`Unsupported Salesforce dispatch target: ${target}`);
+  }
+}
 
 function durationMs(startedAt: Date, now: () => Date): number {
   return Math.max(0, now().getTime() - startedAt.getTime());
@@ -58,10 +70,7 @@ export function createSalesforceDispatchTarget(
           const access = await input.safetyGuard.validate();
           const response = await salesforceFetch(
             fetchFn,
-            new URL(
-              '/services/apexrest/Cliente',
-              access.instanceUrl,
-            ).toString(),
+            new URL(apexRestPath(request.target), access.instanceUrl).toString(),
             {
               method: 'POST',
               headers: {

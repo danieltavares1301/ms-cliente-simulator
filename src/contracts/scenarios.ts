@@ -43,6 +43,8 @@ const generatedFixtureValueSchema = z.enum([
   'CLEAN_CELULAR',
   'SYNTHETIC_EMAIL',
   'SYNTHETIC_STREET',
+  'OPPORTUNITY_EXTERNAL_ID',
+  'PAC_EXTERNAL_ID',
 ]);
 
 export const scenarioScopeSchema = z.enum(['CORE', 'EXTENDED']);
@@ -285,6 +287,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'LEAD_NOT_CREATED',
   'LEAD_NOT_REQUIRED',
   'PROPONENTE_NOT_REQUIRED',
+  'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
 
 const renderedLeadExpectedValueCheckSchema = z.discriminatedUnion('check', [
@@ -415,6 +418,7 @@ export const expectedOutcomeSchema = z
       'PERSON_ACCOUNT_CREATED',
       'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
+      'PAC_CREATED_AND_LINKED',
     ]),
     description: safePublicTextSchema,
     checks: z.array(expectedOutcomeCheckSchema).min(1).max(20),
@@ -437,6 +441,7 @@ export const renderedExpectedOutcomeSchema = z
       'PERSON_ACCOUNT_CREATED',
       'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
+      'PAC_CREATED_AND_LINKED',
     ]),
     description: safePublicTextSchema,
     checks: z.array(renderedExpectedOutcomeCheckSchema).min(1).max(20),
@@ -484,6 +489,22 @@ const syntheticLeadTemplateSchema = z
       .optional()
       .default('Pendente de Distribuição'),
     descricaoOrigem: generatedOrStaticStringSchema.optional(),
+  })
+  .strict();
+
+const syntheticOpportunityTemplateSchema = z
+  .object({
+    idExterno: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().trim().min(1).max(50),
+    ]),
+    accountId: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().trim().min(1).max(50),
+    ]),
+    name: generatedOrStaticStringSchema,
+    stageName: generatedOrStaticStringSchema,
+    closeDate: z.union([generatedFixtureReferenceSchema, z.iso.date()]),
   })
   .strict();
 
@@ -567,6 +588,12 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
     .strict(),
   z
     .object({
+      operation: z.literal('CREATE_SYNTHETIC_OPPORTUNITY'),
+      opportunity: syntheticOpportunityTemplateSchema,
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal('ENSURE_LEAD_ABSENT'),
       keys: ensureLeadAbsentKeysSchema,
     })
@@ -576,7 +603,7 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
 const cleanupInstructionSchema = z
   .object({
     operation: z.literal('DELETE_OWNED_RECORDS'),
-    target: z.enum(['ACCOUNT', 'LEAD', 'CLIENT_STRUCTURE']),
+    target: z.enum(['ACCOUNT', 'LEAD', 'CLIENT_STRUCTURE', 'OPPORTUNITY']),
   })
   .strict();
 
@@ -640,6 +667,11 @@ export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
       setup?.filter(
         (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
       ) ?? [];
+    const syntheticOpportunitySetups =
+      setup?.filter(
+        (instruction) =>
+          instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+      ) ?? [];
     const primaryCount = syntheticAccountSetups.filter(
       (instruction) => instruction.role === 'PRIMARY',
     ).length;
@@ -678,6 +710,13 @@ export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
       context.addIssue({
         code: 'custom',
         message: 'At most one COLLISION synthetic lead is allowed',
+        path: ['setup'],
+      });
+    }
+    if (syntheticOpportunitySetups.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one synthetic Opportunity is allowed',
         path: ['setup'],
       });
     }

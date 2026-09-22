@@ -26,6 +26,7 @@ const scenarioKeys = [
   'ordem-mesmo-eventtime-cliente-primeiro',
   'ordem-mesmo-eventtime-contato-primeiro',
   'ordem-mesmo-eventtime-endereco-primeiro',
+  'pac-insert-minimo',
 ] as const;
 
 const expectedStepCountByScenario = {
@@ -46,6 +47,7 @@ const expectedStepCountByScenario = {
   'ordem-mesmo-eventtime-cliente-primeiro': 4,
   'ordem-mesmo-eventtime-contato-primeiro': 4,
   'ordem-mesmo-eventtime-endereco-primeiro': 4,
+  'pac-insert-minimo': 1,
 } as const;
 
 const input = {
@@ -83,7 +85,7 @@ describe('basic scenario fixture definitions', () => {
       expect(definition?.steps).toHaveLength(
         expectedStepCountByScenario[scenarioKey],
       );
-      expect(definition?.steps[0].target).toBe('CLIENTE');
+      expect(['CLIENTE', 'PAC']).toContain(definition?.steps[0].target);
       expect(definition?.steps[0].payloadTemplate.kind).toBe('DECLARATIVE');
       expect(definition?.expectedOutcomes.length).toBeGreaterThan(0);
       expect(definition?.expectedOutcomes[0].checks.length).toBeGreaterThan(0);
@@ -373,6 +375,23 @@ describe('basic scenario fixture definitions', () => {
         scenarioCatalog.get(scenarioKey, 1)?.asyncPolicy.expectedCallbacks,
       ).toStrictEqual({ min: 0, max: 0 });
     }
+  });
+  expect(scenarioCatalog.get('pac-insert-minimo', 1)?.steps[0]).toMatchObject(
+    {
+      target: 'PAC',
+      eventType: 'pac-insert',
+    },
+  );
+  expect(
+    scenarioCatalog.get('pac-insert-minimo', 1)?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: ['PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY'],
+  });
+  expect(scenarioCatalog.get('pac-insert-minimo', 1)?.asyncPolicy).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
   });
 });
 
@@ -684,12 +703,14 @@ describe('renderScenarioFixture', () => {
   );
 
   it.each(scenarioKeys)(
-    'never emits data.id inside the Event Grid payload for %s',
+    'never emits data.id inside CLIENTE Event Grid payloads for %s',
     (scenarioKey) => {
       const fixture = renderScenarioFixture({ ...input, scenarioKey });
 
       for (const step of fixture.steps) {
-        expect(step.envelope[0].data).not.toHaveProperty('id');
+        if (step.target === 'CLIENTE') {
+          expect(step.envelope[0].data).not.toHaveProperty('id');
+        }
       }
     },
   );
@@ -1079,9 +1100,10 @@ describe('renderScenarioFixture', () => {
       delayMs: 8_000,
     });
     expect(echo.graphqlResponse).toBeUndefined();
-    expect(echo.steps[0]?.envelope[0].data.idcliente).toBe(
-      echo.steps[0]?.envelope[0].data.idprospectsalesforce,
-    );
+    const echoData = echo.steps[0]?.envelope[0].data as
+      | { idcliente?: string; idprospectsalesforce?: string }
+      | undefined;
+    expect(echoData?.idcliente).toBe(echoData?.idprospectsalesforce);
   });
 
   it('keeps the control identifiers deterministic and distinct from the primary account', () => {
@@ -1106,7 +1128,10 @@ describe('renderScenarioFixture', () => {
         idProspect: fixture.identifiers.controlAccountIdProspect,
       },
     });
-    expect(fixture.steps[0].envelope[0].data.idprospectsalesforce).toBe(
+    const firstStepData = fixture.steps[0].envelope[0].data as {
+      idprospectsalesforce?: string;
+    };
+    expect(firstStepData.idprospectsalesforce).toBe(
       fixture.identifiers.controlAccountIdProspect,
     );
   });

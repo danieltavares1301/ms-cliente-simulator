@@ -115,6 +115,11 @@ export interface DeliveryAttempt {
   createdAt: Date;
 }
 
+export interface DispatchPayload {
+  target: string;
+  envelope: EventGridEnvelope;
+}
+
 export interface GraphqlCallbackRecord {
   id: string;
   runId: string | null;
@@ -402,7 +407,7 @@ export interface RunRepository {
   getDispatchPayload(input: {
     runId: string;
     stepId: string;
-  }): Promise<EventGridEnvelope | null>;
+  }): Promise<DispatchPayload | null>;
   recordGraphqlCallback(input: RecordGraphqlCallbackInput): Promise<{
     callback: GraphqlCallbackRecord;
     runStatus: RunStatus | null;

@@ -5,6 +5,7 @@ import type {
   CreateRunInput,
   CreateRunResult,
   AuditEvent,
+  DispatchPayload,
   Run,
   RunPage,
   RunRepository,
@@ -228,11 +229,11 @@ class MemoryRunRepository implements RunRepository {
   async getDispatchPayload(input: {
     runId: string;
     stepId: string;
-  }): Promise<RunStep['eventEnvelope']> {
-    return (
-      this.steps.get(input.runId)?.find(({ id }) => id === input.stepId)
-        ?.eventEnvelope ?? null
-    );
+  }): Promise<DispatchPayload | null> {
+    const step = this.steps.get(input.runId)?.find(({ id }) => id === input.stepId);
+    return step?.eventEnvelope === null || step?.eventEnvelope === undefined
+      ? null
+      : { target: step.target, envelope: step.eventEnvelope as NonNullable<RunStep['eventEnvelope']> };
   }
 
   claimDispatch(): never {
@@ -383,9 +384,10 @@ describe('run orchestration service', () => {
       eventId: expect.any(String),
       eventType: 'cliente-update',
     });
-    expect(persistedDispatch?.eventEnvelope?.[0].data.numerocpf).toMatch(
-      /^\d{11}$/,
-    );
+    const eventData = persistedDispatch?.eventEnvelope?.[0].data as
+      | { numerocpf?: string }
+      | undefined;
+    expect(eventData?.numerocpf).toMatch(/^\d{11}$/);
     expect(
       [...repository.steps.values()]
         .flat()

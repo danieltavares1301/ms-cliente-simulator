@@ -31,6 +31,7 @@ import type {
   CreateRunResult,
   DeliveryAttempt,
   DispatchClaimResult,
+  DispatchPayload,
   GraphqlCallbackRecord,
   ClaimInitialSchedulingResult,
   LifecycleStepKind,
@@ -1405,9 +1406,12 @@ export class DrizzleRunRepository<
   async getDispatchPayload(input: {
     runId: string;
     stepId: string;
-  }): Promise<RunStep['eventEnvelope']> {
+  }): Promise<DispatchPayload | null> {
     const [step] = await this.database
-      .select({ eventEnvelope: scenarioRunStep.eventEnvelope })
+      .select({
+        target: scenarioRunStep.target,
+        eventEnvelope: scenarioRunStep.eventEnvelope,
+      })
       .from(scenarioRunStep)
       .where(
         and(
@@ -1418,7 +1422,9 @@ export class DrizzleRunRepository<
       )
       .limit(1);
 
-    return step?.eventEnvelope ?? null;
+    return step?.eventEnvelope === undefined || step.eventEnvelope === null
+      ? null
+      : { target: step.target, envelope: step.eventEnvelope as NonNullable<RunStep['eventEnvelope']> };
   }
 
   private async promoteWaitingAsyncIfCallbacksAlreadyMet(

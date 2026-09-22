@@ -259,6 +259,68 @@ describe('Salesforce REST client', () => {
     );
   });
 
+  it('sends only the fixed Opportunity composite URL with the allowlisted body', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ compositeResponse: [] }), {
+        status: 200,
+      }),
+    );
+    const client = createSalesforceRestClient({
+      oauthClient: {
+        getAccess: vi.fn(),
+        invalidateToken: vi.fn(),
+      },
+      safetyGuard: {
+        validate: vi.fn().mockResolvedValue({
+          accessToken: 'token-1',
+          instanceUrl: 'https://example.my.salesforce.com',
+        }),
+      },
+      fetchFn,
+    });
+
+    await client.composite([
+      {
+        method: 'POST',
+        url: '/services/data/v61.0/sobjects/Opportunity',
+        referenceId: 'createOpportunity',
+        body: {
+          Name: 'Opportunity Sintética',
+          StageName: 'Simulação',
+          CloseDate: '2026-09-30',
+          Id__c: 'OPP-SIM-owned',
+          AccountId: '001000000000001AAA',
+        },
+      },
+    ]);
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/data/v61.0/composite',
+      expect.objectContaining({
+        method: 'POST',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
+        body: JSON.stringify({
+          allOrNone: true,
+          compositeRequest: [
+            {
+              method: 'POST',
+              url: '/services/data/v61.0/sobjects/Opportunity',
+              referenceId: 'createOpportunity',
+              body: {
+                Name: 'Opportunity Sintética',
+                StageName: 'Simulação',
+                CloseDate: '2026-09-30',
+                Id__c: 'OPP-SIM-owned',
+                AccountId: '001000000000001AAA',
+              },
+            },
+          ],
+        }),
+      }),
+    );
+  });
+
   it('deletes Lead records through the allowlist', async () => {
     const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(null, {
@@ -285,6 +347,40 @@ describe('Salesforce REST client', () => {
 
     expect(fetchFn).toHaveBeenCalledWith(
       'https://example.my.salesforce.com/services/data/v61.0/sobjects/Lead/00Q000000000001AAA',
+      expect.objectContaining({
+        method: 'DELETE',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it('deletes Opportunity records through the allowlist', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, {
+        status: 204,
+      }),
+    );
+    const client = createSalesforceRestClient({
+      oauthClient: {
+        getAccess: vi.fn(),
+        invalidateToken: vi.fn(),
+      },
+      safetyGuard: {
+        validate: vi.fn().mockResolvedValue({
+          accessToken: 'token-1',
+          instanceUrl: 'https://example.my.salesforce.com',
+        }),
+      },
+      fetchFn,
+    });
+
+    await expect(
+      client.deleteRecord('Opportunity', '006000000000001AAA'),
+    ).resolves.toBeUndefined();
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/data/v61.0/sobjects/Opportunity/006000000000001AAA',
       expect.objectContaining({
         method: 'DELETE',
         redirect: 'error',
