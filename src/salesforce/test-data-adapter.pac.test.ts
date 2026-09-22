@@ -325,6 +325,99 @@ describe('Salesforce PAC test data adapter', () => {
         },
       ]),
     );
+    expect(client.query.mock.calls[3]?.[0]).toContain(
+      'SELECT Id,Id__c,Proponente__c,PropostaAnaliseCredito__c,IdCliente__c,CpfProponente__c,TipoClassificacao__c,EmailAtualizado__c,Celular__c,DataAlteracaoEvento__c,NomeCompleto__c FROM Proponente__c',
+    );
+  });
+
+  it('fails verification when persisted principal Proponente fields diverge from the PAC payload', async () => {
+    const rendered = pacApprovedFixture();
+    const event = pacApprovedEventData(rendered);
+    const proponente = event.proponentes[0]!;
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY') {
+      throw new Error('Expected PAC fixture opportunity scaffolding');
+    }
+
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: accountId,
+            Id__c: proponente.idCliente,
+            IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+            CPF__pc: proponente.cpf,
+            LastName: 'Cliente Simulado',
+            IsPersonAccount: true,
+            PersonEmail: proponente.email ?? null,
+            PersonMobilePhone: `55${proponente.telefoneCelular}`,
+            Celular__c: proponente.telefoneCelular ?? null,
+            BillingStreet: null,
+            DataAlteracaoEvento__c: event.dataalteracao,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: proponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: 'CLI-FOREIGN',
+            CpfProponente__c: proponente.cpf,
+            TipoClassificacao__c: proponente.tipoClassificacao,
+            EmailAtualizado__c: proponente.email ?? null,
+            Celular__c: proponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponente.dataAlteracao,
+            NomeCompleto__c: 'Nome divergente tolerado pelo Apex',
+          },
+        ],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacApprovedInput(rendered));
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toContainEqual({
+      check: 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+      passed: false,
+    });
   });
 
   it('deletes the PAC record before deleting its synthetic Opportunity', async () => {
@@ -479,6 +572,80 @@ describe('Salesforce PAC test data adapter', () => {
       'Opportunity',
       opportunityId,
     );
+  });
+
+  it('fails closed when a Proponente cleanup target has a mismatched synthetic client id', async () => {
+    const rendered = pacApprovedFixture();
+    const event = pacApprovedEventData(rendered);
+    const proponente = event.proponentes[0]!;
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: proponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: 'CLI-FOREIGN',
+            CpfProponente__c: proponente.cpf,
+            TipoClassificacao__c: proponente.tipoClassificacao,
+            EmailAtualizado__c: proponente.email ?? null,
+            Celular__c: proponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponente.dataAlteracao,
+            NomeCompleto__c: proponente.nomeCompleto ?? null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      });
+    client.deleteRecord.mockResolvedValue(undefined);
+
+    const cleanupOperation = createSalesforceTestDataAdapter({
+      restClient: client,
+    }).cleanup(pacApprovedInput(rendered), [proponenteId, propostaId]);
+
+    await expect(cleanupOperation).rejects.toBeInstanceOf(
+      SalesforceTestDataAdapterError,
+    );
+    await expect(cleanupOperation).rejects.toMatchObject({
+      code: 'OWNERSHIP_MISMATCH',
+    });
+    expect(client.deleteRecord).not.toHaveBeenCalled();
   });
 
   it('fails closed when a PAC record is not owned by the rendered synthetic identifiers', async () => {
