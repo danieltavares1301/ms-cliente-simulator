@@ -308,15 +308,12 @@ Categorização real dos erros (amostra de 60):
   pelo incremento 2 (`/Cliente` chegando depois do `/MaquinaEstado`), agora
   confirmada também para `update`, não só `insert`.
 
-**Achado arquitetural real**: `NotificacaoMaquinaEstado.cls` **não tem
-nenhuma lógica de retry para `UNABLE_TO_LOCK_ROW`** (confirmado por leitura —
-nenhuma ocorrência de `UNABLE_TO_LOCK_ROW`/retry no arquivo), diferente de
-`NotificacaoPAC.cls`, que já implementa retry explícito para essa condição em
-pelo menos uma de suas sub-operações (`reconciliarIdProponentePrincipalPos`).
-Isso significa que, na prática, qualquer `jornadausuario-update` que colida
-com outra transação concorrente na mesma Opportunity falha **imediatamente e
-sem retry automático**, propagando o erro para o chamador (MS Cliente real),
-que presumivelmente reenviaria o evento depois.
+**Achado arquitetural real (CORRIGIDO — ver retificação abaixo):** ~~`NotificacaoMaquinaEstado.cls` não tem nenhuma lógica de retry para
+`UNABLE_TO_LOCK_ROW`~~. **Esta afirmação estava ERRADA e foi corrigida após
+verificação direta da versão realmente deployada em `mrv-staging`** (não
+apenas do repositório) — ver seção 6.1 abaixo para o achado correto: a
+versão real de `mrv-staging` **tem** um mecanismo de retry (5 tentativas), e
+os erros observados são casos onde ele se esgota mesmo assim.
 
 **Valores reais de `Estado` em updates de sucesso**: `"Documentacao"`,
 `"MG"` (aparenta ser um valor de UF vazado no campo errado, ou um estado
@@ -333,6 +330,67 @@ via script standalone, fora do motor de cenários do catálogo). Por ora, este
 achado fica **documentado, mas deferido** — o incremento 3 desta sessão
 cobre o caminho mais simples e imediatamente acionável (`jornadausuario-update`
 happy path + reteste de `Cliente(Account) não encontrado` para `update`).
+
+### 6.1. Retificação: `NotificacaoMaquinaEstado.cls` TEM retry real (drift de versão confirmado)
+
+**Esta seção corrige um erro da análise original acima**, apontado
+corretamente pelo usuário durante a revisão. A afirmação inicial ("sem
+nenhuma lógica de retry") foi baseada apenas na leitura do repositório
+`com_salesforce_mrv`/`mrv-devDan` — **sem verificar a versão realmente
+deployada em `mrv-staging`**, a mesma org de onde os logs foram extraídos.
+
+**Verificação direta feita (Tooling API, `ApexClass.Body`, ambas as orgs):**
+
+- `mrv-staging`: `NotificacaoMaquinaEstado.cls`, `LastModifiedDate =
+  2026-09-22T18:42:47Z`, **contém** um bloco de retry real:
+  ```apex
+  private static final Integer MAX_TENTATIVAS_RETRY = 5;
+  // ...
+  // Retry para tratar race condition de DUPLICATE_VALUE e UNABLE_TO_LOCK_ROW
+  Integer tentativa = 0;
+  while (!sucesso && tentativa < MAX_TENTATIVAS_RETRY) {
+      tentativa++;
+      try {
+          if (tentativa > 1 && !retornaValidacaoEventTime(sObjOportunidade)) {
+              sucesso = true; // evento obsoleto detectado no retry, aborta
+              break;
+          }
+          Database.upsert(sObjOportunidade, Opportunity.ID__c, true);
+          sucesso = true;
+      } catch (DmlException dmlEx) {
+          // só retenta para DUPLICATE_VALUE / UNABLE_TO_LOCK_ROW;
+          // qualquer outro tipo de DmlException é relançado imediatamente
+      }
+  }
+  if (!sucesso && ultimaExcecao != null) { throw ultimaExcecao; }
+  ```
+- `mrv-devDan` (e o repositório `com_salesforce_mrv` que o reflete):
+  `LastModifiedDate = 2026-09-04T03:17:28Z` — **não contém** esse bloco
+  (confirmado: `MAX_TENTATIVAS_RETRY` e o comentário "Retry para tratar race
+  condition" não existem no arquivo).
+
+**Conclusão corrigida**: `mrv-staging` está rodando uma versão **mais nova**
+de `NotificacaoMaquinaEstado.cls` (18 dias à frente) que já implementa o
+retry, mas essa versão **ainda não chegou** em `mrv-devDan`/no repositório
+compartilhado. Isso é o **terceiro caso confirmado nesta sessão** de drift
+real de versão entre ambientes (os outros dois: `CodigoPAC` ausente em
+`EnvioPACCreditoQueue.cls`, seção 3; e o próprio padrão já visto nos
+metadados de `Contestacao__c`/Permission Set na Fase 7 anterior).
+
+Isso também explica melhor os 43% de erros reais observados: **não é
+ausência de retry** — é contenção **sustentada o suficiente para esgotar 5
+tentativas**, um cenário de concorrência mais severo do que uma colisão
+simples de dois eventos. A decisão de escopo (deferir a reprodução
+determinística, pois exigiria dispatch concorrente incompatível com o
+orquestrador sequencial) continua válida, mas a motivação/achado documentado
+mudou: o item a explorar no futuro não é "adicionar retry" (já existe, na
+versão mais nova), é "simular contenção severa o suficiente para esgotar 5
+tentativas reais" — um cenário ainda mais difícil de reproduzir
+deterministicamente.
+
+**Nenhum incremento já implementado nesta sessão (1, 2 e 3 da Tarefa 7.2)
+depende dessa correção** — nenhum deles testa/afirma nada sobre a presença
+ou ausência de retry.
 
 ## Ações tomadas nesta análise
 
