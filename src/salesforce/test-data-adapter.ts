@@ -705,7 +705,10 @@ function literal(value: string): string {
 }
 
 function toOwnedList(value: string | readonly string[]): string[] {
-  return Array.isArray(value) ? [...value] : [value];
+  if (typeof value === 'string') {
+    return [value];
+  }
+  return [...value];
 }
 
 function parseInput(

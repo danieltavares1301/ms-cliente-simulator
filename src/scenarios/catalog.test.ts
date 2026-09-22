@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(22);
+    expect(scenarioCatalog.listActive()).toHaveLength(24);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -288,6 +288,16 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'pac-update-altera-status-sem-proponentes',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'pac-update-obsoleto-nivel-pac',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'pac-update-obsoleto-nivel-proponente',
         version: 1,
         availability: 'READY',
       },

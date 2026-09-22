@@ -238,22 +238,37 @@ export function renderScenarioFixture(
     if (instruction.target === 'PROPONENTE') {
       const pacOwnedProponentes = [...steps]
         .flatMap((step) => {
-          const event = step.envelope[0]?.data;
+          const envelopeItem = step.envelope[0] as { data?: unknown } | undefined;
+          const event = envelopeItem?.data;
           if (
             (step.eventType !== 'pac-insert' && step.eventType !== 'pac-update') ||
             event === undefined ||
+            event === null ||
+            typeof event !== 'object' ||
             !('proponentes' in event) ||
             !Array.isArray(event.proponentes)
           ) {
             return [];
           }
-          return event.proponentes
+          return (event.proponentes as unknown[])
             .filter(
-              (proponente): proponente is { id: string; idCliente: string } =>
-                typeof proponente?.id === 'string' &&
-                typeof proponente?.idCliente === 'string',
+              (
+                proponente,
+              ): proponente is { id: string; idCliente: string } => {
+                if (proponente === null || typeof proponente !== 'object') {
+                  return false;
+                }
+                const candidate = proponente as {
+                  id?: unknown;
+                  idCliente?: unknown;
+                };
+                return (
+                  typeof candidate.id === 'string' &&
+                  typeof candidate.idCliente === 'string'
+                );
+              },
             )
-            .map((proponente) => ({
+            .map((proponente: { id: string; idCliente: string }) => ({
               id: proponente.id,
               idCliente: proponente.idCliente,
             }));
