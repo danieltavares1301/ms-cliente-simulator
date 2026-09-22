@@ -1667,12 +1667,20 @@ export class DrizzleRunRepository<
           candidate >= 100 &&
           candidate <= 599
           ? candidate
-          : 200;
+          : undefined;
       })();
     const succeeded =
       attempt.errorCode === null &&
       attempt.httpStatus !== null &&
-      attempt.httpStatus === expectedHttpStatus;
+      (expectedHttpStatus === undefined
+        // Legacy/default behavior (no explicit expectation declared):
+        // preserve the original 2xx-range success check exactly, so no
+        // pre-existing scenario changes outcome because of this feature.
+        ? attempt.httpStatus >= 200 && attempt.httpStatus <= 299
+        // A step that explicitly declares an expected status (e.g. a
+        // scenario deliberately modeling a real 400 as the correct
+        // outcome) requires an exact match.
+        : attempt.httpStatus === expectedHttpStatus);
     await this.database
       .update(scenarioRunStep)
       .set({

@@ -219,7 +219,14 @@ function deriveSteps(
     requestRedacted: {
       eventId: step.eventEnvelope[0].id,
       eventType: step.eventType,
-      expectedHttpStatus: step.expectedHttpStatus ?? 200,
+      // Only persisted when the fixture explicitly declares it: this lets
+      // completeDispatch() distinguish "no expectation declared" (legacy
+      // 2xx-range success check, preserved exactly) from "this step expects
+      // a specific status" (exact-match check, used by scenarios that
+      // deliberately expect a non-2xx response as the correct outcome).
+      ...(typeof step.expectedHttpStatus === 'number'
+        ? { expectedHttpStatus: step.expectedHttpStatus }
+        : {}),
     },
     responseRedacted: {},
     stepKind: 'DISPATCH' as const,
