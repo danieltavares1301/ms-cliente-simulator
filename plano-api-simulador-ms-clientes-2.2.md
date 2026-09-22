@@ -1878,8 +1878,8 @@ adicionais, mas concluido no mesmo incremento).
 - reteste de O08 (`cpf-divergente-identidade-antiga`) com PAC aprovada,
   reaproveitando a fixture com `proponentes[]`;
 - revisita da Regra 6.6 / O08 com PAC aprovada e contatos aprovados;
-- eventuais asserts adicionais alem de `Account` + vínculo mínimo legível de
-  `Proponente__c` na org atual.
+- eventuais asserts adicionais alem da verificacao forte ja restaurada
+  para o Proponente principal.
 
 **Progresso real (incremento 2, PAC aprovada + sincronizacao de contatos):**
 
@@ -1890,18 +1890,23 @@ adicionais, mas concluido no mesmo incremento).
   org com os valores do payload do Proponente principal.
 - `Proponente__c` foi criado e vinculado corretamente à Account e à
   `PropostaAnaliseCredito__c`.
-- Em `mrv-devDan`, a leitura REST de `Proponente__c` expõe um subconjunto menor
-  de campos do que o esperado teoricamente (`Id__c`, lookups e
-  `NomeCompleto__c` permaneceram legíveis; `IdCliente__c`, `CpfProponente__c`,
+- O `INVALID_FIELD` visto inicialmente na leitura de `Proponente__c` nao era
+  limitacao real de schema/metadado: a causa raiz era FLS ausente no Permission
+  Set `AcessoDeAPI`, corrigida diretamente pelo usuario em `mrv-devDan` fora
+  deste repositorio.
+- Depois do ajuste de FLS, a query completa de `Proponente__c`
+  (`IdCliente__c`, `CpfProponente__c`, `TipoClassificacao__c`,
+  `EmailAtualizado__c`, `Celular__c`, `DataAlteracaoEvento__c` e
+  `NomeCompleto__c`) voltou a funcionar sem `INVALID_FIELD`, e o verifier forte
+  do simulador foi restaurado.
+- Na revalidacao real, `IdCliente__c`, `CpfProponente__c`,
   `TipoClassificacao__c`, `EmailAtualizado__c`, `Celular__c` e
-  `DataAlteracaoEvento__c` retornaram `INVALID_FIELD` quando consultados
-  diretamente). O verifier foi ajustado para provar o vínculo do Proponente por
-  `Id__c` + lookups e provar os contatos aprovados diretamente na Account, que
-  é o efeito de negócio importante.
-- O valor persistido em `Proponente__c.NomeCompleto__c` ficou igual ao nome
-  base da Account sintética, não ao `nomeCompleto` enviado no payload; como
-  isso não afeta o comportamento-alvo, a assertion deixou de depender desse
-  campo.
+  `DataAlteracaoEvento__c` bateram exatamente com o payload do Proponente
+  principal.
+- O valor persistido em `Proponente__c.NomeCompleto__c` continuou igual ao nome
+  base da Account sintetica, nao ao `nomeCompleto` enviado no payload; por
+  isso a assertion segue sem depender desse campo.
+
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
 

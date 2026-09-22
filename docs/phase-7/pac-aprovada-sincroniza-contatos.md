@@ -28,18 +28,22 @@ escopo** aqui e fica reservado ao incremento 3.
   sintética vinculada
 - **Evento:** `pac-insert` com um único Proponente principal
 - **Asserts:** vínculo PAC ↔ Opportunity, sincronização de
-  `Account.PersonEmail`/`Account.Celular__c` e existência do `Proponente__c`
-  vinculado à Account e à PAC
+  `Account.PersonEmail`/`Account.Celular__c` e verificação forte do
+  `Proponente__c` principal (`IdCliente__c`, `CpfProponente__c`,
+  `TipoClassificacao__c`, `EmailAtualizado__c`, `Celular__c`), mantendo
+  `NomeCompleto__c` apenas como evidência observada
 
 ## Execução real em `mrv-devDan`
 
-Execução final de validação:
+### Revalidação pós-fix de FLS (`AcessoDeAPI`)
 
-- `runId`: `run_pac_aprovada_1790042967738`
-- `accountIdCliente`: `CLI-SIM-4c272d3a29-1b3ad89def`
-- `opportunityIdExterno`: `OPP-SIM-4c272d3a29-1b3ad89def`
-- `pacIdExterno`: `PAC-SIM-4c272d3a29-1b3ad89def`
-- `proponenteIdExterno`: `PROP-SIM-4c272d3a29-1b3ad89def`
+Execução final de revalidação:
+
+- `runId`: `run_pac_restore_1790074026586`
+- `accountIdCliente`: `CLI-SIM-1d07f79317-863dbcbe93`
+- `opportunityIdExterno`: `OPP-SIM-1d07f79317-863dbcbe93`
+- `pacIdExterno`: `PAC-SIM-1d07f79317-863dbcbe93`
+- `proponenteIdExterno`: `PROP-SIM-1d07f79317-863dbcbe93`
 
 ### Resultado observado
 
@@ -49,70 +53,79 @@ Execução final de validação:
 - `verifyResult.passed = true`
 - `cleanupResult.status = DELETED`
 - `deletedCount = 4`
+- query SOQL completa de `Proponente__c` executada com sucesso, **sem**
+  `INVALID_FIELD`
+- o check restaurado `PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC` passou
+  usando novamente `IdCliente__c`, `CpfProponente__c`,
+  `TipoClassificacao__c`, `EmailAtualizado__c` e `Celular__c`
 
 ### Registros observados
 
 #### Account
 
-- `Id`: `001HZ000011OvvLYAS`
-- `PersonEmail`: `cliente.1b3ad89def@simulador.mrv.invalid`
-- `PersonMobilePhone`: `5511992887139`
-- `Celular__c`: `11992887139`
+- `Id`: `001HZ000011PtwIYAS`
+- `LastName`: `Cliente Simulado Base 863dbcbe93`
+- `PersonEmail`: `cliente.863dbcbe93@simulador.mrv.invalid`
+- `PersonMobilePhone`: `5511959550398`
+- `Celular__c`: `11959550398`
 
 Conclusão: a org real **sincronizou email e celular na Account** exatamente com
 os valores do payload do Proponente principal.
 
 #### Opportunity
 
-- `Id`: `006HZ00000TyZLZYA3`
-- `PACAtual__c`: `a0kHZ00000BLTyLYAX`
+- `Id`: `006HZ00000Tz095YAB`
+- `PACAtual__c`: `a0kHZ00000BLXc9YAH`
 
 #### PropostaAnaliseCredito__c
 
-- `Id`: `a0kHZ00000BLTyLYAX`
-- `Id__c`: `PAC-SIM-4c272d3a29-1b3ad89def`
+- `Id`: `a0kHZ00000BLXc9YAH`
+- `Id__c`: `PAC-SIM-1d07f79317-863dbcbe93`
 - `Status__c`: `CREDITO_APROVADO_CONDICIONADO`
 
 #### Proponente__c
 
-- `Id`: `a0jHZ00000CFFMRYA5`
-- `Id__c`: `PROP-SIM-4c272d3a29-1b3ad89def`
-- `Proponente__c`: `001HZ000011OvvLYAS`
-- `PropostaAnaliseCredito__c`: `a0kHZ00000BLTyLYAX`
-- `NomeCompleto__c`: `Cliente Simulado Base 1b3ad89def`
+- `Id`: `a0jHZ00000CFaqfYAD`
+- `Id__c`: `PROP-SIM-1d07f79317-863dbcbe93`
+- `Proponente__c`: `001HZ000011PtwIYAS`
+- `PropostaAnaliseCredito__c`: `a0kHZ00000BLXc9YAH`
+- `IdCliente__c`: `CLI-SIM-1d07f79317-863dbcbe93`
+- `CpfProponente__c`: `43491111234`
+- `TipoClassificacao__c`: `Principal`
+- `EmailAtualizado__c`: `cliente.863dbcbe93@simulador.mrv.invalid`
+- `Celular__c`: `11959550398`
+- `DataAlteracaoEvento__c`: `2026-09-22T10:47:06.000Z`
+- `NomeCompleto__c`: `Cliente Simulado Base 863dbcbe93`
 
 Conclusão: o `Proponente__c` foi criado e vinculado corretamente à Account e à
-PAC.
+PAC, e os campos restaurados no verificador forte bateram exatamente com o
+payload enviado (`IdCliente__c`, `CpfProponente__c`, `TipoClassificacao__c`,
+`EmailAtualizado__c`, `Celular__c` e também `DataAlteracaoEvento__c`).
+
+## Causa raiz do `INVALID_FIELD` (corrigida fora deste repositório)
+
+O erro **não** vinha de schema, metadata ausente nem divergência entre sandbox e
+código Apex. Os campos de `Proponente__c` existem na org e o Apex real
+(`NotificacaoPAC.cls`) já os utilizava normalmente. A causa raiz era FLS ausente
+no Permission Set `AcessoDeAPI`, que é o Permission Set usado pelas integrações
+reais dessa org e pelo usuário de teste da validação.
+
+O usuário corrigiu isso **diretamente em `mrv-devDan`**, fora deste repositório,
+adicionando FLS de leitura/edição para os campos necessários de
+`Proponente__c`. Depois dessa correção, a query completa voltou a funcionar sem
+`INVALID_FIELD` e o simulador pôde restaurar a verificação forte.
 
 ## Divergências reais vs teoria
 
-### 1. Campos de Proponente legíveis em `mrv-devDan`
+### 1. `NomeCompleto__c` do Proponente continua não refletindo o payload
 
-Ao tentar consultar `IdCliente__c`, `CpfProponente__c`, `TipoClassificacao__c`,
-`EmailAtualizado__c`, `Celular__c` e `DataAlteracaoEvento__c` diretamente em
-`Proponente__c`, a org retornou `INVALID_FIELD`. Na prática, o usuário atual só
-conseguiu ler com segurança:
+Na revalidação pós-fix, `NomeCompleto__c` continuou refletindo o nome vigente da
+Account (`LastName = Cliente Simulado Base ...`), e **não** o
+`nomeCompleto` enviado no payload do Proponente. Isso confirma novamente o
+comportamento do Apex via `resolverNomeVigenteProponente`; por isso a
+assertion forte permanece **sem** igualdade textual para esse campo.
 
-- `Id`
-- `Id__c`
-- `Proponente__c`
-- `PropostaAnaliseCredito__c`
-- `NomeCompleto__c`
-
-Por isso, o verificador do simulador foi ajustado para provar o vínculo do
-`Proponente__c` por `Id__c` + lookups (`Proponente__c` e
-`PropostaAnaliseCredito__c`) e deixar a prova dos contatos exclusivamente na
-`Account`, onde o efeito de negócio realmente precisa aparecer.
-
-### 2. `NomeCompleto__c` do Proponente não refletiu o payload
-
-O payload enviado usava o nome gerado em `PERSON_NAME`, mas o registro real
-persistido ficou com `NomeCompleto__c = Cliente Simulado Base ...`, isto é, o
-nome base da Account criada no setup. Como o objetivo do cenário é provar a
-sincronização de contatos e o vínculo do Proponente, a assertion foi ajustada
-para **não** depender do valor textual desse campo.
-
-### 3. `Opportunity.CloseDate` foi normalizado pela org
+### 2. `Opportunity.CloseDate` foi normalizado pela org
 
 A Opportunity sintética é criada pelo simulador com `CloseDate` futuro fixo, mas
 na execução observada a org retornou `CloseDate = 2026-09-30`. Isso não impediu
