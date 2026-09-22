@@ -1792,6 +1792,14 @@ por "nao fazer scaffolding") — bloqueando toda a Tarefa 7.1 ate ser resolvido.
   estruturalmente o header `Authorization` (`SharedAccessSignature ...`) e o
   payload (`IdSalesforcePac`, `IdPac`, `IdJornada`, `DataCriacao`), retornando
   201 no sucesso (contrato exato exigido por `EnvioPACCreditoQueue.cls`).
+- [x] **Extensão pós-incidente real (2026-09-22):** novos endpoints
+  `POST /api/ms-clientes/contestacao-insert` e
+  `POST /api/ms-clientes/contestacao-documentos`, protegidos por feature flags
+  separadas (`CONTESTACAO_INSERT_CALLBACK_ENABLED` e
+  `CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED`), validando estruturalmente
+  `Authorization: Bearer ...` e os payloads confirmados em
+  `ContestacaoTriggerHandler.cls`, restaurando com segurança o fluxo de
+  contestação redirecionado para o simulador.
 - [x] Raio de impacto confirmado: apenas `EnvioPACCreditoQueue.cls` (+ seu
   teste) consomem os campos `URITokenCCA__c`/`KeyNameCCA__c`/
   `ChavePrimariaCCA__c`/`EndpointChatterCCA__c` do custom setting
@@ -2198,8 +2206,12 @@ apos a ultima.
   pelo usuario), reaproveitando a Remote Site Setting e o Named Credential
   `ServicoClientes` ja redirecionados na Fase 5/Tarefa 7.0. Ver
   `docs/phase-7/contestacao-callout-real-leak-and-redirect.md` para
-  evidencia completa. A varredura de `Proponente_1.flow-meta.xml` e dos
-  demais Flows/triggers ainda nao lidos permanece em aberto.
+  evidencia completa. **Atualizacao 2026-09-22:** os endpoints receptores
+  (`contestacao-insert` e `contestacao-documentos`) ja foram implementados no
+  simulador com TDD, feature flags dedicadas e validacao estrutural do
+  bearer/payload; falta apenas a revalidacao operacional ao vivo + continuidade
+  da varredura de `Proponente_1.flow-meta.xml` e dos demais Flows/triggers
+  ainda nao lidos.
 
 **Conclusao:** Tarefa 7.1 (contratos `/PAC`) esta concluida e consolidada.
 Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).

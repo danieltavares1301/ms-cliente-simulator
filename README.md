@@ -56,8 +56,9 @@ curl http://localhost:3000/api/v1/scenarios/match-id-cliente
 
 Cada operação no OpenAPI possui `x-implementation-status` com `implemented`,
 `phase-2` ou `future`. Endpoints internos/protegidos (`/api/v1/internal/dispatches`,
-`/api/ms-clientes/graphql`, `/api/ms-clientes/token` e
-`/api/ms-clientes/pac-credito`) não são publicados no OpenAPI público.
+`/api/ms-clientes/graphql`, `/api/ms-clientes/token`,
+`/api/ms-clientes/pac-credito`, `/api/ms-clientes/contestacao-insert` e
+`/api/ms-clientes/contestacao-documentos`) não são publicados no OpenAPI público.
 
 ### Emissor fake de token OAuth2
 
@@ -98,6 +99,33 @@ desenvolvimento** e recebe o callback fire-and-forget hoje emitido por
 O racional, o raio de impacto restrito ao fluxo PAC Crédito e o precedente de
 uso de credenciais falsas estão documentados em
 [`docs/phase-7/pac-credito-callback-redirect-risks.md`](docs/phase-7/pac-credito-callback-redirect-risks.md).
+
+### Callbacks de Contestação simulados
+
+Os endpoints `POST /api/ms-clientes/contestacao-insert` e
+`POST /api/ms-clientes/contestacao-documentos` existem **somente para
+desenvolvimento** e recebem os dois callouts fire-and-forget emitidos por
+`ContestacaoTriggerHandler.cls` após insert de `Contestacao__c`. Eles:
+
+- exigem `Authorization` com prefixo literal `Bearer `;
+- validam apenas a **estrutura** desse header, não o JWT nem a assinatura;
+- usam feature flags separadas para rollback granular
+  (`CONTESTACAO_INSERT_CALLBACK_ENABLED` e
+  `CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED`, ambas dependentes de
+  `ORCHESTRATION_ENABLED=true`);
+- aceitam somente payloads JSON estritos com strings opcionais/anuláveis;
+- registram logs estruturados com `responseStatusCode`, sem expor o bearer
+  recebido.
+
+`contestacao-insert` responde `201` com `{ "id": "..." }`, preservando o
+contrato esperado pelo Apex para desserialização de `ContestacaoResponse`.
+`contestacao-documentos` responde `201` com
+`{ "accepted": true, "requestId": "..." }`, já que o Apex só usa o corpo em
+caminhos de erro.
+
+O racional, o incidente real que motivou o redirecionamento e a validação
+end-to-end ficam em
+[`docs/phase-7/contestacao-callout-real-leak-and-redirect.md`](docs/phase-7/contestacao-callout-real-leak-and-redirect.md).
 
 ### Callback GraphQL simulado
 
@@ -206,6 +234,12 @@ nenhuma credencial Salesforce é necessária enquanto
 - `PAC_CREDITO_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true`
   quando `ORCHESTRATION_ENABLED=true`. Serve apenas para o endpoint fake
   `POST /api/ms-clientes/pac-credito`.
+- `CONTESTACAO_INSERT_CALLBACK_ENABLED`: `false` por padrão. Só pode ser
+  `true` quando `ORCHESTRATION_ENABLED=true`. Serve apenas para o endpoint fake
+  `POST /api/ms-clientes/contestacao-insert`.
+- `CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED`: `false` por padrão. Só pode ser
+  `true` quando `ORCHESTRATION_ENABLED=true`. Serve apenas para o endpoint fake
+  `POST /api/ms-clientes/contestacao-documentos`.
 - `GRAPHQL_CALLBACK_ENABLED`: `false` por padrão. Só pode ser `true` quando
   `ORCHESTRATION_ENABLED=true`.
 - `GRAPHQL_CALLBACK_AUTH_MODE`: opcional; default `SHARED_SECRET`. O operador

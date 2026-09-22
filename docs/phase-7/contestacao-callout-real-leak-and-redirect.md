@@ -92,24 +92,45 @@ Setting ativa (`Id=0rp4T000000PGI6QAO`), criada durante a Tarefa 7.0 para o
 redirecionamento do `EnvioPACCreditoQueue`. Como o mesmo domínio é reutilizado
 aqui, nenhuma RSS adicional precisou ser criada.
 
-### Estado atual (pós-correção)
+### Estado atual (após a implementação no simulador)
 
-Os dois endpoints do simulador (`/api/ms-clientes/contestacao-insert` e
-`/api/ms-clientes/contestacao-documentos`) **ainda não existem** — qualquer
-callout real cairá em 404, o que é seguro (nenhum dado sai da org para
-`apis.mrv.com.br`), mas também significa que o cenário
-`pac-update-com-contestacao-pendente-sincroniza-contatos` passará a gerar uma
-falha de callout (`LogIntegracao__c.Status2__c` provavelmente `error`) na
-próxima execução ao vivo, até que os endpoints sejam implementados (seguindo
-o mesmo padrão TDD usado para `/api/ms-clientes/pac-credito` na Tarefa 7.0).
-Isso é aceitável como estado intermediário: o objetivo imediato era estancar
-o vazamento, não restaurar o fluxo funcional.
+Os dois endpoints do simulador agora existem e seguem exatamente o padrão de
+`/api/ms-clientes/pac-credito`:
+
+- `POST /api/ms-clientes/contestacao-insert`
+- `POST /api/ms-clientes/contestacao-documentos`
+
+Decisão de rollout: **feature flags separadas** para rollback granular por
+contrato, sem acoplar os dois branches do Apex a um único toggle:
+
+- `CONTESTACAO_INSERT_CALLBACK_ENABLED`
+- `CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED`
+
+Ambas exigem `ORCHESTRATION_ENABLED=true` e fazem apenas validação estrutural
+do header `Authorization: Bearer ...`, coerente com o uso de
+`NotificacaoHelper.autenticacao().getToken()` na org de dev. O endpoint
+`contestacao-insert` sempre retorna `201` com `{ "id": "<string-nao-vazia>" }`
+e o endpoint `contestacao-documentos` retorna `201` com
+`{ "accepted": true, "requestId": "..." }`. Os handlers registram logs
+estruturados com `responseStatusCode`, sem expor o bearer recebido.
+
+Arquivos implementados:
+
+- `src/contracts/contestacao.ts`
+- `src/ms-clientes/contestacao-insert-handler.ts`
+- `src/ms-clientes/contestacao-documentos-handler.ts`
+- `src/ms-clientes/contestacao-insert-production.ts`
+- `src/ms-clientes/contestacao-documentos-production.ts`
+- `app/api/ms-clientes/contestacao-insert/route.ts`
+- `app/api/ms-clientes/contestacao-documentos/route.ts`
+- testes TDD completos em `src/ms-clientes/*.test.ts`
 
 ## Pendências / próximos passos
 
-1. Implementar os dois endpoints do simulador (`contestacao-insert`,
-   `contestacao-documentos`) com TDD, feature-flag e validação estrutural do
-   payload, espelhando o padrão de `/api/ms-clientes/pac-credito`.
+1. [x] Implementar os dois endpoints do simulador (`contestacao-insert`,
+   `contestacao-documentos`) com TDD, feature flags separadas e validação
+   estrutural do payload/header, espelhando o padrão de
+   `/api/ms-clientes/pac-credito`.
 2. Revalidar o cenário de contestação ao vivo após a implementação, para
    confirmar callback bem-sucedido sem tocar `apis.mrv.com.br`.
 3. Continuar a varredura de risco nos demais itens ainda não verificados
