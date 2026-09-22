@@ -3,6 +3,7 @@ export * from './contestacao';
 export * from './event-grid';
 export * from './fixtures';
 export * from './graphql';
+export * from './maquina-estado';
 export * from './pac-credito';
 export * from './runs';
 export * from './scenarios';

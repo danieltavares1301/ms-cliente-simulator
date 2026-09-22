@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+import {
+  jornadaUsuarioInsertEventSchema,
+  jornadaUsuarioUpdateEventSchema,
+  maquinaEstadoDataSchema,
+} from './maquina-estado.ts';
+
 const apexUtcDateTimePattern =
   /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.000)?Z$/;
 
@@ -175,6 +181,8 @@ export const eventTypeSchema = z.enum([
   'endereco-update',
   'pac-insert',
   'pac-update',
+  'jornadausuario-insert',
+  'jornadausuario-update',
 ]);
 
 export const clienteInsertEventSchema = eventVariant(
@@ -203,6 +211,7 @@ export const enderecoUpdateEventSchema = eventVariant(
 );
 export const pacInsertEventSchema = eventVariant('pac-insert', pacDataSchema);
 export const pacUpdateEventSchema = eventVariant('pac-update', pacDataSchema);
+export { maquinaEstadoDataSchema };
 
 export const eventGridEventSchema = z.discriminatedUnion('eventType', [
   clienteInsertEventSchema,
@@ -213,6 +222,8 @@ export const eventGridEventSchema = z.discriminatedUnion('eventType', [
   enderecoUpdateEventSchema,
   pacInsertEventSchema,
   pacUpdateEventSchema,
+  jornadaUsuarioInsertEventSchema,
+  jornadaUsuarioUpdateEventSchema,
 ]);
 
 export const eventGridEnvelopeSchema = z.array(eventGridEventSchema).length(1);

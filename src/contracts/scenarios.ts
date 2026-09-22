@@ -302,6 +302,8 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED',
   'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED',
   'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+  'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+  'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
   'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
@@ -412,6 +414,24 @@ const renderedPropostaAnaliseCreditoExpectedValueCheckSchema =
       .strict(),
   ]);
 
+const renderedOpportunityExpectedValueCheckSchema = z.discriminatedUnion(
+  'check',
+  [
+    z
+      .object({
+        check: z.literal('OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED'),
+        value: z.number().int().min(0).max(20),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('OPPORTUNITY_STAGE_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(255),
+      })
+      .strict(),
+  ],
+);
+
 const definitionExpectedValueSchema = z.union([
   generatedFixtureReferenceSchema,
   z.string().trim().min(1).max(255),
@@ -504,6 +524,18 @@ export const expectedOutcomeCheckSchema = z.union([
         value: definitionExpectedValueSchema,
       })
       .strict(),
+    z
+      .object({
+        check: z.literal('OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED'),
+        value: z.number().int().min(0).max(20),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('OPPORTUNITY_STAGE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
   ]),
 ]);
 
@@ -516,6 +548,7 @@ export const expectedOutcomeSchema = z
       'PERSON_ACCOUNT_CREATED',
       'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
+      'OPPORTUNITY_CREATED_AND_LINKED',
       'PAC_CREATED_AND_LINKED',
     ]),
     description: safePublicTextSchema,
@@ -528,6 +561,7 @@ export const renderedExpectedOutcomeCheckSchema = z.union([
   renderedLeadExpectedValueCheckSchema,
   renderedAccountExpectedValueCheckSchema,
   renderedControlAccountExpectedValueCheckSchema,
+  renderedOpportunityExpectedValueCheckSchema,
   renderedProponenteExpectedValueCheckSchema,
   renderedPropostaAnaliseCreditoExpectedValueCheckSchema,
 ]);
@@ -541,6 +575,7 @@ export const renderedExpectedOutcomeSchema = z
       'PERSON_ACCOUNT_CREATED',
       'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
+      'OPPORTUNITY_CREATED_AND_LINKED',
       'PAC_CREATED_AND_LINKED',
     ]),
     description: safePublicTextSchema,

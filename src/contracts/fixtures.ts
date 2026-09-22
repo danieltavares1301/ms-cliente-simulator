@@ -197,7 +197,7 @@ const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
       ownership: z
         .object({
           idExterno: z.string().min(1).max(50),
-          pacIdExterno: z.string().min(1).max(50),
+          pacIdExterno: z.string().min(1).max(50).optional(),
         })
         .strict(),
     })
@@ -227,11 +227,15 @@ const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
 ]);
 
 const pacEventTypeSchema = z.enum(['pac-insert', 'pac-update']);
+const maquinaEstadoEventTypeSchema = z.enum([
+  'jornadausuario-insert',
+  'jornadausuario-update',
+]);
 
 const renderedFixtureStepSchema = z
   .object({
     key: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-    target: z.enum(['CLIENTE', 'PAC']),
+    target: z.enum(['CLIENTE', 'PAC', 'MAQUINA_ESTADO']),
     eventType: z.union([
       z.enum([
         'cliente-insert',
@@ -240,6 +244,7 @@ const renderedFixtureStepSchema = z
         'endereco-insert',
       ]),
       pacEventTypeSchema,
+      maquinaEstadoEventTypeSchema,
     ]),
     delayMs: z.number().int().nonnegative(),
     scheduledAt: apexCompatibleUtcDateTimeSchema,
@@ -257,6 +262,8 @@ const renderedFixtureStepSchema = z
       });
     }
     const isPacEvent = pacEventTypeSchema.safeParse(eventType).success;
+    const isMaquinaEstadoEvent =
+      maquinaEstadoEventTypeSchema.safeParse(eventType).success;
     if (target === 'PAC' && !isPacEvent) {
       context.addIssue({
         code: 'custom',
@@ -268,6 +275,21 @@ const renderedFixtureStepSchema = z
       context.addIssue({
         code: 'custom',
         message: 'CLIENTE steps cannot dispatch PAC events',
+        path: ['target'],
+      });
+    }
+    if (target === 'CLIENTE' && isMaquinaEstadoEvent) {
+      context.addIssue({
+        code: 'custom',
+        message: 'CLIENTE steps cannot dispatch MaquinaEstado events',
+        path: ['target'],
+      });
+    }
+    if (target === 'MAQUINA_ESTADO' && !isMaquinaEstadoEvent) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'MAQUINA_ESTADO steps only accept jornadausuario-insert or jornadausuario-update events',
         path: ['target'],
       });
     }
@@ -453,6 +475,14 @@ export const renderedScenarioFixtureSchema = z
       )?.envelope[0]?.data as
       | { id?: string; idjornadapac?: string }
       | undefined;
+    const renderedMaquinaEstadoEvent = steps
+      .slice()
+      .reverse()
+      .find(
+        (step) =>
+          step.eventType === 'jornadausuario-insert' ||
+          step.eventType === 'jornadausuario-update',
+      )?.envelope[0]?.data as { id?: string } | undefined;
 
     if (
       syntheticProposta !== undefined &&
@@ -535,13 +565,36 @@ export const renderedScenarioFixtureSchema = z
       }
       if (
         cleanupInstruction.target === 'OPPORTUNITY' &&
-        syntheticOpportunitySetups[0]?.opportunity.idExterno !==
-          cleanupInstruction.ownership.idExterno
+        (syntheticOpportunitySetups[0]?.opportunity.idExterno ??
+          renderedMaquinaEstadoEvent?.id) !== cleanupInstruction.ownership.idExterno
       ) {
         context.addIssue({
           code: 'custom',
           message: 'Opportunity cleanup ownership must match the setup',
           path: ['cleanup', index, 'ownership', 'idExterno'],
+        });
+      }
+      if (
+        cleanupInstruction.target === 'OPPORTUNITY' &&
+        renderedPacEvent?.id === undefined &&
+        cleanupInstruction.ownership.pacIdExterno !== undefined
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Opportunity cleanup can only declare pac ownership for PAC events',
+          path: ['cleanup', index, 'ownership', 'pacIdExterno'],
+        });
+      }
+      if (
+        cleanupInstruction.target === 'OPPORTUNITY' &&
+        renderedPacEvent?.id !== undefined &&
+        cleanupInstruction.ownership.pacIdExterno !== renderedPacEvent.id
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            'Opportunity cleanup PAC ownership must match the rendered PAC event',
+          path: ['cleanup', index, 'ownership', 'pacIdExterno'],
         });
       }
     }

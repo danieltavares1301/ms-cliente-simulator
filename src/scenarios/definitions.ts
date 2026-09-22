@@ -80,6 +80,9 @@ const graphqlCallbackAsyncPolicy: ScenarioDefinition['asyncPolicy'] = {
   missingCallbackResult: 'PARTIAL',
 };
 
+const MAQUINA_ESTADO_ACTIVE_PRODUCT_EXTERNAL_ID =
+  '7d9261ee-c2b8-f011-8df6-80c16e075108';
+
 function clientPayload(
   eventType: 'cliente-insert' | 'cliente-update',
   includeProspect: boolean,
@@ -288,6 +291,45 @@ function approvedPacWithPrincipalProponentePayload(
   > = {},
 ): ScenarioDefinition['steps'][number]['payloadTemplate'] {
   return pacWithPrincipalProponentePayload('pac-insert', options);
+}
+
+function maquinaEstadoPayload(
+  eventType: 'jornadausuario-insert' | 'jornadausuario-update',
+  options: {
+    estado?: string;
+    dataAlteracao?: ReturnType<typeof generated>;
+    idUnidade?: string;
+  } = {},
+): ScenarioDefinition['steps'][number]['payloadTemplate'] {
+  const {
+    estado = 'SIMULACAO',
+    dataAlteracao = generated('EVENT_TIME'),
+    idUnidade = MAQUINA_ESTADO_ACTIVE_PRODUCT_EXTERNAL_ID,
+  } = options;
+
+  return {
+    kind: 'DECLARATIVE',
+    contract: 'EVENT_GRID',
+    value: {
+      id: generated('EVENT_ID'),
+      subject: 'MS_Clientes',
+      eventType,
+      eventTime: generated('EVENT_TIME'),
+      dataVersion: '1.0',
+      metadataVersion: '1',
+      topic: '/simulator/ms-clientes',
+      data: {
+        cliente: {
+          idCliente: generated('CLIENT_ID'),
+          idProspectSalesforce: generated('PROSPECT_ID'),
+        },
+        id: generated('OPPORTUNITY_EXTERNAL_ID'),
+        dataalteracao: dataAlteracao,
+        estado,
+        idunidade: idUnidade,
+      },
+    },
+  } as const;
 }
 
 const cleanup: ScenarioDefinition['cleanup'] = [
@@ -1768,6 +1810,63 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy,
     cleanup,
+  },
+  {
+    key: 'maquina-estado-insert-minimo',
+    version: 1,
+    name: 'MaquinaEstado insert mínimo',
+    description:
+      'Smoke test mínimo do contrato /MaquinaEstado criando a Opportunity pela primeira vez com unidade real ativa em mrv-devDan.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'smoke'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert'),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'A Opportunity deve ser criada pelo /MaquinaEstado com a Account sintética, a fase Simulação e exatamente um OpportunityLineItem sintético.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Simulação',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
   },
   {
     key: 'pac-aprovada-sincroniza-contatos',

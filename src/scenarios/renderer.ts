@@ -220,6 +220,20 @@ export function renderScenarioFixture(
       envelope: [event],
     };
   });
+  const renderedPacEvent = steps
+    .slice()
+    .reverse()
+    .find(
+      (step) => step.eventType === 'pac-insert' || step.eventType === 'pac-update',
+    )?.envelope[0] as { data?: { id?: string } } | undefined;
+  const renderedMaquinaEstadoEvent = steps
+    .slice()
+    .reverse()
+    .find(
+      (step) =>
+        step.eventType === 'jornadausuario-insert' ||
+        step.eventType === 'jornadausuario-update',
+    )?.envelope[0] as { data?: { id?: string } } | undefined;
   const cleanup = (definition.cleanup ?? []).map((instruction) => {
     if (instruction.target === 'LEAD') {
       return {
@@ -233,8 +247,11 @@ export function renderScenarioFixture(
         operation: instruction.operation,
         target: instruction.target,
         ownership: {
-          idExterno: syntheticOpportunityExternalId,
-          pacIdExterno: syntheticPacExternalId,
+          idExterno:
+            renderedMaquinaEstadoEvent?.data?.id ?? syntheticOpportunityExternalId,
+          ...(renderedPacEvent?.data?.id
+            ? { pacIdExterno: renderedPacEvent.data.id }
+            : {}),
         },
       };
     }

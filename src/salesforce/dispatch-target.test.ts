@@ -297,4 +297,62 @@ describe('Salesforce dispatch target', () => {
       }),
     );
   });
+
+  it('routes MAQUINA_ESTADO steps to the /MaquinaEstado Apex REST endpoint', async () => {
+    const oauthClient = {
+      getAccess: vi.fn(),
+      invalidateToken: vi.fn(),
+    };
+    const safetyGuard = {
+      validate: vi.fn().mockResolvedValue({
+        accessToken: 'token-1',
+        instanceUrl: 'https://example.my.salesforce.com',
+      }),
+    };
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('', { status: 200, statusText: 'OK' }),
+    );
+    const target = createSalesforceDispatchTarget({
+      oauthClient,
+      safetyGuard,
+      fetchFn,
+      now: () => new Date('2026-08-22T12:00:01.000Z'),
+    });
+
+    const result = await target.dispatch({
+      runId: '11111111-1111-4111-8111-111111111111',
+      stepId: '22222222-2222-4222-8222-222222222222',
+      attemptNumber: 1,
+      target: 'MAQUINA_ESTADO',
+      envelope: [
+        {
+          id: 'evt-journey-1',
+          subject: 'jornada/evt-journey-1',
+          eventType: 'jornadausuario-insert',
+          eventTime: '2026-08-21T10:00:00.000Z',
+          dataVersion: '1.0',
+          metadataVersion: '1',
+          topic: '/subscriptions/test/topics/jornada',
+          data: {
+            cliente: {
+              idCliente: 'CLI-SIM-001',
+              idProspectSalesforce: 'PRO-SIM-001',
+            },
+            id: 'OPP-SIM-001',
+            dataalteracao: '2026-08-21T10:00:00.000Z',
+            estado: 'SIMULACAO',
+            idunidade: '7d9261ee-c2b8-f011-8df6-80c16e075108',
+          },
+        },
+      ],
+    });
+
+    expect(result.httpStatus).toBe(200);
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/apexrest/MaquinaEstado',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+  });
 });

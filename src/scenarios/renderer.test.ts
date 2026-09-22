@@ -19,6 +19,7 @@ const scenarioKeys = [
   'graphql-erro-500',
   'graphql-resposta-invalida',
   'graphql-timeout',
+  'maquina-estado-insert-minimo',
   'id-prospect-igual-id-cliente',
   'match-id-cliente',
   'match-cpf-sem-id-cliente',
@@ -47,6 +48,7 @@ const expectedStepCountByScenario = {
   'graphql-erro-500': 1,
   'graphql-resposta-invalida': 1,
   'graphql-timeout': 1,
+  'maquina-estado-insert-minimo': 1,
   'id-prospect-igual-id-cliente': 1,
   'match-id-cliente': 1,
   'match-cpf-sem-id-cliente': 1,
@@ -99,7 +101,9 @@ describe('basic scenario fixture definitions', () => {
       expect(definition?.steps).toHaveLength(
         expectedStepCountByScenario[scenarioKey],
       );
-      expect(['CLIENTE', 'PAC']).toContain(definition?.steps[0].target);
+      expect(['CLIENTE', 'PAC', 'MAQUINA_ESTADO']).toContain(
+        definition?.steps[0].target,
+      );
       expect(definition?.steps[0].payloadTemplate.kind).toBe('DECLARATIVE');
       expect(definition?.expectedOutcomes.length).toBeGreaterThan(0);
       expect(definition?.expectedOutcomes[0].checks.length).toBeGreaterThan(0);

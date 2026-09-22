@@ -24,12 +24,16 @@ type DispatchTargetPayload = DispatchRequest & {
   envelope: EventGridEnvelope;
 };
 
-function apexRestPath(target: string): '/services/apexrest/Cliente' | '/services/apexrest/PAC' {
+function apexRestPath(
+  target: string,
+): '/services/apexrest/Cliente' | '/services/apexrest/PAC' | '/services/apexrest/MaquinaEstado' {
   switch (target) {
     case 'CLIENTE':
       return '/services/apexrest/Cliente';
     case 'PAC':
       return '/services/apexrest/PAC';
+    case 'MAQUINA_ESTADO':
+      return '/services/apexrest/MaquinaEstado';
     default:
       throw new Error(`Unsupported Salesforce dispatch target: ${target}`);
   }

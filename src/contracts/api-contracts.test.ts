@@ -193,6 +193,32 @@ describe('Event Grid contracts', () => {
         dataalteracao: '2026-08-21T10:00:00.000Z',
       },
     },
+    {
+      eventType: 'jornadausuario-insert',
+      data: {
+        cliente: {
+          idCliente: 'CLI-SIM-001',
+          idProspectSalesforce: 'PRO-SIM-001',
+        },
+        id: 'OPP-SIM-001',
+        dataalteracao: '2026-08-21T10:00:00.000Z',
+        estado: 'SIMULACAO',
+        idunidade: '7d9261ee-c2b8-f011-8df6-80c16e075108',
+      },
+    },
+    {
+      eventType: 'jornadausuario-update',
+      data: {
+        cliente: {
+          idCliente: 'CLI-SIM-001',
+          idProspectSalesforce: 'PRO-SIM-001',
+        },
+        id: 'OPP-SIM-002',
+        dataalteracao: '2026-08-21T10:00:00.000Z',
+        estado: 'SIMULACAO',
+        idunidade: '7d9261ee-c2b8-f011-8df6-80c16e075108',
+      },
+    },
   ] as const;
 
   it.each(variants)('accepts $eventType', (variant) => {
@@ -262,6 +288,39 @@ describe('Event Grid contracts', () => {
           data: {
             id: 'PAC-SIM-001',
             dataalteracao: commonData.dataalteracao,
+          },
+        },
+      ]),
+    ).toThrow();
+  });
+
+  it('requires jornadausuario events to declare cliente, estado and idunidade', () => {
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'jornadausuario-insert',
+          data: {
+            id: 'OPP-SIM-001',
+            dataalteracao: commonData.dataalteracao,
+            estado: 'SIMULACAO',
+          },
+        },
+      ]),
+    ).toThrow();
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'jornadausuario-update',
+          data: {
+            cliente: {
+              idCliente: commonData.idcliente,
+              idProspectSalesforce: commonData.idprospectsalesforce,
+            },
+            id: 'OPP-SIM-001',
+            dataalteracao: commonData.dataalteracao,
+            estado: 'SIMULACAO',
           },
         },
       ]),
@@ -414,7 +473,10 @@ describe('Event Grid contracts', () => {
   it.each(
     variants.filter(
       (variant) =>
-        variant.eventType !== 'pac-insert' && variant.eventType !== 'pac-update',
+        variant.eventType !== 'pac-insert' &&
+        variant.eventType !== 'pac-update' &&
+        variant.eventType !== 'jornadausuario-insert' &&
+        variant.eventType !== 'jornadausuario-update',
     ),
   )(
     'rejects populated data.id for $eventType because Apex requires fallback to data.idcliente',

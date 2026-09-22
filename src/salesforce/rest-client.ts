@@ -23,6 +23,7 @@ export type AllowlistedObjectApiName =
   | 'Contestacao__c'
   | 'Lead'
   | 'Opportunity'
+  | 'OpportunityLineItem'
   | 'Proponente__c'
   | 'PropostaAnaliseCredito__c';
 
@@ -462,6 +463,7 @@ export function createSalesforceRestClient(
           'Contestacao__c',
           'Lead',
           'Opportunity',
+          'OpportunityLineItem',
           'Proponente__c',
           'PropostaAnaliseCredito__c',
         ].includes(objectApiName) ||

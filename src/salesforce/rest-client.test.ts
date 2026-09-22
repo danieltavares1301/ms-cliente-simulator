@@ -389,6 +389,40 @@ describe('Salesforce REST client', () => {
     );
   });
 
+  it('deletes OpportunityLineItem records through the allowlist', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, {
+        status: 204,
+      }),
+    );
+    const client = createSalesforceRestClient({
+      oauthClient: {
+        getAccess: vi.fn(),
+        invalidateToken: vi.fn(),
+      },
+      safetyGuard: {
+        validate: vi.fn().mockResolvedValue({
+          accessToken: 'token-1',
+          instanceUrl: 'https://example.my.salesforce.com',
+        }),
+      },
+      fetchFn,
+    });
+
+    await expect(
+      client.deleteRecord('OpportunityLineItem', '00k000000000001AAA'),
+    ).resolves.toBeUndefined();
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://example.my.salesforce.com/services/data/v61.0/sobjects/OpportunityLineItem/00k000000000001AAA',
+      expect.objectContaining({
+        method: 'DELETE',
+        redirect: 'error',
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
   it('caches the GestaoVendas Lead record type lookup independently', async () => {
     const query = vi
       .fn()
