@@ -162,6 +162,17 @@ Estado final pós-cleanup:
 > `mrv-staging`: sem `Account` prévia para o prospect, o Apex responde
 > **HTTP 400** e não faz DML em `Opportunity` nem em `OpportunityLineItem`.
 
+### Rastreabilidade com a análise de logs reais
+
+Este cenário implementa diretamente o achado da seção 1
+("`/MaquinaEstado` — Tarefa 7.2") de `docs/staging-logs-analysis.md`:
+amostra real de `jornadausuario-insert` em `mrv-staging` com **208 sucesso
+vs. 1.147 erro (≈85% de taxa de erro real)**, causa raiz confirmada via
+`StackTrace__c` real como `Cliente(Account) não encontrado no Salesforce.
+clienteProspect.idClient: null. clienteProspect.idProspectSalesforce: ...`
+— a mesma mensagem (mesmo prefixo textual, apenas os identificadores
+variam) reproduzida ao vivo em `mrv-devDan` neste incremento.
+
 ---
 
 ## Cenário B — `maquina-estado-insert-apos-cliente-criado`

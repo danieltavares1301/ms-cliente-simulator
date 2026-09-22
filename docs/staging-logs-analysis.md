@@ -81,6 +81,12 @@ deferido no Checkpoint 7.1 ("ordem relativa entre `/Cliente` e `/PAC`") — a
 mesma classe de problema existe entre `/Cliente` e `/MaquinaEstado`, e os
 logs reais prova que é um caso **comum**, não raro.
 
+**Implementado**: este achado foi transformado nos cenários
+`maquina-estado-insert-sem-cliente-falha`/`maquina-estado-insert-apos-cliente-criado`
+(Tarefa 7.2, incremento 2) — ver `docs/phase-7/maquina-estado-sem-cliente.md`
+para a evidência de validação ao vivo em `mrv-devDan` reproduzindo esta
+mesma mensagem de erro.
+
 **Payload real é estruturalmente diferente do que implementamos.** O
 `data` real de `jornadausuario-insert` tem o formato (chaves em PascalCase,
 minusculizadas pelo Apex antes do processamento — `Conversor.converterMinusculo`):
@@ -307,6 +313,12 @@ Categorização real dos erros (amostra de 60):
 - **4/60 (≈7%)**: `Cliente(Account) não encontrado` — mesma causa já coberta
   pelo incremento 2 (`/Cliente` chegando depois do `/MaquinaEstado`), agora
   confirmada também para `update`, não só `insert`.
+
+**Implementado**: este achado foi transformado no cenário
+`maquina-estado-update-sem-cliente-falha` (Tarefa 7.2, incremento 3) — ver
+`docs/phase-7/maquina-estado-update.md` para a evidência de validação ao
+vivo em `mrv-devDan` reproduzindo esta mesma mensagem de erro para
+`jornadausuario-update`.
 
 **Achado arquitetural real (CORRIGIDO — ver retificação abaixo):** ~~`NotificacaoMaquinaEstado.cls` não tem nenhuma lógica de retry para
 `UNABLE_TO_LOCK_ROW`~~. **Esta afirmação estava ERRADA e foi corrigida após

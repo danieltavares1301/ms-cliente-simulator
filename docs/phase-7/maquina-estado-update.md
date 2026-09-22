@@ -229,6 +229,17 @@ Estado final pós-cleanup:
 > **HTTP 400** com mensagem consistente de **`Cliente(Account) não encontrado`**
 > e não cria nenhum registro de `Opportunity`/`OpportunityLineItem`.
 
+### Rastreabilidade com a análise de logs reais
+
+Este cenário implementa o achado da seção 6
+("`jornadausuario-update` — análise de acompanhamento") de
+`docs/staging-logs-analysis.md`: amostra real de `jornadausuario-update`
+em `mrv-staging` com **48.777 sucesso vs. 76.730 erro (≈61% de taxa de
+erro real)**; dos erros amostrados, ≈7% têm a mesma causa raiz
+`Cliente(Account) não encontrado` já coberta pelo incremento 2 (`insert`),
+agora confirmada também para `update` — reproduzida ao vivo neste
+incremento com a mesma mensagem de erro textual.
+
 ## Resumo do incremento
 
 - o catálogo agora cobre o happy path básico de `jornadausuario-update`;
