@@ -43,6 +43,32 @@ Assim, o cenário A consegue:
 - provar que **nenhuma Opportunity** e **nenhum OpportunityLineItem** foram
   criados.
 
+### Correção pós-revisão (achado real de revisão de código independente)
+
+A implementação original de `deriveSteps()` persistia
+`expectedHttpStatus: step.expectedHttpStatus ?? 200` para **todo** step,
+incluindo os ~30 cenários pré-existentes que nunca declaram essa propriedade.
+Combinado com `completeDispatch()` exigindo `attempt.httpStatus ===
+expectedHttpStatus`, isso estreitava silenciosamente o critério implícito de
+sucesso de "qualquer 2xx" (`>= 200 && <= 299`, comportamento original) para
+"exatamente 200" — uma mudança de comportamento real no código compartilhado
+por todo o catálogo, sem cobertura de teste de regressão.
+
+Embora os três endpoints Apex reais já integrados (`/Cliente`, `/PAC`,
+`/MaquinaEstado`) sempre retornem exatamente 200 em sucesso (confirmado lendo
+`EventGrid.cls`, a classe base de `NotificacaoCliente`, e os próprios
+`NotificacaoPAC`/`NotificacaoMaquinaEstado`), o risco era real para qualquer
+endpoint futuro que retorne um 2xx diferente de 200.
+
+**Correção aplicada** (commit `a3f099b`): `deriveSteps()` só persiste
+`expectedHttpStatus` quando o step o declara explicitamente (omitido, não
+`?? 200`, no caso padrão); `completeDispatch()` cai de volta na faixa 2xx
+original quando a propriedade está ausente, e só exige correspondência exata
+quando o step declara explicitamente uma expectativa (como este incremento).
+Também foi adicionado o teste de divergência que faltava
+(`expectedHttpStatus=400` declarado mas `httpStatus` real `200` recebido →
+run deve terminar `FAILED`).
+
 ## TDD executado
 
 Antes da implementação, foram adicionados testes que falhavam para comprovar:
