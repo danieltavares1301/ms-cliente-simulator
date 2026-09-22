@@ -370,16 +370,16 @@ const adapterInputSchema = z
         cleanup.target === 'PROPONENTE' &&
         (() => {
           const expectedProponentes = pacFixtureOwnedProponentes(fixture);
-          const expectedIds = expectedProponentes.map((proponente) => proponente.id);
-          const expectedClientIds = expectedProponentes.map(
-            (proponente) => proponente.idCliente,
+          const expectedPairs = expectedProponentes.map(
+            (proponente) => `${proponente.id}::${proponente.idCliente}`,
+          );
+          const actualPairs = cleanup.ownership.proponentes.map(
+            (proponente) => `${proponente.idExterno}::${proponente.idCliente}`,
           );
           return (
             cleanup.ownership.pacIdExterno !== pacFixtureEvent(fixture)?.id ||
-            JSON.stringify(toOwnedList(cleanup.ownership.idExterno).sort()) !==
-              JSON.stringify([...expectedIds].sort()) ||
-            JSON.stringify(toOwnedList(cleanup.ownership.idCliente).sort()) !==
-              JSON.stringify([...expectedClientIds].sort())
+            JSON.stringify(actualPairs.sort()) !==
+              JSON.stringify(expectedPairs.sort())
           );
         })()
       ) {
@@ -702,13 +702,6 @@ const leadDefaultBrand = '1' as const;
 
 function literal(value: string): string {
   return `'${escapeSoqlLiteral(value)}'`;
-}
-
-function toOwnedList(value: string | readonly string[]): string[] {
-  if (typeof value === 'string') {
-    return [value];
-  }
-  return [...value];
 }
 
 function parseInput(
@@ -2108,8 +2101,7 @@ export function createSalesforceTestDataAdapter(
         }
 
         if (instruction.target === 'PROPONENTE') {
-          const expectedExternalIds = toOwnedList(instruction.ownership.idExterno);
-          const expectedClientIds = toOwnedList(instruction.ownership.idCliente);
+          const expectedPairs = instruction.ownership.proponentes;
           const proponenteRecords = await queryProponentes(
             asAllowlistedQuery(
               `SELECT ${proponenteFields} FROM Proponente__c WHERE Id IN (${uniqueIds
@@ -2133,10 +2125,14 @@ export function createSalesforceTestDataAdapter(
           }
 
           for (const record of proponenteRecords) {
+            const matchesOwnedPair = expectedPairs.some(
+              (pair) =>
+                pair.idExterno === record.Id__c &&
+                pair.idCliente === (record.IdCliente__c ?? ''),
+            );
             if (
               !uniqueIds.includes(record.Id) ||
-              !expectedExternalIds.includes(record.Id__c ?? '') ||
-              !expectedClientIds.includes(record.IdCliente__c ?? '') ||
+              !matchesOwnedPair ||
               record.PropostaAnaliseCredito__c !== propostaOwner?.Id
             ) {
               throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');

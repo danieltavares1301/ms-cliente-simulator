@@ -67,11 +67,6 @@ const renderedLeadAbsentKeysSchema = z
     { message: 'ENSURE_LEAD_ABSENT requires at least one key' },
   );
 
-const renderedOwnedStringListSchema = z.union([
-  z.string().min(1).max(50),
-  z.array(z.string().min(1).max(50)).min(1).max(20),
-]);
-
 export const renderedSetupInstructionSchema = z.discriminatedUnion(
   'operation',
   [
@@ -186,9 +181,18 @@ const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
       target: z.literal('PROPONENTE'),
       ownership: z
         .object({
-          idExterno: renderedOwnedStringListSchema,
+          proponentes: z
+            .array(
+              z
+                .object({
+                  idExterno: z.string().min(1).max(50),
+                  idCliente: z.string().min(1).max(50),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(20),
           pacIdExterno: z.string().min(1).max(50),
-          idCliente: renderedOwnedStringListSchema,
         })
         .strict(),
     })

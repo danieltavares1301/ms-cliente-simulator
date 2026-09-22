@@ -282,15 +282,11 @@ export function renderScenarioFixture(
         operation: instruction.operation,
         target: instruction.target,
         ownership: {
-          idExterno:
-            pacOwnedProponentes.length === 1
-              ? pacOwnedProponentes[0]!.id
-              : pacOwnedProponentes.map((proponente) => proponente.id),
+          proponentes: pacOwnedProponentes.map((proponente) => ({
+            idExterno: proponente.id,
+            idCliente: proponente.idCliente,
+          })),
           pacIdExterno: syntheticPacExternalId,
-          idCliente:
-            pacOwnedProponentes.length === 1
-              ? pacOwnedProponentes[0]!.idCliente
-              : pacOwnedProponentes.map((proponente) => proponente.idCliente),
         },
       };
     }

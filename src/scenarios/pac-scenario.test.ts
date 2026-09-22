@@ -148,9 +148,13 @@ describe('PAC smoke scenario definition', () => {
           operation: 'DELETE_OWNED_RECORDS',
           target: 'PROPONENTE',
           ownership: {
-            idCliente: fixture.identifiers.accountIdCliente,
+            proponentes: [
+              {
+                idCliente: fixture.identifiers.accountIdCliente,
+                idExterno: expect.stringMatching(/^PROP-SIM-/),
+              },
+            ],
             pacIdExterno: expect.stringMatching(/^PAC-SIM-/),
-            idExterno: expect.stringMatching(/^PROP-SIM-/),
           },
         }),
         expect.objectContaining({

@@ -1293,6 +1293,104 @@ describe('Salesforce PAC test data adapter', () => {
     );
   });
 
+  it('fails closed when Proponente records have a cross-paired Id__c/IdCliente__c (each id is individually valid, but not as the same pair)', async () => {
+    const rendered = pacObsoleteAtProponenteLevelFixture();
+    const event = pacObsoleteAtProponenteLevelFinalEventData(rendered);
+    const proponentes = event.proponentes;
+    const client = restClient();
+    const queryResponses = [
+      {
+        totalSize: 2,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            // Id__c pertence ao proponente 0, mas IdCliente__c foi trocado
+            // pelo do proponente 1 — cada valor isoladamente é "conhecido"
+            // da fixture, mas o PAR nunca foi emitido pelo Apex real.
+            Id__c: proponentes[0]!.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: proponentes[1]!.idCliente,
+            CpfProponente__c: proponentes[0]!.cpf,
+            TipoClassificacao__c: proponentes[0]!.tipoClassificacao,
+            EmailAtualizado__c: proponentes[0]!.email ?? null,
+            Celular__c: proponentes[0]!.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponentes[0]!.dataAlteracao,
+            NomeCompleto__c: proponentes[0]!.nomeCompleto ?? null,
+          },
+          {
+            Id: controlProponenteId,
+            Id__c: proponentes[1]!.id,
+            Proponente__c: controlAccountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: proponentes[0]!.idCliente,
+            CpfProponente__c: proponentes[1]!.cpf,
+            TipoClassificacao__c: proponentes[1]!.tipoClassificacao,
+            EmailAtualizado__c: proponentes[1]!.email ?? null,
+            Celular__c: proponentes[1]!.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponentes[1]!.dataAlteracao,
+            NomeCompleto__c: proponentes[1]!.nomeCompleto ?? null,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: event.idjornadapac,
+            AccountId: accountId,
+            Name: 'Opportunity Sintética PAC',
+            StageName: 'Simulação',
+            CloseDate: '2027-12-31',
+            PACAtual__c: propostaId,
+          },
+        ],
+      },
+      {
+        totalSize: 0,
+        done: true,
+        records: [],
+      },
+    ];
+    let queryIndex = 0;
+    client.query.mockImplementation(async () => queryResponses[queryIndex++]!);
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        pacObsoleteAtProponenteLevelInput(rendered),
+        [proponenteId, controlProponenteId, propostaId, opportunityId],
+      ),
+    ).rejects.toThrow(SalesforceTestDataAdapterError);
+    expect(client.deleteRecord).not.toHaveBeenCalled();
+  });
+
   it('fails closed when a Proponente cleanup target has a mismatched synthetic client id', async () => {
     const rendered = pacApprovedFixture();
     const event = pacApprovedEventData(rendered);
