@@ -449,6 +449,7 @@ export type SalesforceTestDataVerificationCheck = {
     | 'PROPONENTE_NOT_REQUIRED'
     | 'PROPONENTE_NOT_PRESENT'
     | 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE'
+    | 'PROPONENTE_COUNT_EQUALS_EXPECTED'
     | 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC'
     | 'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED'
     | 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED'
@@ -1724,7 +1725,7 @@ export function createSalesforceTestDataAdapter(
             });
             break;
           case 'ACCOUNT_MOBILE_EQUALS_EXPECTED':
-            if (expectedValue === undefined) {
+            if (typeof expectedValue !== 'string') {
               throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
             }
             checks.push({
@@ -1767,7 +1768,7 @@ export function createSalesforceTestDataAdapter(
             });
             break;
           case 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED':
-            if (expectedValue === undefined) {
+            if (typeof expectedValue !== 'string') {
               throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
             }
             checks.push({
@@ -1841,7 +1842,7 @@ export function createSalesforceTestDataAdapter(
             });
             break;
           case 'LEAD_MOBILE_EQUALS_EXPECTED':
-            if (expectedValue === undefined) {
+            if (typeof expectedValue !== 'string') {
               throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
             }
             checks.push({
@@ -1904,6 +1905,15 @@ export function createSalesforceTestDataAdapter(
               actualCount: primaryProponenteCount,
             });
             break;
+          case 'PROPONENTE_COUNT_EQUALS_EXPECTED':
+            checks.push({
+              check: checkName,
+              passed:
+                typeof expectedValue === 'number' &&
+                proponenteRecords.length === expectedValue,
+              actualCount: proponenteRecords.length,
+            });
+            break;
           case 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC':
             checks.push({
               check: checkName,
@@ -1936,7 +1946,7 @@ export function createSalesforceTestDataAdapter(
             });
             break;
           case 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED':
-            if (expectedValue === undefined) {
+            if (typeof expectedValue !== 'string') {
               throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
             }
             checks.push({
@@ -1959,7 +1969,7 @@ export function createSalesforceTestDataAdapter(
             });
             break;
           case 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED':
-            if (expectedValue === undefined) {
+            if (typeof expectedValue !== 'string') {
               throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
             }
             checks.push({

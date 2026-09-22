@@ -50,6 +50,24 @@ function pacApprovedInput(rendered = pacApprovedFixture()) {
   };
 }
 
+function pacPrincipalConflictFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'pac-conflito-proponentes-principais',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_h',
+    eventStartAt: '2026-09-22T00:00:00.000Z',
+  });
+}
+
+function pacPrincipalConflictInput(rendered = pacPrincipalConflictFixture()) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
 function pacUpdateWithoutProponentesFixture() {
   return renderScenarioFixture({
     scenarioKey: 'pac-update-altera-status-sem-proponentes',
@@ -137,6 +155,26 @@ function pacEventData(rendered = pacFixture()) {
 }
 
 function pacApprovedEventData(rendered = pacApprovedFixture()) {
+  return rendered.steps[0]!.envelope[0]!.data as {
+    id: string;
+    idjornadapac: string;
+    status: string;
+    dataalteracao: string;
+    proponentes: Array<{
+      id: string;
+      idPac: string;
+      idCliente: string;
+      cpf: string;
+      tipoClassificacao: string;
+      dataAlteracao: string;
+      nomeCompleto?: string;
+      email?: string;
+      telefoneCelular?: string;
+    }>;
+  };
+}
+
+function pacPrincipalConflictEventData(rendered = pacPrincipalConflictFixture()) {
   return rendered.steps[0]!.envelope[0]!.data as {
     id: string;
     idjornadapac: string;
@@ -789,6 +827,127 @@ describe('Salesforce PAC test data adapter', () => {
         },
         { check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: true },
         { check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
+      ]),
+    );
+  });
+
+  it('verifies the PAC principal conflict scenario by requiring two Proponente__c records while leaving the Account contacts unsynchronized', async () => {
+    const rendered = pacPrincipalConflictFixture();
+    const event = pacPrincipalConflictEventData(rendered);
+    const [firstProponente, secondProponente] = event.proponentes;
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (
+      firstProponente === undefined ||
+      secondProponente === undefined ||
+      opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY'
+    ) {
+      throw new Error('Expected PAC fixture with two conflicting proponentes');
+    }
+
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: accountId,
+            Id__c: rendered.identifiers.accountIdCliente,
+            IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+            CPF__pc: firstProponente.cpf,
+            LastName: 'Cliente Simulado',
+            IsPersonAccount: true,
+            PersonEmail: null,
+            PersonMobilePhone: null,
+            Celular__c: null,
+            BillingStreet: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 2,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: firstProponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: firstProponente.idCliente,
+            CpfProponente__c: firstProponente.cpf,
+            TipoClassificacao__c: firstProponente.tipoClassificacao,
+            EmailAtualizado__c: firstProponente.email ?? null,
+            Celular__c: firstProponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: firstProponente.dataAlteracao,
+            NomeCompleto__c: firstProponente.nomeCompleto ?? null,
+          },
+          {
+            Id: controlProponenteId,
+            Id__c: secondProponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: secondProponente.idCliente,
+            CpfProponente__c: secondProponente.cpf,
+            TipoClassificacao__c: secondProponente.tipoClassificacao,
+            EmailAtualizado__c: secondProponente.email ?? null,
+            Celular__c: secondProponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: secondProponente.dataAlteracao,
+            NomeCompleto__c: secondProponente.nomeCompleto ?? null,
+          },
+        ],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacPrincipalConflictInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_EMAIL_EXCLUDED', passed: true },
+        { check: 'ACCOUNT_MOBILE_EXCLUDED', passed: true },
+        {
+          check: 'PROPONENTE_COUNT_EQUALS_EXPECTED',
+          passed: true,
+          actualCount: 2,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          passed: true,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          passed: true,
+        },
       ]),
     );
   });

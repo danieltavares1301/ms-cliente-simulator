@@ -28,6 +28,7 @@ const scenarioKeys = [
   'ordem-mesmo-eventtime-contato-primeiro',
   'ordem-mesmo-eventtime-endereco-primeiro',
   'pac-aprovada-sincroniza-contatos',
+  'pac-conflito-proponentes-principais',
   'pac-insert-minimo',
   'pac-update-altera-status-sem-proponentes',
   'pac-update-reenviando-proponentes',
@@ -53,6 +54,7 @@ const expectedStepCountByScenario = {
   'ordem-mesmo-eventtime-contato-primeiro': 4,
   'ordem-mesmo-eventtime-endereco-primeiro': 4,
   'pac-aprovada-sincroniza-contatos': 1,
+  'pac-conflito-proponentes-principais': 1,
   'pac-insert-minimo': 1,
   'pac-update-altera-status-sem-proponentes': 2,
   'pac-update-reenviando-proponentes': 2,
@@ -443,6 +445,32 @@ describe('basic scenario fixture definitions', () => {
     missingCallbackResult: 'PARTIAL',
   });
   expect(
+    scenarioCatalog.get('pac-conflito-proponentes-principais', 1)
+      ?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+      'ACCOUNT_EMAIL_EXCLUDED',
+      'ACCOUNT_MOBILE_EXCLUDED',
+      {
+        check: 'PROPONENTE_COUNT_EQUALS_EXPECTED',
+        value: 2,
+      },
+      {
+        check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+        value: 'CREDITO_APROVADO_CONDICIONADO',
+      },
+    ]),
+  });
+  expect(
+    scenarioCatalog.get('pac-conflito-proponentes-principais', 1)?.asyncPolicy,
+  ).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
     scenarioCatalog.get('pac-update-obsoleto-nivel-pac', 1)?.expectedOutcomes[0],
   ).toMatchObject({
     result: 'PAC_CREATED_AND_LINKED',
@@ -733,6 +761,53 @@ describe('renderScenarioFixture', () => {
         }),
       ],
     });
+  });
+
+  it('renders the PAC conflito fixture with two distinct principal proponentes targeting the same Account identity', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-conflito-proponentes-principais',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_h',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(1);
+    const pacData = fixture.steps[0]!.envelope[0]!.data as {
+      id: string;
+      status: string;
+      proponentes: Array<{
+        id: string;
+        idPac: string;
+        idCliente: string;
+        cpf: string;
+        tipoClassificacao: string;
+        email?: string;
+        telefoneCelular?: string;
+      }>;
+    };
+
+    expect(pacData.status).toBe('CREDITO_APROVADO_CONDICIONADO');
+    expect(pacData.proponentes).toHaveLength(2);
+    expect(pacData.proponentes[0]!.id).not.toBe(pacData.proponentes[1]!.id);
+    expect(pacData.proponentes[0]!.idPac).toBe(pacData.id);
+    expect(pacData.proponentes[1]!.idPac).toBe(pacData.id);
+    expect(pacData.proponentes[0]!.idCliente).toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(pacData.proponentes[1]!.idCliente).toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(pacData.proponentes[0]!.cpf).toBe(pacData.proponentes[1]!.cpf);
+    expect(pacData.proponentes[0]!.tipoClassificacao).toBe('Principal');
+    expect(pacData.proponentes[1]!.tipoClassificacao).toBe('Principal');
+    expect(pacData.proponentes[0]!.email).not.toBe(
+      pacData.proponentes[1]!.email,
+    );
+    expect(pacData.proponentes[0]!.telefoneCelular).not.toBe(
+      pacData.proponentes[1]!.telefoneCelular,
+    );
   });
 
   it('renders O03 with the same logical eventTime across different physical dispatch times', () => {

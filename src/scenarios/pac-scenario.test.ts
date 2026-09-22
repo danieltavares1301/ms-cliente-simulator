@@ -169,6 +169,115 @@ describe('PAC smoke scenario definition', () => {
     );
   });
 
+  it('publishes a READY PAC conflict scenario that blocks Account contact sync when two principal proponentes disagree on the same Account', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-conflito-proponentes-principais',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-conflito-proponentes-principais',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining([
+        'fase-7',
+        'pac-conflito',
+        'principal',
+        'regression',
+      ]),
+    });
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        target: 'PAC',
+        eventType: 'pac-insert',
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'PAC_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        'ACCOUNT_EMAIL_EXCLUDED',
+        'ACCOUNT_MOBILE_EXCLUDED',
+        {
+          check: 'PROPONENTE_COUNT_EQUALS_EXPECTED',
+          value: 2,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          value: 'CREDITO_APROVADO_CONDICIONADO',
+        },
+      ]),
+    });
+  });
+
+  it('renders the PAC conflict fixture with two different principal proponente ids sharing the same Account identity but diverging contacts', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-conflito-proponentes-principais',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_h',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(1);
+    const pacData = fixture.steps[0]!.envelope[0]!.data as {
+      id: string;
+      idjornadapac: string;
+      status: string;
+      proponentes: Array<{
+        id: string;
+        idPac: string;
+        idCliente: string;
+        cpf: string;
+        tipoClassificacao: string;
+        email?: string;
+        telefoneCelular?: string;
+      }>;
+    };
+
+    expect(pacData.idjornadapac).toMatch(/^OPP-SIM-/);
+    expect(pacData.status).toBe('CREDITO_APROVADO_CONDICIONADO');
+    expect(pacData.proponentes).toHaveLength(2);
+    expect(pacData.proponentes[0]!.id).not.toBe(pacData.proponentes[1]!.id);
+    expect(pacData.proponentes[0]!.idCliente).toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(pacData.proponentes[1]!.idCliente).toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(pacData.proponentes[0]!.cpf).toBe(pacData.proponentes[1]!.cpf);
+    expect(pacData.proponentes[0]!.tipoClassificacao).toBe('Principal');
+    expect(pacData.proponentes[1]!.tipoClassificacao).toBe('Principal');
+    expect(pacData.proponentes[0]!.email).not.toBe(
+      pacData.proponentes[1]!.email,
+    );
+    expect(pacData.proponentes[0]!.telefoneCelular).not.toBe(
+      pacData.proponentes[1]!.telefoneCelular,
+    );
+    expect(fixture.cleanup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'DELETE_OWNED_RECORDS',
+          target: 'PROPONENTE',
+          ownership: {
+            proponentes: [
+              {
+                idCliente: fixture.identifiers.accountIdCliente,
+                idExterno: expect.stringMatching(/^PROP-SIM-/),
+              },
+              {
+                idCliente: fixture.identifiers.accountIdCliente,
+                idExterno: expect.stringMatching(/^PROP-SIM-X-/),
+              },
+            ],
+            pacIdExterno: expect.stringMatching(/^PAC-SIM-/),
+          },
+        }),
+      ]),
+    );
+  });
+
   it('publishes a READY PAC update scenario that changes status and omits proponentes to exercise the real deletion branch', () => {
     const scenario = scenarioCatalog.get(
       'pac-update-altera-status-sem-proponentes',

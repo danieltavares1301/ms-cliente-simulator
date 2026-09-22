@@ -292,6 +292,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'PROPONENTE_NOT_REQUIRED',
   'PROPONENTE_NOT_PRESENT',
   'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+  'PROPONENTE_COUNT_EQUALS_EXPECTED',
   'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
   'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED',
   'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED',
@@ -364,6 +365,12 @@ const renderedAccountExpectedValueCheckSchema = z.discriminatedUnion('check', [
 const renderedProponenteExpectedValueCheckSchema = z.discriminatedUnion(
   'check',
   [
+    z
+      .object({
+        check: z.literal('PROPONENTE_COUNT_EQUALS_EXPECTED'),
+        value: z.number().int().min(0).max(20),
+      })
+      .strict(),
     z
       .object({
         check: z.literal('PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED'),
@@ -455,6 +462,12 @@ export const expectedOutcomeCheckSchema = z.union([
       .object({
         check: z.literal('ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'),
         value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('PROPONENTE_COUNT_EQUALS_EXPECTED'),
+        value: z.number().int().min(0).max(20),
       })
       .strict(),
     z

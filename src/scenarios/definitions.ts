@@ -1892,6 +1892,106 @@ export const basicScenarioDefinitions = [
     cleanup: cleanupWithOpportunity,
   },
   {
+    key: 'pac-conflito-proponentes-principais',
+    version: 1,
+    name: 'PAC conflito de proponentes principais',
+    description:
+      'Exercita o bloqueio real de sincronização de contatos quando a PAC aprovada envia dois Proponentes principais distintos para a mesma Account com dados divergentes.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-7',
+      'pac-conflito',
+      'principal',
+      'sincronizacao-bloqueada',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-conflito-principais',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacPayload('pac-insert', {
+          status: 'CREDITO_APROVADO_CONDICIONADO',
+          proponentes: [
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID'),
+              cpf: generated('CPF'),
+              tipoClassificacao: 'Principal',
+              dataAlteracao: generated('EVENT_TIME'),
+              nomeCompleto: generated('PERSON_NAME'),
+              email: generated('SYNTHETIC_EMAIL'),
+              telefoneCelular: generated('CLEAN_CELULAR'),
+            },
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID_X'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID'),
+              cpf: generated('CPF'),
+              tipoClassificacao: 'Principal',
+              dataAlteracao: generated('EVENT_TIME'),
+              nomeCompleto: generated('PERSON_NAME'),
+              email: generated('PAC_EMAIL'),
+              telefoneCelular: generated('PAC_CELULAR'),
+            },
+          ],
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC aprovada deve permanecer vinculada à Opportunity, criar os dois Proponentes principais distintos e manter a Account sem sincronização de contatos por conflito.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          'ACCOUNT_EMAIL_EXCLUDED',
+          'ACCOUNT_MOBILE_EXCLUDED',
+          {
+            check: 'PROPONENTE_COUNT_EQUALS_EXPECTED',
+            value: 2,
+          },
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'CREDITO_APROVADO_CONDICIONADO',
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
     key: 'pac-update-altera-status-sem-proponentes',
     version: 1,
     name: 'PAC update altera status sem proponentes',
