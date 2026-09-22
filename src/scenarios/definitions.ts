@@ -205,7 +205,7 @@ function pacPayload(eventType: 'pac-insert' | 'pac-update') {
   } as const;
 }
 
-function approvedPacWithPrincipalProponentePayload() {
+function approvedPacWithPrincipalProponentePayload(): ScenarioDefinition['steps'][number]['payloadTemplate'] {
   return {
     kind: 'DECLARATIVE',
     contract: 'EVENT_GRID',
@@ -237,7 +237,7 @@ function approvedPacWithPrincipalProponentePayload() {
         ],
       },
     },
-  } as const;
+  };
 }
 
 const cleanup: ScenarioDefinition['cleanup'] = [

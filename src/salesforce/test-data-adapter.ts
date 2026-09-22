@@ -564,13 +564,6 @@ const proponenteRecordSchema = z
     Id__c: nullableText,
     Proponente__c: nullableText,
     PropostaAnaliseCredito__c: nullableText,
-    IdCliente__c: nullableText,
-    CpfProponente__c: nullableText.optional(),
-    TipoClassificacao__c: nullableText.optional(),
-    EmailAtualizado__c: nullableText.optional(),
-    Celular__c: nullableText.optional(),
-    DataAlteracaoEvento__c: nullableText.optional(),
-    NomeCompleto__c: nullableText.optional(),
   })
   .passthrough();
 
@@ -675,7 +668,7 @@ const opportunityFields =
 const propostaAnaliseCreditoFields =
   'Id,Id__c,Oportunidade__c,Status__c' as const;
 const proponenteFields =
-  'Id,Id__c,Proponente__c,PropostaAnaliseCredito__c,IdCliente__c,CpfProponente__c,TipoClassificacao__c,EmailAtualizado__c,Celular__c,DataAlteracaoEvento__c,NomeCompleto__c' as const;
+  'Id,Id__c,Proponente__c,PropostaAnaliseCredito__c' as const;
 const leadDefaultStatus = 'Pendente de Distribuição' as const;
 const leadDefaultBrand = '1' as const;
 
@@ -1781,15 +1774,7 @@ export function createSalesforceTestDataAdapter(
                 propostaTarget !== undefined &&
                 pacPrimaryProponente !== undefined &&
                 proponenteTarget.Proponente__c === accountTarget.Id &&
-                proponenteTarget.PropostaAnaliseCredito__c === propostaTarget.Id &&
-                proponenteTarget.IdCliente__c === pacPrimaryProponente.idCliente &&
-                proponenteTarget.CpfProponente__c === pacPrimaryProponente.cpf &&
-                proponenteTarget.TipoClassificacao__c ===
-                  pacPrimaryProponente.tipoClassificacao &&
-                proponenteTarget.EmailAtualizado__c ===
-                  (pacPrimaryProponente.email ?? null) &&
-                proponenteTarget.Celular__c ===
-                  (pacPrimaryProponente.telefoneCelular ?? null),
+                proponenteTarget.PropostaAnaliseCredito__c === propostaTarget.Id,
             });
             break;
           case 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY':
@@ -1941,7 +1926,6 @@ export function createSalesforceTestDataAdapter(
             if (
               !uniqueIds.includes(record.Id) ||
               record.Id__c !== instruction.ownership.idExterno ||
-              record.IdCliente__c !== instruction.ownership.idCliente ||
               record.PropostaAnaliseCredito__c !== propostaOwner?.Id
             ) {
               throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');

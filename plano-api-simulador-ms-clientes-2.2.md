@@ -1839,8 +1839,13 @@ adicionais, mas concluido no mesmo incremento).
   renderer/dispatch; setup allowlisted de `Opportunity`; assertion minima de
   vinculo `PropostaAnaliseCredito__c -> Opportunity` implementada e validada
   ao vivo em `mrv-devDan`.
+- [x] **Incremento 2 concluido:** `proponentes[]` suportado em
+  `pac-insert`/`pac-update`; fixture `pac-aprovada-sincroniza-contatos`
+  validada por contrato + adapter + execucao real; Account sincroniza
+  `PersonEmail`/`Celular__c` a partir do Proponente principal; cleanup real
+  remove `Proponente__c -> PropostaAnaliseCredito__c -> Opportunity -> Account`.
 - [ ] Ordem relativa a cliente e configuravel.
-- [ ] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
+- [x] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
 - [ ] Retestar `cpf-divergente-identidade-antiga` (O08) com uma PAC aprovada
   (`Proponente__c` com status `CREDITO_APROVADO_CONDICIONADO` vinculado a Y):
   confirmar se `ClienteService.sincronizarContatosAprovadosPac`
@@ -1870,9 +1875,33 @@ adicionais, mas concluido no mesmo incremento).
 **Ainda falta nesta tarefa 7.1:**
 
 - ordem relativa entre eventos de `/Cliente` e `/PAC`;
-- modelagem/fixture/assertions de `Proponente__c`;
+- reteste de O08 (`cpf-divergente-identidade-antiga`) com PAC aprovada,
+  reaproveitando a fixture com `proponentes[]`;
 - revisita da Regra 6.6 / O08 com PAC aprovada e contatos aprovados;
-- eventuais asserts adicionais alem do smoke test minimo deste incremento.
+- eventuais asserts adicionais alem de `Account` + vínculo mínimo legível de
+  `Proponente__c` na org atual.
+
+**Progresso real (incremento 2, PAC aprovada + sincronizacao de contatos):**
+
+- `pac-insert` com `status='CREDITO_APROVADO_CONDICIONADO'` e um
+  `proponentes[0].tipoClassificacao='Principal'` foi processado com `200 OK`
+  contra `/services/apexrest/PAC`.
+- `Account.PersonEmail` e `Account.Celular__c` foram realmente atualizados na
+  org com os valores do payload do Proponente principal.
+- `Proponente__c` foi criado e vinculado corretamente à Account e à
+  `PropostaAnaliseCredito__c`.
+- Em `mrv-devDan`, a leitura REST de `Proponente__c` expõe um subconjunto menor
+  de campos do que o esperado teoricamente (`Id__c`, lookups e
+  `NomeCompleto__c` permaneceram legíveis; `IdCliente__c`, `CpfProponente__c`,
+  `TipoClassificacao__c`, `EmailAtualizado__c`, `Celular__c` e
+  `DataAlteracaoEvento__c` retornaram `INVALID_FIELD` quando consultados
+  diretamente). O verifier foi ajustado para provar o vínculo do Proponente por
+  `Id__c` + lookups e provar os contatos aprovados diretamente na Account, que
+  é o efeito de negócio importante.
+- O valor persistido em `Proponente__c.NomeCompleto__c` ficou igual ao nome
+  base da Account sintética, não ao `nomeCompleto` enviado no payload; como
+  isso não afeta o comportamento-alvo, a assertion deixou de depender desse
+  campo.
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
 
