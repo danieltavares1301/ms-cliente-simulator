@@ -1930,8 +1930,9 @@ adicionais, mas concluido no mesmo incremento).
 
 #### Tarefa 7.1b: Variacoes adicionais do universo `/PAC`
 
-**Status:** iniciada. Variacoes 1 a 3 de 5 concluidas (`pac-update` basico +
-obsolescencia + conflito de Proponentes principais).
+**Status:** concluída. Variacoes 1 a 5 de 5 concluidas (`pac-update` basico +
+obsolescencia + conflito de Proponentes principais + Opportunity Perdido +
+contestacao pendente).
 
 **Objetivo:** explorar subcomportamentos reais do endpoint `/PAC` que nao eram
 cobertos pelos tres incrementos originais da Tarefa 7.1, mantendo a mesma
@@ -1984,7 +1985,20 @@ disciplina de execucao real contra `mrv-devDan`.
   **em `mrv-devDan`, um `pac-insert` vinculado a Opportunity com
   `StageName='Perdido'` nao forcou `Status__c='Cancelado'`; a PAC foi gravada
   com o mesmo status enviado no payload.**
-- [ ] Variacao 5/5 pendente: contestacao (nao iniciada).
+- [x] **Variacao 5/5 concluida:** `pac-update-com-contestacao-pendente-sincroniza-contatos`.
+- [x] O simulador agora cria diretamente, no setup allowlisted:
+  - `PropostaAnaliseCredito__c`;
+  - `Contestacao__c`;
+  - com cleanup real de `Contestacao__c -> PropostaAnaliseCredito__c -> Opportunity -> Account`
+    (e `Proponente__c` quando criado pelo evento).
+- [x] O simulador verifica automaticamente que:
+  - a PAC sintetica preexistente permanece vinculada à Opportunity;
+  - a `Contestacao__c` pendente aponta para a PAC certa;
+  - um Proponente **nao Principal** ainda sincroniza
+    `Account.PersonEmail`/`Account.Celular__c` quando a contestacao esta pendente.
+- [x] Achado arquitetural real documentado:
+  **contestacao pendente desvia a sincronizacao de contatos para um caminho em
+  que o payload vence mesmo sem `tipoClassificacao='Principal'`.**
 
 **Progresso real (variacao 1/5, `pac-update` basico):**
 
@@ -2053,6 +2067,32 @@ disciplina de execucao real contra `mrv-devDan`.
   `Account`, e as queries finais retornaram `totalSize = 0`.
 
 **Evidencia:** `docs/phase-7/pac-perdido-forca-cancelado.md`.
+
+**Progresso real (variacao 5/5, contestacao pendente):**
+
+- o setup sintetico passou a criar `PropostaAnaliseCredito__c` e
+  `Contestacao__c` diretamente via REST/Composite, resolvendo o problema de
+  ordenacao entre PAC e Contestacao;
+- antes do `pac-update`, a Account estava sem `PersonEmail`/`Celular__c`,
+  a PAC sintetica existia com `Status__c='ANALISE_CREDITO_INICIADA'`, a
+  `Contestacao__c` estava pendente
+  (`DataSolucao__c = null`, `Solucionada__c = false`) e ainda nao havia
+  `Proponente__c`;
+- o `pac-update` real com um unico proponente
+  `tipoClassificacao='Coobrigado'` retornou `200 OK`;
+- depois do processamento, a Account recebeu
+  `PersonEmail='pac.7ed31e7c9c@simulador.mrv.invalid'` e
+  `Celular__c='11942085347'`, exatamente os valores do payload do proponente
+  nao Principal;
+- o `Proponente__c` foi persistido com
+  `TipoClassificacao__c='Coobrigado'`, vinculado à mesma Account e à mesma PAC;
+- a `Contestacao__c` permaneceu pendente porque o cenário isolou somente a
+  sincronizacao por contestacao, sem entrar no ramo de resolucao automatica;
+- o cleanup real removeu `Proponente__c`, `Contestacao__c`,
+  `PropostaAnaliseCredito__c`, `Opportunity` e `Account`, e as queries finais
+  retornaram `totalSize = 0`.
+
+**Evidencia:** `docs/phase-7/pac-contestacao-pendente.md`.
 
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
