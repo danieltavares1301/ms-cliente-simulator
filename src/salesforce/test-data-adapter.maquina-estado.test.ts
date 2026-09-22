@@ -18,6 +18,16 @@ function fixture() {
   });
 }
 
+function negativeFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'maquina-estado-insert-sem-cliente-falha',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_maquina_b',
+    eventStartAt: '2026-09-22T00:05:00.000Z',
+  });
+}
+
 function input(rendered = fixture()) {
   return {
     runId: rendered.runId,
@@ -203,5 +213,38 @@ describe('Salesforce test data adapter for MaquinaEstado smoke scenario', () => 
       'Account',
       accountId,
     );
+  });
+
+  it('verifies the expected rejection path without Opportunity or OpportunityLineItem creation', async () => {
+    const rendered = negativeFixture();
+    const client = restClient();
+    const adapter = createSalesforceTestDataAdapter({ restClient: client });
+
+    client.query.mockImplementation(async (query: unknown) => {
+      const soql = String(query);
+      if (soql.includes('FROM Opportunity')) {
+        return {
+          totalSize: 0,
+          done: true,
+          records: [],
+        };
+      }
+      throw new Error(`Unexpected query: ${soql}`);
+    });
+
+    const result = await adapter.verify(input(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'OPPORTUNITY_NOT_CREATED', passed: true, actualCount: 0 },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          passed: true,
+          actualCount: 0,
+        },
+      ]),
+    );
+    expect(result.recordIds).toEqual([]);
   });
 });

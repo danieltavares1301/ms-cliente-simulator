@@ -22,7 +22,7 @@ const maquinaEstadoDateTimeSchema = z
 
 export const maquinaEstadoClienteSchema = z
   .object({
-    idCliente: z.string().min(1),
+    idCliente: z.string().min(1).nullable(),
     idProspectSalesforce: z.string().min(1),
   })
   .strict();

@@ -197,7 +197,7 @@ describe('Event Grid contracts', () => {
       eventType: 'jornadausuario-insert',
       data: {
         cliente: {
-          idCliente: 'CLI-SIM-001',
+          idCliente: null,
           idProspectSalesforce: 'PRO-SIM-001',
         },
         id: 'OPP-SIM-001',
@@ -325,6 +325,27 @@ describe('Event Grid contracts', () => {
         },
       ]),
     ).toThrow();
+  });
+
+  it('accepts jornadausuario payloads with cliente.idCliente nulo when only the prospect is known', () => {
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'jornadausuario-insert',
+          data: {
+            cliente: {
+              idCliente: null,
+              idProspectSalesforce: commonData.idprospectsalesforce,
+            },
+            id: 'OPP-SIM-003',
+            dataalteracao: commonData.dataalteracao,
+            estado: 'SIMULACAO',
+            idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
+          },
+        },
+      ]),
+    ).not.toThrow();
   });
 
   it('accepts PAC payloads with proponentes and enforces their required fields', () => {

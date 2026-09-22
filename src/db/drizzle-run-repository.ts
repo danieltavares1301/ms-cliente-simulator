@@ -1593,6 +1593,7 @@ export class DrizzleRunRepository<
       .select({
         status: scenarioRunStep.status,
         attemptCount: scenarioRunStep.attemptCount,
+        requestRedacted: scenarioRunStep.requestRedacted,
       })
       .from(scenarioRunStep)
       .where(
@@ -1653,11 +1654,25 @@ export class DrizzleRunRepository<
       throw new Error('Dispatch attempt could not be persisted');
     }
 
+    const expectedHttpStatus =
+      (() => {
+        const candidate =
+          step.requestRedacted !== null &&
+          typeof step.requestRedacted === 'object' &&
+          'expectedHttpStatus' in step.requestRedacted
+            ? step.requestRedacted.expectedHttpStatus
+            : undefined;
+        return typeof candidate === 'number' &&
+          Number.isInteger(candidate) &&
+          candidate >= 100 &&
+          candidate <= 599
+          ? candidate
+          : 200;
+      })();
     const succeeded =
       attempt.errorCode === null &&
       attempt.httpStatus !== null &&
-      attempt.httpStatus >= 200 &&
-      attempt.httpStatus <= 299;
+      attempt.httpStatus === expectedHttpStatus;
     await this.database
       .update(scenarioRunStep)
       .set({

@@ -7,7 +7,7 @@ import {
 import { scenarioCatalog } from './catalog';
 import { renderScenarioFixture } from './renderer';
 
-describe('MaquinaEstado smoke scenario definition', () => {
+describe('MaquinaEstado scenario definitions', () => {
   it('publishes a READY maquina-estado-insert-minimo smoke scenario', () => {
     const scenario = scenarioCatalog.get('maquina-estado-insert-minimo', 1);
 
@@ -96,5 +96,117 @@ describe('MaquinaEstado smoke scenario definition', () => {
         }),
       ]),
     );
+  });
+
+  it('publishes a READY negative scenario for jornadausuario-insert sem Account prévia', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-insert-sem-cliente-falha',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-insert-sem-cliente-falha',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'ENSURE_ACCOUNT_ABSENT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        expectedHttpStatus: 400,
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'EVENT_REJECTED_WITHOUT_DML',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_NOT_CREATED',
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 0,
+        },
+      ]),
+    });
+  });
+
+  it('publishes a READY recovery scenario for jornadausuario-insert após Account prévia', () => {
+    const scenario = scenarioCatalog.get(
+      'maquina-estado-insert-apos-cliente-criado',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'maquina-estado-insert-apos-cliente-criado',
+      scope: 'EXTENDED',
+      availability: 'READY',
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_ACCOUNT' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'OPPORTUNITY_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+        'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+        {
+          check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+          value: 'Simulação',
+        },
+        {
+          check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+          value: 1,
+        },
+      ]),
+    });
+  });
+
+  it('renders the negative fixture with cliente.idCliente nulo and expected HTTP 400', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'maquina-estado-insert-sem-cliente-falha',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_maquina_b',
+      eventStartAt: '2026-09-22T00:05:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[0]!.envelope)).toEqual(
+      fixture.steps[0]!.envelope,
+    );
+    expect(fixture.steps[0]).toMatchObject({
+      target: 'MAQUINA_ESTADO',
+      eventType: 'jornadausuario-insert',
+      expectedHttpStatus: 400,
+    });
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      cliente: {
+        idCliente: null,
+        idProspectSalesforce: fixture.identifiers.accountIdProspect,
+      },
+      id: expect.stringMatching(/^OPP-SIM-/),
+      estado: 'SIMULACAO',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
+    });
+    expect(fixture.cleanup).toEqual([
+      expect.objectContaining({
+        operation: 'DELETE_OWNED_RECORDS',
+        target: 'OPPORTUNITY',
+        ownership: {
+          idExterno: expect.stringMatching(/^OPP-SIM-/),
+        },
+      }),
+    ]);
   });
 });

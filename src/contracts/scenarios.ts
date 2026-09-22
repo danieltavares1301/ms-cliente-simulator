@@ -259,6 +259,7 @@ export const scenarioStepSchema = z
     target: z.enum(['CLIENTE', 'PAC', 'MAQUINA_ESTADO']),
     eventType: eventTypeSchema,
     delayMs: z.number().int().nonnegative(),
+    expectedHttpStatus: z.number().int().min(100).max(599).optional(),
     payloadTemplate: payloadTemplateSchema,
     deliveryPolicy: deliveryPolicySchema,
   })
@@ -304,6 +305,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
   'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
   'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+  'OPPORTUNITY_NOT_CREATED',
   'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
@@ -548,6 +550,7 @@ export const expectedOutcomeSchema = z
       'PERSON_ACCOUNT_CREATED',
       'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
+      'EVENT_REJECTED_WITHOUT_DML',
       'OPPORTUNITY_CREATED_AND_LINKED',
       'PAC_CREATED_AND_LINKED',
     ]),
@@ -575,6 +578,7 @@ export const renderedExpectedOutcomeSchema = z
       'PERSON_ACCOUNT_CREATED',
       'PERSON_ACCOUNT_CREATED_PROSPECT_DIVERGENT',
       'CLIENT_STRUCTURE_CREATED_OR_COMPLETED',
+      'EVENT_REJECTED_WITHOUT_DML',
       'OPPORTUNITY_CREATED_AND_LINKED',
       'PAC_CREATED_AND_LINKED',
     ]),

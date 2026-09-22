@@ -128,6 +128,7 @@ function buildDispatchSchedule(
   target: (typeof fixture.steps)[number]['target'];
   eventType: string;
   scheduledAt: Date;
+  expectedHttpStatus?: number;
   eventEnvelope: (typeof fixture.steps)[number]['envelope'];
 }> {
   const eventStart = Date.parse(fixture.eventStartAt);
@@ -146,6 +147,9 @@ function buildDispatchSchedule(
         target: step.target,
         eventType: step.eventType,
         scheduledAt,
+        ...(step.expectedHttpStatus === undefined
+          ? {}
+          : { expectedHttpStatus: step.expectedHttpStatus }),
         eventEnvelope: step.envelope,
       },
     ];
@@ -162,6 +166,9 @@ function buildDispatchSchedule(
         scheduledAt: new Date(
           scheduledAt.getTime() + (duplicateIndex * 500) / speed,
         ),
+        ...(step.expectedHttpStatus === undefined
+          ? {}
+          : { expectedHttpStatus: step.expectedHttpStatus }),
         eventEnvelope: cloneEnvelope(step.envelope),
       });
     }
@@ -212,6 +219,7 @@ function deriveSteps(
     requestRedacted: {
       eventId: step.eventEnvelope[0].id,
       eventType: step.eventType,
+      expectedHttpStatus: step.expectedHttpStatus ?? 200,
     },
     responseRedacted: {},
     stepKind: 'DISPATCH' as const,

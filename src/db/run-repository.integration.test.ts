@@ -2013,6 +2013,65 @@ describe('DrizzleRunRepository with the real PostgreSQL migrations', () => {
     ]);
   });
 
+  it('treats a configured expected dispatch HTTP status as success for lifecycle progression', async () => {
+    const created = await repository.createRun(
+      createInput({
+        run: {
+          id: '00000000-0000-4000-8000-000000000032',
+          expectedCallbackMin: 0,
+          expectedCallbackMax: 0,
+        },
+        steps: [
+          {
+            stepKey: 'dispatch',
+            ordinal: 0,
+            target: 'MAQUINA_ESTADO',
+            eventType: 'jornadausuario-insert',
+            eventEnvelope: fixtureSnapshot.steps[0]!.envelope,
+            status: 'SCHEDULED',
+            requestRedacted: { expectedHttpStatus: 400 },
+            responseRedacted: {},
+            stepKind: 'DISPATCH',
+          },
+        ],
+      }),
+    );
+    const step = (await repository.listSteps(created.run.id, { limit: 10 }))
+      .items[0]!;
+
+    await repository.claimDispatch({
+      runId: created.run.id,
+      stepId: step.id,
+      attemptNumber: 1,
+      claimedAt: new Date('2026-08-22T12:00:00.000Z'),
+    });
+
+    await expect(
+      repository.completeDispatch({
+        runId: created.run.id,
+        stepId: step.id,
+        attemptNumber: 1,
+        requestId: 'expected-400',
+        httpStatus: 400,
+        durationMs: 1,
+        responseRedacted: { transport: 'SALESFORCE_REST' },
+        errorCode: null,
+        finishedAt: new Date('2026-08-22T12:00:01.000Z'),
+      }),
+    ).resolves.toStrictEqual({ runStatus: 'VERIFYING' });
+
+    expect(await repository.findRun(created.run.id)).toMatchObject({
+      status: 'VERIFYING',
+    });
+    expect(
+      (await repository.listSteps(created.run.id, { limit: 10 })).items[0],
+    ).toMatchObject({
+      status: 'SUCCEEDED',
+      httpStatus: 400,
+      requestRedacted: { expectedHttpStatus: 400 },
+    });
+  });
+
   it('clears retry leases after message persistence and never reserves the published step again', async () => {
     const created = await repository.createRun(
       createInput({

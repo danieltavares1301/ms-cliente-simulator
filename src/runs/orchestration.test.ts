@@ -383,6 +383,7 @@ describe('run orchestration service', () => {
     expect(persistedDispatch?.requestRedacted).toStrictEqual({
       eventId: expect.any(String),
       eventType: 'cliente-update',
+      expectedHttpStatus: 200,
     });
     const eventData = persistedDispatch?.eventEnvelope?.[0].data as
       | { numerocpf?: string }

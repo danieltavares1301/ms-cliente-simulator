@@ -248,6 +248,7 @@ const renderedFixtureStepSchema = z
     ]),
     delayMs: z.number().int().nonnegative(),
     scheduledAt: apexCompatibleUtcDateTimeSchema,
+    expectedHttpStatus: z.number().int().min(100).max(599).optional(),
     deliveryPolicy: deliveryPolicySchema,
     envelope: renderedEnvelopeSchema,
   })

@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(28);
+    expect(scenarioCatalog.listActive()).toHaveLength(30);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -247,7 +247,17 @@ describe('versioned scenario catalog', () => {
         availability: 'READY',
       },
       {
+        key: 'maquina-estado-insert-apos-cliente-criado',
+        version: 1,
+        availability: 'READY',
+      },
+      {
         key: 'maquina-estado-insert-minimo',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'maquina-estado-insert-sem-cliente-falha',
         version: 1,
         availability: 'READY',
       },

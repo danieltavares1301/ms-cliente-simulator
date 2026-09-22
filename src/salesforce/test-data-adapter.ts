@@ -262,7 +262,7 @@ const adapterInputSchema = z
                 event.cliente !== null &&
                 typeof event.cliente === 'object' &&
                 'idCliente' in event.cliente
-              ? (event.cliente as { idCliente?: string }).idCliente
+              ? (event.cliente as { idCliente?: string | null }).idCliente
               : undefined
           : undefined;
       const eventIdProspect =
@@ -283,8 +283,11 @@ const adapterInputSchema = z
       ].filter((value): value is string => value !== undefined);
       const usesAllowedIdentity =
         !requiresPacFields &&
-        eventIdCliente !== undefined &&
-        (eventIdCliente === fixture.identifiers.accountIdCliente ||
+        ((eventIdCliente !== undefined &&
+          eventIdCliente === fixture.identifiers.accountIdCliente) ||
+          (requiresMaquinaEstadoFields &&
+            absentAccountSetup !== undefined &&
+            eventIdCliente === null) ||
           (!requiresClientFields &&
             fixture.identifiers.controlAccountIdCliente !== undefined &&
             eventIdCliente === fixture.identifiers.controlAccountIdCliente));
@@ -309,7 +312,9 @@ const adapterInputSchema = z
         (requiresMaquinaEstadoFields &&
           !(
             isMaquinaEstadoFixtureEventData(event) &&
-            event.cliente.idCliente === fixture.identifiers.accountIdCliente &&
+            (event.cliente.idCliente === fixture.identifiers.accountIdCliente ||
+              (absentAccountSetup !== undefined &&
+                event.cliente.idCliente === null)) &&
             event.cliente.idProspectSalesforce ===
               fixture.identifiers.accountIdProspect &&
             event.id.startsWith('OPP-SIM-')
@@ -485,6 +490,7 @@ export type SalesforceTestDataVerificationCheck = {
     | 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED'
     | 'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT'
     | 'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE'
+    | 'OPPORTUNITY_NOT_CREATED'
     | 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED'
     | 'OPPORTUNITY_STAGE_EQUALS_EXPECTED'
     | 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'
@@ -2346,6 +2352,13 @@ export function createSalesforceTestDataAdapter(
             checks.push({
               check: checkName,
               passed: opportunityRecords.length === 1,
+              actualCount: opportunityRecords.length,
+            });
+            break;
+          case 'OPPORTUNITY_NOT_CREATED':
+            checks.push({
+              check: checkName,
+              passed: opportunityRecords.length === 0,
               actualCount: opportunityRecords.length,
             });
             break;

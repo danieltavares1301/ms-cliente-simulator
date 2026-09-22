@@ -212,6 +212,9 @@ export function renderScenarioFixture(
       eventType: step.eventType,
       delayMs: step.delayMs,
       scheduledAt,
+      ...(step.expectedHttpStatus === undefined
+        ? {}
+        : { expectedHttpStatus: step.expectedHttpStatus }),
       deliveryPolicy: {
         duplicateCount: step.deliveryPolicy.duplicateCount,
         retryOn: [...step.deliveryPolicy.retryOn],

@@ -296,12 +296,16 @@ function approvedPacWithPrincipalProponentePayload(
 function maquinaEstadoPayload(
   eventType: 'jornadausuario-insert' | 'jornadausuario-update',
   options: {
+    idCliente?: ReturnType<typeof generated> | null;
+    idProspectSalesforce?: ReturnType<typeof generated>;
     estado?: string;
     dataAlteracao?: ReturnType<typeof generated>;
     idUnidade?: string;
   } = {},
 ): ScenarioDefinition['steps'][number]['payloadTemplate'] {
   const {
+    idCliente = generated('CLIENT_ID'),
+    idProspectSalesforce = generated('PROSPECT_ID'),
     estado = 'SIMULACAO',
     dataAlteracao = generated('EVENT_TIME'),
     idUnidade = MAQUINA_ESTADO_ACTIVE_PRODUCT_EXTERNAL_ID,
@@ -320,8 +324,8 @@ function maquinaEstadoPayload(
       topic: '/simulator/ms-clientes',
       data: {
         cliente: {
-          idCliente: generated('CLIENT_ID'),
-          idProspectSalesforce: generated('PROSPECT_ID'),
+          idCliente,
+          idProspectSalesforce,
         },
         id: generated('OPPORTUNITY_EXTERNAL_ID'),
         dataalteracao: dataAlteracao,
@@ -1812,6 +1816,63 @@ export const basicScenarioDefinitions = [
     cleanup,
   },
   {
+    key: 'maquina-estado-insert-apos-cliente-criado',
+    version: 1,
+    name: 'MaquinaEstado insert após cliente criado',
+    description:
+      'Reproduz a recuperação real: o /Cliente já criou a Account antes do jornadausuario-insert, então a Opportunity nasce normalmente.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'ordering'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert'),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'Com a Account já criada previamente pelo fluxo /Cliente, o mesmo jornadausuario-insert volta a criar a Opportunity, vinculá-la à Account e inserir um OpportunityLineItem.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Simulação',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
     key: 'maquina-estado-insert-minimo',
     version: 1,
     name: 'MaquinaEstado insert mínimo',
@@ -1867,6 +1928,57 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy,
     cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'maquina-estado-insert-sem-cliente-falha',
+    version: 1,
+    name: 'MaquinaEstado insert sem cliente falha',
+    description:
+      'Reproduz o erro real mais frequente em staging: jornadausuario-insert chega antes do /Cliente correspondente, sem Account existente para o prospect.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'ordering', 'negative'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        expectedHttpStatus: 400,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          idCliente: null,
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'EVENT_REJECTED_WITHOUT_DML',
+        description:
+          'Sem Account correspondente, o Apex rejeita o dispatch com HTTP 400 e não cria nem Opportunity nem OpportunityLineItem.',
+        checks: [
+          'OPPORTUNITY_NOT_CREATED',
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 0,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: [{ operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' }],
   },
   {
     key: 'pac-aprovada-sincroniza-contatos',
