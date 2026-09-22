@@ -2281,21 +2281,32 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   incluindo query antes/depois provando que o update reutiliza a **mesma**
   `Opportunity` Salesforce e não cria duplicata. Evidência preservada em
   `docs/phase-7/maquina-estado-update.md`.
+- [x] Incremento 4 implementado no simulador: cenário
+  `maquina-estado-update-reentrega-mesmo-evento`, cobrindo a reentrega real do
+  **mesmo envelope Event Grid** de `jornadausuario-update`.
+- [x] A orquestração agora comprova por teste dedicado que `duplicateCount`
+  também expande reentregas físicas para `target: 'MAQUINA_ESTADO'`, mantendo
+  o mesmo `eventId`, `eventTime` e payload do update original.
+- [x] Execução real do cenário de reentrega validada em `mrv-devDan`, com as
+  duas entregas físicas retornando **HTTP 200**, a `Opportunity` permanecendo
+  única e o total de `OpportunityLineItem` permanecendo `1`. Evidência
+  preservada em `docs/phase-7/maquina-estado-reentrega.md`.
 - [ ] Candidato natural a checkpoint técnico: smoke test de insert,
-  dependência real de ordem `/Cliente` ↔ `/MaquinaEstado` e update básico já
-  estão cobertos; ainda faltam obsolescência/reentrega para consolidar o
-  fechamento formal da Tarefa 7.2.
+  dependência real de ordem `/Cliente` ↔ `/MaquinaEstado`, update básico e
+  reentrega real já estão cobertos; ainda falta obsolescência para consolidar
+  o fechamento formal da Tarefa 7.2.
 
-### Checkpoint 7.2 parcial (3 de N incrementos)
+### Checkpoint 7.2 parcial (4 de N incrementos)
 
-**Estado técnico final:** 701/701 testes, build limpo (`npm run build`
-valida todas as fixtures), 5 cenários `/MaquinaEstado` publicados no
+**Estado técnico final:** 710/710 testes, build limpo (`npm run build`
+valida todas as fixtures), 6 cenários `/MaquinaEstado` publicados no
 catálogo (`maquina-estado-insert-minimo`,
 `maquina-estado-insert-sem-cliente-falha`,
 `maquina-estado-insert-apos-cliente-criado`,
 `maquina-estado-update-transicao-estado`,
+`maquina-estado-update-reentrega-mesmo-evento`,
 `maquina-estado-update-sem-cliente-falha`), versão do simulador em
-`0.21.0`. Verificação de higiene da org: `mrv-devDan` reconfirmada com
+`0.22.0`. Verificação de higiene da org: `mrv-devDan` reconfirmada com
 `totalSize=0` para todos os prefixos sintéticos (`CLI-SIM-`, `OPP-SIM-`,
 `PAC-SIM-`, `PROP-SIM-`, `CONT-SIM-`) e para `OpportunityLineItem`
 vinculado — nenhum resíduo de diagnóstico ficou para trás nesta
@@ -2317,6 +2328,11 @@ de ordem real `/Cliente`↔`/MaquinaEstado` (85% de erro real em
   `/Cliente` correspondente falha com HTTP 400 real
   (`Cliente(Account) não encontrado`) em ambos os casos — comportamento
   real e frequente, não uma condição de borda teórica.
+- A amostra real de **400 logs** combinando `jornadausuario-insert` +
+  `jornadausuario-update` revelou **2 reentregas genuínas** do mesmo Event Id
+  (primeira tentativa `error`, segunda `success`, intervalo ≈13s em ambos os
+  casos); o cenário `maquina-estado-update-reentrega-mesmo-evento` reproduz
+  agora exatamente esse padrão funcional via `duplicateCount`.
 - **Correção de rota durante a análise**: uma afirmação inicial de que
   `NotificacaoMaquinaEstado.cls` não teria nenhuma lógica de retry para
   `UNABLE_TO_LOCK_ROW` estava **errada** — baseava-se apenas na leitura do
@@ -2345,8 +2361,6 @@ de ordem real `/Cliente`↔`/MaquinaEstado` (85% de erro real em
 
 **Fora de escopo / deferido nesta consolidação parcial:**
 
-- Reentrega/idempotência de `/MaquinaEstado` (equivalente ao O14 já coberto
-  para `/Cliente`) — ainda não implementado, é o próximo candidato natural.
 - Suporte a eventos obsoletos (`retornaValidacaoEventTime`) — mecanismo já
   lido no Apex, mas ainda não exercitado por nenhum cenário desta tarefa.
 - Reprodução determinística da contenção de lock real (43% dos erros de
@@ -2361,15 +2375,15 @@ de ordem real `/Cliente`↔`/MaquinaEstado` (85% de erro real em
   exercitados por nenhum cenário desta tarefa.
 
 **Conclusão:** Tarefa 7.2 permanece em andamento (não concluída/fechada
-formalmente — faltam obsolescência e reentrega conforme os critérios de
-aceite abaixo). Este checkpoint documenta um estado limpo e consistente
-antes do próximo incremento.
+formalmente — falta obsolescência conforme os critérios de aceite abaixo).
+Este checkpoint documenta um estado limpo e consistente antes do próximo
+incremento.
 
 **Criterios de aceite:**
 
 - [ ] Eventos atuais e obsoletos suportados.
 - [x] Casos com e sem Id Cliente cobertos.
-- [ ] Reentrega pode ser simulada.
+- [x] Reentrega pode ser simulada.
 
 **Dependencias:** tarefa 7.1.
 
