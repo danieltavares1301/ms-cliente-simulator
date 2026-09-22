@@ -18,13 +18,16 @@ type GeneratedValue =
   | 'COLLISION_CPF'
   | 'COLLISION_EMAIL'
   | 'CLEAN_CELULAR'
+  | 'CLEAN_CELULAR_X'
   | 'PAC_EMAIL'
   | 'PAC_CELULAR'
   | 'SYNTHETIC_EMAIL'
+  | 'SYNTHETIC_EMAIL_X'
   | 'SYNTHETIC_STREET'
   | 'OPPORTUNITY_EXTERNAL_ID'
   | 'PAC_EXTERNAL_ID'
-  | 'PROPONENTE_EXTERNAL_ID';
+  | 'PROPONENTE_EXTERNAL_ID'
+  | 'PROPONENTE_EXTERNAL_ID_X';
 
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
@@ -233,34 +236,41 @@ function pacWithPrincipalProponentePayload(
   eventType: 'pac-insert' | 'pac-update',
   options: {
     status?: string;
+    dataAlteracao?: ReturnType<typeof generated>;
     idCliente?: ReturnType<typeof generated>;
     cpf?: ReturnType<typeof generated>;
     personName?: ReturnType<typeof generated>;
     email?: ReturnType<typeof generated>;
     celular?: ReturnType<typeof generated>;
     idProponente?: ReturnType<typeof generated>;
+    proponenteDataAlteracao?: ReturnType<typeof generated>;
+    proponenteExternalId?: ReturnType<typeof generated>;
   } = {},
 ): ScenarioDefinition['steps'][number]['payloadTemplate'] {
   const {
     status = 'CREDITO_APROVADO_CONDICIONADO',
+    dataAlteracao = generated('EVENT_TIME'),
     idCliente = generated('CLIENT_ID'),
     cpf = generated('CPF'),
     personName = generated('PERSON_NAME'),
     email = generated('SYNTHETIC_EMAIL'),
     celular = generated('CLEAN_CELULAR'),
     idProponente,
+    proponenteDataAlteracao = generated('EVENT_TIME'),
+    proponenteExternalId = generated('PROPONENTE_EXTERNAL_ID'),
   } = options;
 
   return pacPayload(eventType, {
     status,
+    dataAlteracao,
     proponentes: [
       {
-        id: generated('PROPONENTE_EXTERNAL_ID'),
+        id: proponenteExternalId,
         idPac: generated('PAC_EXTERNAL_ID'),
         idCliente,
         cpf,
         tipoClassificacao: 'Principal',
-        dataAlteracao: generated('EVENT_TIME'),
+        dataAlteracao: proponenteDataAlteracao,
         nomeCompleto: personName,
         email,
         telefoneCelular: celular,
@@ -2034,6 +2044,247 @@ export const basicScenarioDefinitions = [
           },
           {
             check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('PAC_CELULAR'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'pac-update-obsoleto-nivel-pac',
+    version: 1,
+    name: 'PAC update obsoleto no nível da PAC',
+    description:
+      'Confirma o descarte silencioso de um pac-update cujo dataalteracao da PAC é mais antigo do que o já persistido.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'pac-update', 'obsolescencia', 'pac'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-baseline',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacWithPrincipalProponentePayload('pac-insert', {
+          status: 'EM_ANALISE_CREDITO',
+          dataAlteracao: generated('BASELINE_TIME'),
+          proponenteDataAlteracao: generated('BASELINE_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-update-obsoleto',
+        target: 'PAC',
+        eventType: 'pac-update',
+        delayMs: 5_000,
+        payloadTemplate: pacWithPrincipalProponentePayload('pac-update', {
+          status: 'CREDITO_APROVADO_CONDICIONADO',
+          dataAlteracao: generated('EARLIER_TIME'),
+          proponenteDataAlteracao: generated('EARLIER_TIME'),
+          email: generated('PAC_EMAIL'),
+          celular: generated('PAC_CELULAR'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC deve manter o status do insert baseline e deixar a Account sem sincronização de contatos, comprovando o descarte do update obsoleto no nível da PAC.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'ACCOUNT_EMAIL_EXCLUDED',
+          'ACCOUNT_MOBILE_EXCLUDED',
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'EM_ANALISE_CREDITO',
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'pac-update-obsoleto-nivel-proponente',
+    version: 1,
+    name: 'PAC update obsoleto por proponente',
+    description:
+      'Confirma que a obsolescência em pac-update é avaliada por id do Proponente, permitindo atualizar um Principal enquanto outro é descartado no mesmo payload.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-7',
+      'pac-update',
+      'obsolescencia',
+      'proponente',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'CONTROL',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspect: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF_X'),
+          name: generated('PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-dois-proponentes',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacPayload('pac-insert', {
+          status: 'EM_ANALISE_CREDITO',
+          dataAlteracao: generated('BASELINE_TIME'),
+          proponentes: [
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID'),
+              cpf: generated('CPF'),
+              tipoClassificacao: 'Principal',
+              dataAlteracao: generated('BASELINE_TIME'),
+              nomeCompleto: generated('BASE_PERSON_NAME'),
+              email: generated('SYNTHETIC_EMAIL'),
+              telefoneCelular: generated('CLEAN_CELULAR'),
+            },
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID_X'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID_X'),
+              cpf: generated('CPF_X'),
+              tipoClassificacao: 'Principal',
+              dataAlteracao: generated('BASELINE_TIME'),
+              nomeCompleto: generated('PERSON_NAME'),
+              email: generated('SYNTHETIC_EMAIL_X'),
+              telefoneCelular: generated('CLEAN_CELULAR_X'),
+            },
+          ],
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-update-misto-obsoleto-valido',
+        target: 'PAC',
+        eventType: 'pac-update',
+        delayMs: 5_000,
+        payloadTemplate: pacPayload('pac-update', {
+          status: 'EM_ANALISE_CREDITO',
+          dataAlteracao: generated('EVENT_TIME'),
+          proponentes: [
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID'),
+              cpf: generated('CPF'),
+              tipoClassificacao: 'Principal',
+              dataAlteracao: generated('EARLIER_TIME'),
+              nomeCompleto: generated('BASE_PERSON_NAME'),
+              email: generated('PAC_EMAIL'),
+              telefoneCelular: generated('PAC_CELULAR'),
+            },
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID_X'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID_X'),
+              cpf: generated('CPF_X'),
+              tipoClassificacao: 'Principal',
+              dataAlteracao: generated('EVENT_TIME'),
+              nomeCompleto: generated('PERSON_NAME'),
+              email: generated('PAC_EMAIL'),
+              telefoneCelular: generated('PAC_CELULAR'),
+            },
+          ],
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'O Proponente principal da Account PRIMARY deve manter os contatos do step 1, enquanto o Principal da CONTROL assume os contatos do step 2, provando a obsolescência individual por Proponente.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'EM_ANALISE_CREDITO',
+          },
+          {
+            check: 'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          {
+            check: 'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+            value: generated('PAC_EMAIL'),
+          },
+          {
+            check: 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
             value: generated('PAC_CELULAR'),
           },
         ],

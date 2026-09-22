@@ -318,6 +318,172 @@ describe('PAC smoke scenario definition', () => {
     );
   });
 
+  it('publishes a READY PAC update scenario that rejects the whole payload when the PAC dataalteracao is older than the persisted one', () => {
+    const scenario = scenarioCatalog.get('pac-update-obsoleto-nivel-pac', 1);
+
+    expect(scenario).toMatchObject({
+      key: 'pac-update-obsoleto-nivel-pac',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining([
+        'fase-7',
+        'obsolescencia',
+        'pac-update',
+        'regression',
+      ]),
+    });
+    expect(scenario?.steps.map((step) => step.eventType)).toStrictEqual([
+      'pac-insert',
+      'pac-update',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        'ACCOUNT_EMAIL_EXCLUDED',
+        'ACCOUNT_MOBILE_EXCLUDED',
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          value: 'EM_ANALISE_CREDITO',
+        },
+      ]),
+    });
+  });
+
+  it('renders the PAC-level obsolescence fixture with an older PAC timestamp in the second step while keeping the same PAC and proponente ids', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-update-obsoleto-nivel-pac',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_f',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(2);
+    const insertData = fixture.steps[0]!.envelope[0]!.data as {
+      id: string;
+      dataalteracao: string;
+      proponentes: Array<{ id: string; dataAlteracao: string }>;
+    };
+    const obsoleteUpdateData = fixture.steps[1]!.envelope[0]!.data as {
+      id: string;
+      dataalteracao: string;
+      proponentes: Array<{ id: string; dataAlteracao: string }>;
+    };
+
+    expect(obsoleteUpdateData.id).toBe(insertData.id);
+    expect(obsoleteUpdateData.proponentes).toHaveLength(1);
+    expect(obsoleteUpdateData.proponentes[0]!.id).toBe(
+      insertData.proponentes[0]!.id,
+    );
+    expect(Date.parse(obsoleteUpdateData.dataalteracao)).toBeLessThan(
+      Date.parse(insertData.dataalteracao),
+    );
+  });
+
+  it('publishes a READY PAC update scenario that rejects only the obsolete proponente while updating the newer sibling in the same payload', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-update-obsoleto-nivel-proponente',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-update-obsoleto-nivel-proponente',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining([
+        'fase-7',
+        'obsolescencia',
+        'pac-update',
+        'regression',
+      ]),
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'CREATE_SYNTHETIC_ACCOUNT',
+          role: 'PRIMARY',
+        }),
+        expect.objectContaining({
+          operation: 'CREATE_SYNTHETIC_ACCOUNT',
+          role: 'CONTROL',
+        }),
+      ]),
+    );
+    expect(scenario?.steps.map((step) => step.eventType)).toStrictEqual([
+      'pac-insert',
+      'pac-update',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        {
+          check: 'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+        },
+        {
+          check: 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+        },
+        {
+          check: 'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+        },
+        {
+          check: 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+        },
+      ]),
+    });
+  });
+
+  it('renders the per-proponente obsolescence fixture with two principal proponentes and diverging dataAlteracao values in the second step', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-update-obsoleto-nivel-proponente',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_g',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(2);
+    const insertData = fixture.steps[0]!.envelope[0]!.data as {
+      id: string;
+      proponentes: Array<{
+        id: string;
+        idCliente: string;
+        dataAlteracao: string;
+      }>;
+    };
+    const updateData = fixture.steps[1]!.envelope[0]!.data as {
+      id: string;
+      proponentes: Array<{
+        id: string;
+        idCliente: string;
+        dataAlteracao: string;
+      }>;
+    };
+
+    expect(insertData.proponentes).toHaveLength(2);
+    expect(updateData.proponentes).toHaveLength(2);
+    expect(updateData.id).toBe(insertData.id);
+    expect(updateData.proponentes[0]!.id).toBe(insertData.proponentes[0]!.id);
+    expect(updateData.proponentes[1]!.id).toBe(insertData.proponentes[1]!.id);
+    expect(updateData.proponentes[0]!.idCliente).toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(updateData.proponentes[1]!.idCliente).toBe(
+      fixture.identifiers.controlAccountIdCliente,
+    );
+    expect(Date.parse(updateData.proponentes[0]!.dataAlteracao)).toBeLessThan(
+      Date.parse(insertData.proponentes[0]!.dataAlteracao),
+    );
+    expect(
+      Date.parse(updateData.proponentes[1]!.dataAlteracao),
+    ).toBeGreaterThan(Date.parse(insertData.proponentes[1]!.dataAlteracao));
+  });
+
   it('publishes a READY O08 PAC retest scenario with the PAC proponente targeting Y after the cliente flow leaves it empty', () => {
     const scenario = scenarioCatalog.get(
       'cpf-divergente-identidade-antiga-pac-aprovada',

@@ -257,6 +257,10 @@ const adapterInputSchema = z
         event !== undefined && 'idprospectsalesforce' in event
           ? event.idprospectsalesforce
           : undefined;
+      const allowedPacClientIds = [
+        fixture.identifiers.accountIdCliente,
+        fixture.identifiers.controlAccountIdCliente,
+      ].filter((value): value is string => value !== undefined);
       const usesAllowedIdentity =
         !requiresPacFields &&
         eventIdCliente !== undefined &&
@@ -277,7 +281,7 @@ const adapterInputSchema = z
               event.proponentes.some(
                 (proponente) =>
                   proponente.idPac !== event.id ||
-                  proponente.idCliente !== fixture.identifiers.accountIdCliente ||
+                  !allowedPacClientIds.includes(proponente.idCliente) ||
                   !proponente.id.startsWith('PROP-SIM-'),
               )) ||
             (pacPrimaryProponente !== undefined &&
@@ -364,10 +368,20 @@ const adapterInputSchema = z
       }
       if (
         cleanup.target === 'PROPONENTE' &&
-        (cleanup.ownership.idExterno !==
-          pacFixturePrimaryProponente(fixture)?.id ||
-          cleanup.ownership.pacIdExterno !== pacFixtureEvent(fixture)?.id ||
-          cleanup.ownership.idCliente !== fixture.identifiers.accountIdCliente)
+        (() => {
+          const expectedProponentes = pacFixtureOwnedProponentes(fixture);
+          const expectedIds = expectedProponentes.map((proponente) => proponente.id);
+          const expectedClientIds = expectedProponentes.map(
+            (proponente) => proponente.idCliente,
+          );
+          return (
+            cleanup.ownership.pacIdExterno !== pacFixtureEvent(fixture)?.id ||
+            JSON.stringify(toOwnedList(cleanup.ownership.idExterno).sort()) !==
+              JSON.stringify([...expectedIds].sort()) ||
+            JSON.stringify(toOwnedList(cleanup.ownership.idCliente).sort()) !==
+              JSON.stringify([...expectedClientIds].sort())
+          );
+        })()
       ) {
         context.addIssue({
           code: 'custom',
@@ -436,6 +450,10 @@ export type SalesforceTestDataVerificationCheck = {
     | 'PROPONENTE_NOT_PRESENT'
     | 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE'
     | 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC'
+    | 'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED'
+    | 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED'
+    | 'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED'
+    | 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED'
     | 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'
     | 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY';
   passed: boolean;
@@ -684,6 +702,10 @@ const leadDefaultBrand = '1' as const;
 
 function literal(value: string): string {
   return `'${escapeSoqlLiteral(value)}'`;
+}
+
+function toOwnedList(value: string | readonly string[]): string[] {
+  return Array.isArray(value) ? [...value] : [value];
 }
 
 function parseInput(
@@ -981,6 +1003,54 @@ function pacFixturePrimaryProponente(
   return undefined;
 }
 
+function pacFixtureOwnedProponentes(
+  fixture: RenderedScenarioFixture,
+): PacFixtureProponenteData[] {
+  const owned = new Map<string, PacFixtureProponenteData>();
+  for (const step of fixture.steps) {
+    if (step.eventType !== 'pac-insert' && step.eventType !== 'pac-update') {
+      continue;
+    }
+    const event = step.envelope[0]?.data;
+    if (!isPacFixtureEventData(event)) {
+      continue;
+    }
+    for (const proponente of event.proponentes ?? []) {
+      owned.set(proponente.id, proponente);
+    }
+  }
+  return [...owned.values()];
+}
+
+function pacFixtureProponenteForClientId(
+  fixture: RenderedScenarioFixture,
+  idCliente: string | undefined,
+): PacFixtureProponenteData | undefined {
+  if (idCliente === undefined) {
+    return undefined;
+  }
+
+  for (const step of [...fixture.steps].reverse()) {
+    if (step.eventType !== 'pac-insert' && step.eventType !== 'pac-update') {
+      continue;
+    }
+    const event = step.envelope[0]?.data;
+    if (!isPacFixtureEventData(event)) {
+      continue;
+    }
+    const match = event.proponentes?.find(
+      (proponente) =>
+        proponente.idCliente === idCliente &&
+        proponente.tipoClassificacao === 'Principal',
+    );
+    if (match !== undefined) {
+      return match;
+    }
+  }
+
+  return undefined;
+}
+
 function opportunityLookupQueryForSetup(setup: SyntheticOpportunitySetup) {
   return asAllowlistedQuery(
     `SELECT ${opportunityFields} FROM Opportunity WHERE Id__c = ${literal(
@@ -1012,14 +1082,14 @@ function propostaAnaliseCreditoLookupQueryForVerify(
 }
 
 function proponenteLookupQueryForVerify(fixture: RenderedScenarioFixture) {
-  const proponente = pacFixturePrimaryProponente(fixture);
-  if (proponente === undefined) {
+  const proponentes = pacFixtureOwnedProponentes(fixture);
+  if (proponentes.length === 0) {
     throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
   }
   return asAllowlistedQuery(
-    `SELECT ${proponenteFields} FROM Proponente__c WHERE Id__c = ${literal(
-      proponente.id,
-    )}`,
+    `SELECT ${proponenteFields} FROM Proponente__c WHERE Id__c IN (${proponentes
+      .map((proponente) => literal(proponente.id))
+      .join(',')})`,
   );
 }
 
@@ -1400,6 +1470,14 @@ export function createSalesforceTestDataAdapter(
       const { fixture } = parseInput(candidate);
       const event = fixtureBusinessEvent(fixture);
       const pacPrimaryProponente = pacFixturePrimaryProponente(fixture);
+      const primaryFixtureProponente = pacFixtureProponenteForClientId(
+        fixture,
+        fixture.identifiers.accountIdCliente,
+      );
+      const controlFixtureProponente = pacFixtureProponenteForClientId(
+        fixture,
+        fixture.identifiers.controlAccountIdCliente,
+      );
       const eventIdCliente = 'idcliente' in event ? event.idcliente : undefined;
       const eventCpf = 'numerocpf' in event ? event.numerocpf : undefined;
       const accountIdentityClientId =
@@ -1428,8 +1506,10 @@ export function createSalesforceTestDataAdapter(
       const needsProponenteRecords = expectedChecks.some((check) => {
         const checkName = verificationCheckName(check);
         return (
-          checkName.startsWith('PROPONENTE_') &&
-          checkName !== 'PROPONENTE_NOT_REQUIRED'
+          ((checkName.startsWith('PROPONENTE_') &&
+            checkName !== 'PROPONENTE_NOT_REQUIRED') ||
+            checkName.startsWith('PRIMARY_PROPONENTE_') ||
+            checkName.startsWith('CONTROL_PROPONENTE_'))
         );
       });
       const needsOpportunityRecords = expectedChecks.some(
@@ -1522,6 +1602,24 @@ export function createSalesforceTestDataAdapter(
           : proponenteRecords.find(
               (record) => record.Id__c === pacPrimaryProponente.id,
             );
+      const primaryProponenteTarget =
+        primaryFixtureProponente === undefined
+          ? undefined
+          : proponenteRecords.find(
+              (record) => record.Id__c === primaryFixtureProponente.id,
+            );
+      const controlProponenteTarget =
+        controlFixtureProponente === undefined
+          ? undefined
+          : proponenteRecords.find(
+              (record) => record.Id__c === controlFixtureProponente.id,
+            );
+      const primaryProponenteCount =
+        primaryFixtureProponente === undefined
+          ? 0
+          : proponenteRecords.filter(
+              (record) => record.Id__c === primaryFixtureProponente.id,
+            ).length;
       const checks: SalesforceTestDataVerificationCheck[] = [];
 
       for (const check of expectedChecks) {
@@ -1806,8 +1904,8 @@ export function createSalesforceTestDataAdapter(
           case 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE':
             checks.push({
               check: checkName,
-              passed: proponenteRecords.length === 1,
-              actualCount: proponenteRecords.length,
+              passed: primaryProponenteCount === 1,
+              actualCount: primaryProponenteCount,
             });
             break;
           case 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC':
@@ -1828,6 +1926,52 @@ export function createSalesforceTestDataAdapter(
                   (pacPrimaryProponente.email ?? null) &&
                 proponenteTarget.Celular__c ===
                   (pacPrimaryProponente.telefoneCelular ?? null),
+            });
+            break;
+          case 'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                primaryProponenteTarget !== undefined &&
+                primaryProponenteTarget.EmailAtualizado__c === expectedValue,
+            });
+            break;
+          case 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                primaryProponenteTarget !== undefined &&
+                (primaryProponenteTarget.Celular__c ?? null) ===
+                  normalizePhoneDigits(expectedValue),
+            });
+            break;
+          case 'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                controlProponenteTarget !== undefined &&
+                controlProponenteTarget.EmailAtualizado__c === expectedValue,
+            });
+            break;
+          case 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED':
+            if (expectedValue === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                controlProponenteTarget !== undefined &&
+                (controlProponenteTarget.Celular__c ?? null) ===
+                  normalizePhoneDigits(expectedValue),
             });
             break;
           case 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED':
@@ -1961,6 +2105,8 @@ export function createSalesforceTestDataAdapter(
         }
 
         if (instruction.target === 'PROPONENTE') {
+          const expectedExternalIds = toOwnedList(instruction.ownership.idExterno);
+          const expectedClientIds = toOwnedList(instruction.ownership.idCliente);
           const proponenteRecords = await queryProponentes(
             asAllowlistedQuery(
               `SELECT ${proponenteFields} FROM Proponente__c WHERE Id IN (${uniqueIds
@@ -1986,8 +2132,8 @@ export function createSalesforceTestDataAdapter(
           for (const record of proponenteRecords) {
             if (
               !uniqueIds.includes(record.Id) ||
-              record.Id__c !== instruction.ownership.idExterno ||
-              record.IdCliente__c !== instruction.ownership.idCliente ||
+              !expectedExternalIds.includes(record.Id__c ?? '') ||
+              !expectedClientIds.includes(record.IdCliente__c ?? '') ||
               record.PropostaAnaliseCredito__c !== propostaOwner?.Id
             ) {
               throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');

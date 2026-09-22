@@ -293,6 +293,10 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'PROPONENTE_NOT_PRESENT',
   'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
   'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+  'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+  'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+  'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+  'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
   'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
@@ -356,6 +360,36 @@ const renderedAccountExpectedValueCheckSchema = z.discriminatedUnion('check', [
     })
     .strict(),
 ]);
+
+const renderedProponenteExpectedValueCheckSchema = z.discriminatedUnion(
+  'check',
+  [
+    z
+      .object({
+        check: z.literal('PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(80),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(40),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(80),
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED'),
+        value: z.string().trim().min(1).max(40),
+      })
+      .strict(),
+  ],
+);
 
 const renderedPropostaAnaliseCreditoExpectedValueCheckSchema =
   z.discriminatedUnion('check', [
@@ -425,6 +459,30 @@ export const expectedOutcomeCheckSchema = z.union([
       .strict(),
     z
       .object({
+        check: z.literal('PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
         check: z.literal('PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED'),
         value: definitionExpectedValueSchema,
       })
@@ -453,6 +511,7 @@ export const renderedExpectedOutcomeCheckSchema = z.union([
   renderedLeadExpectedValueCheckSchema,
   renderedAccountExpectedValueCheckSchema,
   renderedControlAccountExpectedValueCheckSchema,
+  renderedProponenteExpectedValueCheckSchema,
   renderedPropostaAnaliseCreditoExpectedValueCheckSchema,
 ]);
 

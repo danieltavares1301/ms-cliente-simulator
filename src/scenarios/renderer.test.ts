@@ -443,6 +443,60 @@ describe('basic scenario fixture definitions', () => {
     missingCallbackResult: 'PARTIAL',
   });
   expect(
+    scenarioCatalog.get('pac-update-obsoleto-nivel-pac', 1)?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+      'ACCOUNT_EMAIL_EXCLUDED',
+      'ACCOUNT_MOBILE_EXCLUDED',
+      {
+        check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+        value: 'EM_ANALISE_CREDITO',
+      },
+    ]),
+  });
+  expect(
+    scenarioCatalog.get('pac-update-obsoleto-nivel-pac', 1)?.asyncPolicy,
+  ).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
+    scenarioCatalog.get('pac-update-obsoleto-nivel-proponente', 1)
+      ?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+      {
+        check: 'PRIMARY_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+      },
+      {
+        check: 'PRIMARY_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+      },
+      {
+        check: 'CONTROL_PROPONENTE_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+      },
+      {
+        check: 'CONTROL_PROPONENTE_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+      },
+    ]),
+  });
+  expect(
+    scenarioCatalog.get('pac-update-obsoleto-nivel-proponente', 1)
+      ?.asyncPolicy,
+  ).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
     scenarioCatalog.get('cpf-divergente-identidade-antiga-pac-aprovada', 1)
       ?.expectedOutcomes[0],
   ).toMatchObject({

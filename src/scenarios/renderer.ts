@@ -42,13 +42,16 @@ type GeneratedValue =
   | 'COLLISION_CPF'
   | 'COLLISION_EMAIL'
   | 'CLEAN_CELULAR'
+  | 'CLEAN_CELULAR_X'
   | 'PAC_EMAIL'
   | 'PAC_CELULAR'
   | 'SYNTHETIC_EMAIL'
+  | 'SYNTHETIC_EMAIL_X'
   | 'SYNTHETIC_STREET'
   | 'OPPORTUNITY_EXTERNAL_ID'
   | 'PAC_EXTERNAL_ID'
-  | 'PROPONENTE_EXTERNAL_ID';
+  | 'PROPONENTE_EXTERNAL_ID'
+  | 'PROPONENTE_EXTERNAL_ID_X';
 
 type RenderContext = Readonly<Record<GeneratedValue, string>>;
 
@@ -119,6 +122,7 @@ export function renderScenarioFixture(
   const syntheticOpportunityExternalId = `OPP-SIM-${namespaceToken}-${seedToken}`;
   const syntheticPacExternalId = `PAC-SIM-${namespaceToken}-${seedToken}`;
   const syntheticProponenteExternalId = `PROP-SIM-${namespaceToken}-${seedToken}`;
+  const controlSyntheticProponenteExternalId = `PROP-SIM-X-${namespaceToken}-${seedToken}`;
   const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
   const collisionCpf = generateSyntheticCpf(
     `${input.seed}:collision`,
@@ -132,6 +136,10 @@ export function renderScenarioFixture(
   const pacEmail = `pac.${seedToken}@simulador.mrv.invalid`;
   const pacCelular = `119${deterministicDigits(
     `pac-celular|${input.seed}|${input.runId}`,
+    8,
+  )}`;
+  const controlCleanCelular = `119${deterministicDigits(
+    `celular-x|${input.seed}|${input.runId}`,
     8,
   )}`;
   const baseContext = {
@@ -154,13 +162,16 @@ export function renderScenarioFixture(
     COLLISION_CPF: collisionCpf,
     COLLISION_EMAIL: collisionEmail,
     CLEAN_CELULAR: cleanCelular,
+    CLEAN_CELULAR_X: controlCleanCelular,
     PAC_EMAIL: pacEmail,
     PAC_CELULAR: pacCelular,
     SYNTHETIC_EMAIL: `cliente.${seedToken}@simulador.mrv.invalid`,
+    SYNTHETIC_EMAIL_X: `cliente-x.${seedToken}@simulador.mrv.invalid`,
     SYNTHETIC_STREET: `Rua Simulada ${seedToken}`,
     OPPORTUNITY_EXTERNAL_ID: syntheticOpportunityExternalId,
     PAC_EXTERNAL_ID: syntheticPacExternalId,
     PROPONENTE_EXTERNAL_ID: syntheticProponenteExternalId,
+    PROPONENTE_EXTERNAL_ID_X: controlSyntheticProponenteExternalId,
   } satisfies RenderContext;
   const hasControlAccount =
     definition.setup?.some(
@@ -225,13 +236,46 @@ export function renderScenarioFixture(
       };
     }
     if (instruction.target === 'PROPONENTE') {
+      const pacOwnedProponentes = [...steps]
+        .flatMap((step) => {
+          const event = step.envelope[0]?.data;
+          if (
+            (step.eventType !== 'pac-insert' && step.eventType !== 'pac-update') ||
+            event === undefined ||
+            !('proponentes' in event) ||
+            !Array.isArray(event.proponentes)
+          ) {
+            return [];
+          }
+          return event.proponentes
+            .filter(
+              (proponente): proponente is { id: string; idCliente: string } =>
+                typeof proponente?.id === 'string' &&
+                typeof proponente?.idCliente === 'string',
+            )
+            .map((proponente) => ({
+              id: proponente.id,
+              idCliente: proponente.idCliente,
+            }));
+        })
+        .filter(
+          (proponente, index, self) =>
+            self.findIndex(({ id }) => id === proponente.id) === index,
+        );
+
       return {
         operation: instruction.operation,
         target: instruction.target,
         ownership: {
-          idExterno: syntheticProponenteExternalId,
+          idExterno:
+            pacOwnedProponentes.length === 1
+              ? pacOwnedProponentes[0]!.id
+              : pacOwnedProponentes.map((proponente) => proponente.id),
           pacIdExterno: syntheticPacExternalId,
-          idCliente: accountIdCliente,
+          idCliente:
+            pacOwnedProponentes.length === 1
+              ? pacOwnedProponentes[0]!.idCliente
+              : pacOwnedProponentes.map((proponente) => proponente.idCliente),
         },
       };
     }
