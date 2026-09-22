@@ -2286,6 +2286,85 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   estão cobertos; ainda faltam obsolescência/reentrega para consolidar o
   fechamento formal da Tarefa 7.2.
 
+### Checkpoint 7.2 parcial (3 de N incrementos)
+
+**Estado técnico final:** 701/701 testes, build limpo (`npm run build`
+valida todas as fixtures), 5 cenários `/MaquinaEstado` publicados no
+catálogo (`maquina-estado-insert-minimo`,
+`maquina-estado-insert-sem-cliente-falha`,
+`maquina-estado-insert-apos-cliente-criado`,
+`maquina-estado-update-transicao-estado`,
+`maquina-estado-update-sem-cliente-falha`), versão do simulador em
+`0.21.0`. Verificação de higiene da org: `mrv-devDan` reconfirmada com
+`totalSize=0` para todos os prefixos sintéticos (`CLI-SIM-`, `OPP-SIM-`,
+`PAC-SIM-`, `PROP-SIM-`, `CONT-SIM-`) e para `OpportunityLineItem`
+vinculado — nenhum resíduo de diagnóstico ficou para trás nesta
+consolidação.
+
+**Disciplina de pré-requisito estabelecida nesta tarefa**: cada incremento
+passou a ser precedido por uma análise de logs reais (`LogIntegracao__c`)
+em `mrv-staging` (somente leitura), não só leitura de código Apex — a
+pedido explícito do usuário, que se provou valiosa: revelou a dependência
+de ordem real `/Cliente`↔`/MaquinaEstado` (85% de erro real em
+`jornadausuario-insert`) e a taxa de erro real de `jornadausuario-update`
+(61%, majoritariamente contenção de linha).
+
+**Achados reais relevantes:**
+
+- `pac-insert-minimo`/incrementos da Tarefa 7.1 continuam corretos; nenhuma
+  regressão foi introduzida por esta tarefa.
+- `jornadausuario-insert`/`jornadausuario-update` chegando antes do
+  `/Cliente` correspondente falha com HTTP 400 real
+  (`Cliente(Account) não encontrado`) em ambos os casos — comportamento
+  real e frequente, não uma condição de borda teórica.
+- **Correção de rota durante a análise**: uma afirmação inicial de que
+  `NotificacaoMaquinaEstado.cls` não teria nenhuma lógica de retry para
+  `UNABLE_TO_LOCK_ROW` estava **errada** — baseava-se apenas na leitura do
+  repositório `com_salesforce_mrv`/`mrv-devDan`. A verificação direta da
+  versão realmente deployada em `mrv-staging` (via Tooling API) revelou que
+  essa org roda uma versão mais nova (18 dias à frente) que **já implementa**
+  retry real de até 5 tentativas para `DUPLICATE_VALUE`/`UNABLE_TO_LOCK_ROW`,
+  com revalidação de `EventTime` a cada tentativa. **Este é o terceiro caso
+  confirmado nesta sessão de drift real de versão entre `mrv-staging` e
+  `mrv-devDan`/repositório** (após `CodigoPAC` ausente em
+  `EnvioPACCreditoQueue.cls` e os campos de `Contestacao__c` nunca
+  deployados). Corrigido em `docs/staging-logs-analysis.md`; nenhum
+  incremento já implementado dependia da afirmação errada.
+- Um achado real de segurança arquitetural (não relacionado a
+  `/MaquinaEstado`, mas encontrado durante a análise de logs) foi corrigido
+  no mesmo período: `pacCreditoRequestSchema` usava `.strict()` e
+  rejeitaria com 422 um payload real de `EnvioPACCreditoQueue` que inclui
+  um campo `CodigoPAC` desconhecido pela versão de `mrv-devDan` — corrigido
+  para `.passthrough()` (commit `545eff5`).
+- Um achado real de robustez na orquestração foi encontrado em revisão de
+  código independente e corrigido: a introdução de `expectedHttpStatus`
+  por step estreitava silenciosamente o critério implícito de sucesso de
+  "qualquer 2xx" para "exatamente 200" em todo o catálogo pré-existente —
+  corrigido (commit `a3f099b`) preservando a faixa 2xx original quando a
+  propriedade não é declarada.
+
+**Fora de escopo / deferido nesta consolidação parcial:**
+
+- Reentrega/idempotência de `/MaquinaEstado` (equivalente ao O14 já coberto
+  para `/Cliente`) — ainda não implementado, é o próximo candidato natural.
+- Suporte a eventos obsoletos (`retornaValidacaoEventTime`) — mecanismo já
+  lido no Apex, mas ainda não exercitado por nenhum cenário desta tarefa.
+- Reprodução determinística da contenção de lock real (43% dos erros de
+  `update`, mesmo com o retry de 5 tentativas da versão de `mrv-staging`) —
+  exigiria dispatch verdadeiramente concorrente para a mesma Opportunity,
+  incompatível com o guard `OUT_OF_ORDER` do orquestrador sequencial (mesma
+  limitação já documentada para o O10 na Fase 6).
+- `ID_CORRETOR`/`atribuirProprietariosOportunidade`, `codigocupom`/
+  `associaJornadaNoCupomDeDesconto`, `troca_unidade`/`TrocarUnidade`, e a
+  maior parte dos ~30 campos adicionais do payload real de
+  `jornadausuario-*` (ver `docs/staging-logs-analysis.md`) — nunca
+  exercitados por nenhum cenário desta tarefa.
+
+**Conclusão:** Tarefa 7.2 permanece em andamento (não concluída/fechada
+formalmente — faltam obsolescência e reentrega conforme os critérios de
+aceite abaixo). Este checkpoint documenta um estado limpo e consistente
+antes do próximo incremento.
+
 **Criterios de aceite:**
 
 - [ ] Eventos atuais e obsoletos suportados.
