@@ -2244,12 +2244,15 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
 - [x] Pré-condições reais lidas em `mrv-devDan` (RecordType `Unidade`,
   Price Book padrão, `UsuarioPadraoClientes__c`, `Product2`/`PricebookEntry`
   ativos).
-- [x] Execução real rodada contra `mrv-devDan` com cleanup validado.
-- [ ] Fluxo funcional ainda bloqueado: o Debug Log confirmou que a Account é
-  encontrada (`ClienteSelector.obterClientePorIdCliente` retorna `Rows:1`), mas
-  o `upsert` da `Opportunity` falha com `INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`
-  no lookup `CidadeUnidade__c = a0S4T000000hBf7UAE`, herdado do `Product2`
-  escolhido (`01tV200000AVSn3IAH`). Ver evidência em
+- [x] Execução real final rodada contra `mrv-devDan` com `Opportunity` +
+  `OpportunityLineItem` criados com sucesso e cleanup validado.
+- [x] O cenário passou a usar o `Product2.Id__c =
+  37dd20e6-4b3c-ea11-801d-005056856875` (`Product2Id = 01t4T000002VELyQAO`,
+  `PricebookEntryId = 01u4T0000047yxRQAQ`), ativo no catálogo padrão e sem
+  `Cidade__c` quebrada, mantendo o smoke test mínimo estável.
+- [x] O bloqueio anterior foi isolado e documentado: o `Product2` originalmente
+  tentado (`01tV200000AVSn3IAH`) apontava para `Cidade__c =
+  a0S4T000000hBf7UAE`, referência inconsistente na org. Evidência preservada em
   `docs/phase-7/maquina-estado-insert-minimo.md`.
 
 **Criterios de aceite:**

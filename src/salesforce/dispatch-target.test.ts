@@ -341,7 +341,7 @@ describe('Salesforce dispatch target', () => {
             id: 'OPP-SIM-001',
             dataalteracao: '2026-08-21T10:00:00.000Z',
             estado: 'SIMULACAO',
-            idunidade: '7d9261ee-c2b8-f011-8df6-80c16e075108',
+            idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
           },
         },
       ],

@@ -20,10 +20,13 @@ Primeiro corte deliberadamente mínimo para `/MaquinaEstado`, no mesmo espírito
 | Price Book padrão ativo | `01s4T000000c1bEQAQ` (`Standard Price Book`) |
 | `UsuarioPadraoClientes__c` org default | `IdUsuario__c = 0054T000001RSQLQA4` |
 | Usuário fallback | `0054T000001RSQLQA4` — `COM_Salesforce_MRV_PRD MRV_PRD` (`IsActive=true`) |
-| `PricebookEntry` ativo escolhido | `01uV2000002wmeDIAQ` |
-| `Product2` escolhido | `01tV200000AVSn3IAH` |
-| `Product2.Id__c` usado no payload | `7d9261ee-c2b8-f011-8df6-80c16e075108` |
-| `Product2.Name` | `PARQUE MARISTA - BLOCO 01 - 2 Q - APTO 107` |
+| `PricebookEntry` ativo definitivo | `01u4T0000047yxRQAQ` |
+| `Product2` definitivo | `01t4T000002VELyQAO` |
+| `Product2.Id__c` usado no payload definitivo | `37dd20e6-4b3c-ea11-801d-005056856875` |
+| `Product2.Name` definitivo | `Lavatório em granito Verde Ubatuba com cuba de embutir em louça` |
+| `Product2.Cidade__c` definitivo | `null` |
+| `Product2` inicialmente tentado (bloqueado) | `01tV200000AVSn3IAH` / `Id__c = 7d9261ee-c2b8-f011-8df6-80c16e075108` |
+| Motivo da troca do `Product2` | o produto inicial apontava para `Cidade__c = a0S4T000000hBf7UAE`, lookup inconsistente na org |
 
 Também foi confirmada a leitura do metadata de mapeamento:
 
@@ -41,11 +44,67 @@ Também foi confirmada a leitura do metadata de mapeamento:
   "id": "OPP-SIM-bce7213a22-5aa56b80d1",
   "dataalteracao": "2026-09-22T17:45:00.000Z",
   "estado": "SIMULACAO",
-  "idunidade": "7d9261ee-c2b8-f011-8df6-80c16e075108"
+  "idunidade": "37dd20e6-4b3c-ea11-801d-005056856875"
 }
 ```
 
-## Resultado real observado
+## Resultado real definitivo (reexecução final)
+
+Após o ajuste de acesso em `Cidade__c` feito na org e a troca do `Product2`
+do cenário para uma unidade/produto ativa sem lookup de cidade quebrado, o
+smoke test mínimo passou end-to-end.
+
+### Execução real final em `mrv-devDan`
+
+- `CREATE_SYNTHETIC_ACCOUNT` criou a Account sintética
+  `001HZ000011R4D5YAK`.
+- Dispatch real para `/services/apexrest/MaquinaEstado`: **HTTP 200 OK**.
+- `verify` passou na primeira tentativa, com todos os checks verdes:
+  - `OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE`
+  - `OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT`
+  - `OPPORTUNITY_STAGE_EQUALS_EXPECTED`
+  - `OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED`
+
+### Resultado confirmado por query direta
+
+- `Opportunity` criada:
+  - `Id = 006HZ00000Tzv8kYAB`
+  - `Id__c = OPP-SIM-905b559b5d-7c373b8492`
+  - `AccountId = 001HZ000011R4D5YAK`
+  - `StageName = Simulação`
+  - `Pricebook2Id = 01s4T000000c1bEQAQ`
+  - `RecordTypeId = 0124T000000YRR4QAO`
+  - `Unidade__c = 01t4T000002VELyQAO`
+  - `CidadeUnidade__c = null`
+- `OpportunityLineItem` sintético criado:
+  - `Id = 00kHZ00000BLsDaYAL`
+  - `OpportunityId = 006HZ00000Tzv8kYAB`
+  - `PricebookEntryId = 01u4T0000047yxRQAQ`
+  - `Product2Id = 01t4T000002VELyQAO`
+  - `Quantity = 1`
+  - `UnitPrice = 0`
+
+### Cleanup real final
+
+- O cleanup removeu com sucesso os três registros owned da execução:
+  - 1 `Account`
+  - 1 `Opportunity`
+  - 1 `OpportunityLineItem`
+- Estado final pós-cleanup confirmado por query:
+  - `Account`: 0 registros
+  - `Opportunity`: 0 registros
+  - `OpportunityLineItem`: 0 registros
+
+### Decisão de design consolidada
+
+Para manter este primeiro incremento como **smoke test mínimo e estável**, o
+cenário passou a usar um `Product2` ativo real cujo `Cidade__c` é `null`.
+Assim, o teste continua cobrindo o essencial do contrato `/MaquinaEstado`
+(criação da `Opportunity`, vínculo com a `Account`, `StageName='Simulação'` e
+criação do `OpportunityLineItem`) sem depender de dados inconsistentes de
+`Cidade__c` presentes na org.
+
+## Histórico do bloqueio inicial e diagnóstico
 
 ### Setup
 
@@ -179,25 +238,21 @@ ao `Product2` real escolhido:
 Na prática, o `Product2` ativo usado no smoke test carrega um lookup de cidade
 que está inacessível ou inconsistente para esta operação.
 
-## Cleanup real
-
-- O cleanup removeu a Account sintética criada no setup/diagnóstico.
-- Estado final pós-cleanup:
-  - `Account`: 0 registros
-  - `Opportunity`: 0 registros
-  - `OpportunityLineItem`: 0 registros
-
 ## Interpretação
 
 O simulador agora cobre corretamente o contrato mínimo, o roteamento e o
-cleanup de `OpportunityLineItem`. O bloqueio remanescente está no comportamento
-real da org `mrv-devDan`: o fluxo encontra a Account corretamente, mas falha no
-`upsert` da `Opportunity` ao tentar gravar `CidadeUnidade__c` com o Id
-`a0S4T000000hBf7UAE` herdado do `Product2` selecionado.
+cleanup de `OpportunityLineItem`. O incremento 1 da Tarefa 7.2 está
+**concluído** e validado ao vivo contra `mrv-devDan`.
+
+O diagnóstico anterior continua relevante como evidência histórica: o primeiro
+`Product2` real escolhido carregava um lookup inválido para `Cidade__c`, o que
+quebrava o `upsert` da `Opportunity`. O cenário agora usa um `Product2` real
+ativo sem esse acoplamento.
 
 ## Próximo passo sugerido
 
-Validar no Salesforce qual `Product2`/`Cidade__c` real pode ser usado sem
-gerar `INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY`, ou corrigir a
-consistência/permissão do lookup `Cidade__c` na org antes de ampliar os
-cenários de Tarefa 7.2.
+Prosseguir para os próximos incrementos da Tarefa 7.2 (`jornadausuario-update`,
+reentrega e variações de resolução de cliente), mantendo este smoke test mínimo
+como baseline estável. Se quisermos cobrir explicitamente o caminho com
+`CidadeUnidade__c`, isso deve entrar como cenário adicional, com massa real da
+org previamente validada.

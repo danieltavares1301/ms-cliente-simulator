@@ -81,7 +81,7 @@ const graphqlCallbackAsyncPolicy: ScenarioDefinition['asyncPolicy'] = {
 };
 
 const MAQUINA_ESTADO_ACTIVE_PRODUCT_EXTERNAL_ID =
-  '7d9261ee-c2b8-f011-8df6-80c16e075108';
+  '37dd20e6-4b3c-ea11-801d-005056856875';
 
 function clientPayload(
   eventType: 'cliente-insert' | 'cliente-update',

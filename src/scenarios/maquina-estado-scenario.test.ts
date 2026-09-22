@@ -76,7 +76,7 @@ describe('MaquinaEstado smoke scenario definition', () => {
       },
       id: expect.stringMatching(/^OPP-SIM-/),
       estado: 'SIMULACAO',
-      idunidade: '7d9261ee-c2b8-f011-8df6-80c16e075108',
+      idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
     });
     expect(fixture.cleanup).toEqual(
       expect.arrayContaining([
