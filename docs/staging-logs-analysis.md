@@ -475,6 +475,56 @@ quando o existente é **estritamente mais novo**; eventos com o MESMO
 **Implementado**: este achado motivou o cenário
 `maquina-estado-update-evento-obsoleto` (Tarefa 7.2, incremento 5).
 
+### 9. Valores de `Estado` não reconhecidos são majoritários em `update` real (informa o incremento 6 da Tarefa 7.2)
+
+Amostra de 150 eventos reais bem-sucedidos (`jornadausuario-insert` +
+`jornadausuario-update` combinados) revelou a distribuição real de
+`Estado`:
+
+```
+SP                            68  (45%)
+Documentacao                  64  (43%)
+MG                            13  (9%)
+Proposta                       3  (2%)
+MT                              1  (<1%)
+PropostaGenericaFinalizada      1  (<1%)
+```
+
+**`"SP"`, `"MG"`, `"MT"` são siglas de UF (Unidade Federativa) — não
+correspondem a NENHUM branch reconhecido por `retornaValorFase`**
+(`UNIDADES`, `SIMULACAO`, `DOCUMENTACAO`, `PROPOSTA`/
+`PropostaGenericaFinalizada`, `CONTRATO`, `DISTRATO`,
+`RecuperacaoPac`/`RECUPERACAO_PAC`, `troca_unidade`/`TrocarUnidade`). Ou
+seja: **≈55% da amostra de eventos reais bem-sucedidos usa um valor de
+`Estado` não mapeado**.
+
+Confirmado por amostra separada (30 `jornadausuario-insert` recentes):
+**100% usam `Estado="Unidades"`** — os valores de UF só aparecem em
+`jornadausuario-update`, nunca em `insert`.
+
+**Contrato exato confirmado por leitura do Apex** (`retornaValorFase`,
+já lido nesta sessão): quando `valorJson` não bate com nenhum branch
+conhecido, a função cai no fallback final:
+```apex
+return oportunidadeExistente != null ? oportunidadeExistente.StageName : null;
+```
+Ou seja, para um `update` em uma Opportunity já existente (o caso real
+observado — nenhum `insert` usa UF), o resultado é **preservar o
+`StageName` atual sem alteração** — um "no-op" de estágio, diferente do
+"no-op" por evento obsoleto (que é baseado em tempo, seção 6/8): aqui é
+um "no-op" por **valor de enum desconhecido**, e o evento ainda processa
+normalmente o restante do payload (outros campos podem ser atualizados
+na mesma chamada). Para um hipotético `insert` com `Estado` não
+reconhecido (não observado na amostra real, mas tecnicamente possível
+pelo contrato), `valorFase` seria `null`, e como `preencherEstado` só
+faz `put()` quando `String.isNotBlank(valorFase)`, `StageName` nunca
+seria atribuído ao sObject antes do `Database.upsert` — comportamento
+não testado nesta sessão, potencial risco de `REQUIRED_FIELD_MISSING`
+se não houver automação/default preenchendo o campo.
+
+**Implementado**: este achado motivou o cenário
+`maquina-estado-update-estado-nao-reconhecido` (Tarefa 7.2, incremento 6).
+
 ## Ações tomadas nesta análise
 
 - [ ] **Corrigir `pacCreditoRequestSchema`** para tolerar campos extras
