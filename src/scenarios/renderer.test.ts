@@ -31,6 +31,7 @@ const scenarioKeys = [
   'pac-conflito-proponentes-principais',
   'pac-insert-minimo',
   'pac-insert-opportunity-perdida-forca-cancelado',
+  'pac-update-com-contestacao-pendente-sincroniza-contatos',
   'pac-update-altera-status-sem-proponentes',
   'pac-update-reenviando-proponentes',
 ] as const;
@@ -58,6 +59,7 @@ const expectedStepCountByScenario = {
   'pac-conflito-proponentes-principais': 1,
   'pac-insert-minimo': 1,
   'pac-insert-opportunity-perdida-forca-cancelado': 1,
+  'pac-update-com-contestacao-pendente-sincroniza-contatos': 1,
   'pac-update-altera-status-sem-proponentes': 2,
   'pac-update-reenviando-proponentes': 2,
 } as const;
@@ -466,6 +468,36 @@ describe('basic scenario fixture definitions', () => {
   });
   expect(
     scenarioCatalog.get('pac-aprovada-sincroniza-contatos', 1)?.asyncPolicy,
+  ).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
+    scenarioCatalog.get(
+      'pac-update-com-contestacao-pendente-sincroniza-contatos',
+      1,
+    )?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+      {
+        check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+      },
+      {
+        check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+      },
+      'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+    ]),
+  });
+  expect(
+    scenarioCatalog.get(
+      'pac-update-com-contestacao-pendente-sincroniza-contatos',
+      1,
+    )?.asyncPolicy,
   ).toStrictEqual({
     expectedCallbacks: { min: 1, max: 1 },
     waitTimeoutMs: 30_000,

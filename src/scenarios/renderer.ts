@@ -51,7 +51,8 @@ type GeneratedValue =
   | 'OPPORTUNITY_EXTERNAL_ID'
   | 'PAC_EXTERNAL_ID'
   | 'PROPONENTE_EXTERNAL_ID'
-  | 'PROPONENTE_EXTERNAL_ID_X';
+  | 'PROPONENTE_EXTERNAL_ID_X'
+  | 'CONTESTACAO_EXTERNAL_ID';
 
 type RenderContext = Readonly<Record<GeneratedValue, string>>;
 
@@ -123,6 +124,7 @@ export function renderScenarioFixture(
   const syntheticPacExternalId = `PAC-SIM-${namespaceToken}-${seedToken}`;
   const syntheticProponenteExternalId = `PROP-SIM-${namespaceToken}-${seedToken}`;
   const controlSyntheticProponenteExternalId = `PROP-SIM-X-${namespaceToken}-${seedToken}`;
+  const syntheticContestacaoExternalId = `CONT-SIM-${namespaceToken}-${seedToken}`;
   const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
   const collisionCpf = generateSyntheticCpf(
     `${input.seed}:collision`,
@@ -172,6 +174,7 @@ export function renderScenarioFixture(
     PAC_EXTERNAL_ID: syntheticPacExternalId,
     PROPONENTE_EXTERNAL_ID: syntheticProponenteExternalId,
     PROPONENTE_EXTERNAL_ID_X: controlSyntheticProponenteExternalId,
+    CONTESTACAO_EXTERNAL_ID: syntheticContestacaoExternalId,
   } satisfies RenderContext;
   const hasControlAccount =
     definition.setup?.some(

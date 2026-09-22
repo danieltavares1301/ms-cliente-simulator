@@ -104,6 +104,56 @@ describe('PAC smoke scenario definition', () => {
     });
   });
 
+  it('publishes a READY PAC contestation scenario that synchronizes Account contacts from a non-principal proponente when a contestação is pending', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-update-com-contestacao-pendente-sincroniza-contatos',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-update-com-contestacao-pendente-sincroniza-contatos',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining([
+        'fase-7',
+        'pac-update',
+        'contestacao',
+        'sincronizacao-contatos',
+      ]),
+    });
+    expect(scenario?.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_ACCOUNT' }),
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_OPPORTUNITY' }),
+        expect.objectContaining({
+          operation: 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO',
+        }),
+        expect.objectContaining({ operation: 'CREATE_SYNTHETIC_CONTESTACAO' }),
+      ]),
+    );
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        target: 'PAC',
+        eventType: 'pac-update',
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'PAC_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+        },
+        {
+          check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+        },
+        'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+      ]),
+    });
+  });
+
   it('renders a PAC approved fixture with one principal proponente bound to the same PAC external id', () => {
     const fixture = renderScenarioFixture({
       scenarioKey: 'pac-aprovada-sincroniza-contatos',
@@ -142,6 +192,85 @@ describe('PAC smoke scenario definition', () => {
     expect(proponente.idPac).toBe(
       (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
     );
+    expect(fixture.cleanup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'DELETE_OWNED_RECORDS',
+          target: 'PROPONENTE',
+          ownership: {
+            proponentes: [
+              {
+                idCliente: fixture.identifiers.accountIdCliente,
+                idExterno: expect.stringMatching(/^PROP-SIM-/),
+              },
+            ],
+            pacIdExterno: expect.stringMatching(/^PAC-SIM-/),
+          },
+        }),
+        expect.objectContaining({
+          operation: 'DELETE_OWNED_RECORDS',
+          target: 'OPPORTUNITY',
+          ownership: {
+            idExterno: expect.stringMatching(/^OPP-SIM-/),
+            pacIdExterno: expect.stringMatching(/^PAC-SIM-/),
+          },
+        }),
+      ]),
+    );
+  });
+
+  it('renders a PAC contestation fixture with direct PAC/Contestacao setup and a non-principal proponente payload', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-update-com-contestacao-pendente-sincroniza-contatos',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_j',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(eventGridEnvelopeSchema.parse(fixture.steps[0]!.envelope)).toEqual(
+      fixture.steps[0]!.envelope,
+    );
+    expect(fixture.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO',
+          propostaAnaliseCredito: {
+            idExterno: expect.stringMatching(/^PAC-SIM-/),
+            opportunityIdExterno: expect.stringMatching(/^OPP-SIM-/),
+            status: 'ANALISE_CREDITO_INICIADA',
+          },
+        }),
+        expect.objectContaining({
+          operation: 'CREATE_SYNTHETIC_CONTESTACAO',
+          contestacao: {
+            idExterno: expect.stringMatching(/^CONT-SIM-/),
+            pacIdExterno: expect.stringMatching(/^PAC-SIM-/),
+          },
+        }),
+      ]),
+    );
+    expect(fixture.steps[0]).toMatchObject({
+      target: 'PAC',
+      eventType: 'pac-update',
+    });
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      id: expect.stringMatching(/^PAC-SIM-/),
+      idjornadapac: expect.stringMatching(/^OPP-SIM-/),
+      status: 'ANALISE_CREDITO_INICIADA',
+      proponentes: [
+        expect.objectContaining({
+          id: expect.stringMatching(/^PROP-SIM-/),
+          idPac: expect.stringMatching(/^PAC-SIM-/),
+          idCliente: fixture.identifiers.accountIdCliente,
+          cpf: expect.stringMatching(/^\d{11}$/),
+          tipoClassificacao: 'Coobrigado',
+          email: expect.stringContaining('@simulador.mrv.invalid'),
+          telefoneCelular: expect.stringMatching(/^\d{11}$/),
+        }),
+      ],
+    });
     expect(fixture.cleanup).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

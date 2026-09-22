@@ -47,6 +47,21 @@ const renderedOpportunitySchema = z
   })
   .strict();
 
+const renderedPropostaAnaliseCreditoSchema = z
+  .object({
+    idExterno: z.string().min(1).max(50),
+    opportunityIdExterno: z.string().min(1).max(50),
+    status: z.string().min(1).max(255),
+  })
+  .strict();
+
+const renderedContestacaoSchema = z
+  .object({
+    idExterno: z.string().min(1).max(50),
+    pacIdExterno: z.string().min(1).max(50),
+  })
+  .strict();
+
 const renderedLeadAbsentKeysSchema = z
   .object({
     idExterno: z.string().min(1).max(150).optional(),
@@ -117,6 +132,18 @@ export const renderedSetupInstructionSchema = z.discriminatedUnion(
       .object({
         operation: z.literal('CREATE_SYNTHETIC_OPPORTUNITY'),
         opportunity: renderedOpportunitySchema,
+      })
+      .strict(),
+    z
+      .object({
+        operation: z.literal('CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO'),
+        propostaAnaliseCredito: renderedPropostaAnaliseCreditoSchema,
+      })
+      .strict(),
+    z
+      .object({
+        operation: z.literal('CREATE_SYNTHETIC_CONTESTACAO'),
+        contestacao: renderedContestacaoSchema,
       })
       .strict(),
     z
@@ -287,7 +314,7 @@ export const renderedScenarioFixtureSchema = z
     cleanup: z.array(renderedCleanupInstructionSchema).min(1).max(20),
   })
   .strict()
-  .superRefine(({ identifiers, setup, cleanup }, context) => {
+  .superRefine(({ identifiers, setup, steps, cleanup }, context) => {
     const syntheticAccountSetups = setup.filter(
       (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
     );
@@ -302,6 +329,13 @@ export const renderedScenarioFixtureSchema = z
     );
     const syntheticOpportunitySetups = setup.filter(
       (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    const syntheticPropostaSetups = setup.filter(
+      (instruction) =>
+        instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO',
+    );
+    const syntheticContestacaoSetups = setup.filter(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO',
     );
     const primaryLeads = syntheticLeadSetups.filter(
       (instruction) => instruction.role === 'PRIMARY',
@@ -342,6 +376,20 @@ export const renderedScenarioFixtureSchema = z
       context.addIssue({
         code: 'custom',
         message: 'At most one synthetic Opportunity is allowed',
+        path: ['setup'],
+      });
+    }
+    if (syntheticPropostaSetups.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one synthetic PropostaAnaliseCredito is allowed',
+        path: ['setup'],
+      });
+    }
+    if (syntheticContestacaoSetups.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one synthetic Contestacao is allowed',
         path: ['setup'],
       });
     }
@@ -390,6 +438,69 @@ export const renderedScenarioFixtureSchema = z
         message:
           'Collision Lead identifier is only allowed when a COLLISION lead exists',
         path: ['identifiers', 'collisionLeadIdExterno'],
+      });
+    }
+
+    const syntheticOpportunity = syntheticOpportunitySetups[0];
+    const syntheticProposta = syntheticPropostaSetups[0];
+    const syntheticContestacao = syntheticContestacaoSetups[0];
+    const renderedPacEvent = steps
+      .slice()
+      .reverse()
+      .find(
+        (step) =>
+          step.eventType === 'pac-insert' || step.eventType === 'pac-update',
+      )?.envelope[0]?.data as
+      | { id?: string; idjornadapac?: string }
+      | undefined;
+
+    if (
+      syntheticProposta !== undefined &&
+      syntheticOpportunity !== undefined &&
+      syntheticProposta.propostaAnaliseCredito.opportunityIdExterno !==
+        syntheticOpportunity.opportunity.idExterno
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Synthetic PropostaAnaliseCredito must reference the synthetic Opportunity external id',
+        path: ['setup'],
+      });
+    }
+    if (
+      syntheticProposta !== undefined &&
+      renderedPacEvent?.id !== undefined &&
+      syntheticProposta.propostaAnaliseCredito.idExterno !== renderedPacEvent.id
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Synthetic PropostaAnaliseCredito must use the same external id as the PAC event',
+        path: ['setup'],
+      });
+    }
+    if (
+      syntheticContestacao !== undefined &&
+      syntheticProposta === undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Synthetic Contestacao requires a synthetic PropostaAnaliseCredito setup',
+        path: ['setup'],
+      });
+    }
+    if (
+      syntheticContestacao !== undefined &&
+      syntheticProposta !== undefined &&
+      syntheticContestacao.contestacao.pacIdExterno !==
+        syntheticProposta.propostaAnaliseCredito.idExterno
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'Synthetic Contestacao must reference the synthetic PropostaAnaliseCredito external id',
+        path: ['setup'],
       });
     }
 

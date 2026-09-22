@@ -580,6 +580,23 @@ const propostaAnaliseCreditoQueryResponseSchema = z
   })
   .passthrough();
 
+const contestacaoRecordSchema = z
+  .object({
+    Id: z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/),
+    Id__c: nullableText,
+    PAC__c: nullableText,
+    DataSolucao__c: nullableText.optional(),
+  })
+  .passthrough();
+
+const contestacaoQueryResponseSchema = z
+  .object({
+    totalSize: z.number().int().nonnegative(),
+    done: z.literal(true),
+    records: z.array(contestacaoRecordSchema),
+  })
+  .passthrough();
+
 const proponenteRecordSchema = z
   .object({
     Id: z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/),
@@ -620,8 +637,10 @@ const compositeResponseSchema = z
             httpStatusCode: z.number().int().min(200).max(299),
             referenceId: z.enum([
               'createAccount',
+              'createContestacao',
               'createLead',
               'createOpportunity',
+              'createPropostaAnaliseCredito',
             ]),
           })
           .passthrough(),
@@ -636,6 +655,7 @@ type OpportunityRecord = z.infer<typeof opportunityRecordSchema>;
 type PropostaAnaliseCreditoRecord = z.infer<
   typeof propostaAnaliseCreditoRecordSchema
 >;
+type ContestacaoRecord = z.infer<typeof contestacaoRecordSchema>;
 type ProponenteRecord = z.infer<typeof proponenteRecordSchema>;
 type FixtureCheck =
   RenderedScenarioFixture['expectedOutcomes'][number]['checks'][number];
@@ -650,6 +670,14 @@ type SyntheticLeadSetup = Extract<
 type SyntheticOpportunitySetup = Extract<
   RenderedScenarioFixture['setup'][number],
   { operation: 'CREATE_SYNTHETIC_OPPORTUNITY' }
+>;
+type SyntheticPropostaAnaliseCreditoSetup = Extract<
+  RenderedScenarioFixture['setup'][number],
+  { operation: 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO' }
+>;
+type SyntheticContestacaoSetup = Extract<
+  RenderedScenarioFixture['setup'][number],
+  { operation: 'CREATE_SYNTHETIC_CONTESTACAO' }
 >;
 type FixtureEventData =
   RenderedScenarioFixture['steps'][number]['envelope'][number]['data'];
@@ -696,6 +724,7 @@ const opportunityFields =
   'Id,Id__c,AccountId,Name,StageName,CloseDate,PACAtual__c' as const;
 const propostaAnaliseCreditoFields =
   'Id,Id__c,Oportunidade__c,Status__c' as const;
+const contestacaoFields = 'Id,Id__c,PAC__c,DataSolucao__c' as const;
 const proponenteFields =
   'Id,Id__c,Proponente__c,PropostaAnaliseCredito__c,IdCliente__c,CpfProponente__c,TipoClassificacao__c,EmailAtualizado__c,Celular__c,DataAlteracaoEvento__c,NomeCompleto__c' as const;
 const leadDefaultStatus = 'Pendente de Distribuição' as const;
@@ -751,6 +780,14 @@ function parsePropostaAnaliseCreditoQueryResponse(
   value: unknown,
 ): PropostaAnaliseCreditoRecord[] {
   const result = propostaAnaliseCreditoQueryResponseSchema.safeParse(value);
+  if (!result.success || result.data.totalSize !== result.data.records.length) {
+    throw new SalesforceTestDataAdapterError('SALESFORCE_RESPONSE_INVALID');
+  }
+  return result.data.records;
+}
+
+function parseContestacaoQueryResponse(value: unknown): ContestacaoRecord[] {
+  const result = contestacaoQueryResponseSchema.safeParse(value);
   if (!result.success || result.data.totalSize !== result.data.records.length) {
     throw new SalesforceTestDataAdapterError('SALESFORCE_RESPONSE_INVALID');
   }
@@ -829,6 +866,18 @@ function isSyntheticOpportunitySetup(
   return instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY';
 }
 
+function isSyntheticPropostaAnaliseCreditoSetup(
+  instruction: RenderedScenarioFixture['setup'][number],
+): instruction is SyntheticPropostaAnaliseCreditoSetup {
+  return instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO';
+}
+
+function isSyntheticContestacaoSetup(
+  instruction: RenderedScenarioFixture['setup'][number],
+): instruction is SyntheticContestacaoSetup {
+  return instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO';
+}
+
 function primaryLeadSetup(
   fixture: RenderedScenarioFixture,
 ): SyntheticLeadSetup | undefined {
@@ -844,6 +893,24 @@ function primaryOpportunitySetup(
   return fixture.setup.find(
     (instruction): instruction is SyntheticOpportunitySetup =>
       isSyntheticOpportunitySetup(instruction),
+  );
+}
+
+function syntheticPropostaAnaliseCreditoSetup(
+  fixture: RenderedScenarioFixture,
+): SyntheticPropostaAnaliseCreditoSetup | undefined {
+  return fixture.setup.find(
+    (instruction): instruction is SyntheticPropostaAnaliseCreditoSetup =>
+      isSyntheticPropostaAnaliseCreditoSetup(instruction),
+  );
+}
+
+function syntheticContestacaoSetup(
+  fixture: RenderedScenarioFixture,
+): SyntheticContestacaoSetup | undefined {
+  return fixture.setup.find(
+    (instruction): instruction is SyntheticContestacaoSetup =>
+      isSyntheticContestacaoSetup(instruction),
   );
 }
 
@@ -1035,11 +1102,13 @@ function pacFixtureProponenteForClientId(
     if (!isPacFixtureEventData(event)) {
       continue;
     }
-    const match = event.proponentes?.find(
-      (proponente) =>
-        proponente.idCliente === idCliente &&
-        proponente.tipoClassificacao === 'Principal',
-    );
+    const matchingProponentes =
+      event.proponentes?.filter((proponente) => proponente.idCliente === idCliente) ??
+      [];
+    const match =
+      matchingProponentes.find(
+        (proponente) => proponente.tipoClassificacao === 'Principal',
+      ) ?? matchingProponentes[0];
     if (match !== undefined) {
       return match;
     }
@@ -1062,6 +1131,24 @@ function opportunityLookupQueryForVerify(fixture: RenderedScenarioFixture) {
     throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
   }
   return opportunityLookupQueryForSetup(setup);
+}
+
+function propostaAnaliseCreditoLookupQueryForSetup(
+  setup: SyntheticPropostaAnaliseCreditoSetup,
+) {
+  return asAllowlistedQuery(
+    `SELECT ${propostaAnaliseCreditoFields} FROM PropostaAnaliseCredito__c WHERE Id__c = ${literal(
+      setup.propostaAnaliseCredito.idExterno,
+    )}`,
+  );
+}
+
+function contestacaoLookupQueryForSetup(setup: SyntheticContestacaoSetup) {
+  return asAllowlistedQuery(
+    `SELECT ${contestacaoFields} FROM Contestacao__c WHERE Id__c = ${literal(
+      setup.contestacao.idExterno,
+    )}`,
+  );
 }
 
 function propostaAnaliseCreditoLookupQueryForVerify(
@@ -1183,6 +1270,14 @@ export function createSalesforceTestDataAdapter(
     );
   }
 
+  async function queryContestacoes(
+    query: ReturnType<typeof asAllowlistedQuery>,
+  ): Promise<ContestacaoRecord[]> {
+    return parseContestacaoQueryResponse(
+      await dependencies.restClient.query(query),
+    );
+  }
+
   async function queryProponentes(
     query: ReturnType<typeof asAllowlistedQuery>,
   ): Promise<ProponenteRecord[]> {
@@ -1198,6 +1293,8 @@ export function createSalesforceTestDataAdapter(
       let replayedCount = 0;
       const recordIds: string[] = [];
       const accountIdsByExternalId = new Map<string, string>();
+      const opportunityIdsByExternalId = new Map<string, string>();
+      const propostaIdsByExternalId = new Map<string, string>();
 
       for (const instruction of fixture.setup) {
         if (instruction.operation === 'ENSURE_ACCOUNT_ABSENT') {
@@ -1343,6 +1440,7 @@ export function createSalesforceTestDataAdapter(
           if (matchesFixture) {
             replayedCount += 1;
             recordIds.push(existing.Id);
+            opportunityIdsByExternalId.set(opportunity.idExterno, existing.Id);
             continue;
           }
           if (records.length > 0) {
@@ -1361,6 +1459,120 @@ export function createSalesforceTestDataAdapter(
                   CloseDate: opportunity.closeDate,
                   Id__c: opportunity.idExterno,
                   AccountId: expectedAccountId,
+                },
+              },
+            ]),
+          );
+          if (!response.success) {
+            throw new SalesforceTestDataAdapterError(
+              'SALESFORCE_RESPONSE_INVALID',
+            );
+          }
+          createdCount += 1;
+          const opportunityRecordId = response.data.compositeResponse[0]!.body.id;
+          recordIds.push(opportunityRecordId);
+          opportunityIdsByExternalId.set(opportunity.idExterno, opportunityRecordId);
+          continue;
+        }
+
+        if (
+          instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO'
+        ) {
+          const { propostaAnaliseCredito } = instruction;
+          const expectedOpportunityId = opportunityIdsByExternalId.get(
+            propostaAnaliseCredito.opportunityIdExterno,
+          );
+          if (expectedOpportunityId === undefined) {
+            throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+          }
+          const records = await queryPropostasAnaliseCredito(
+            propostaAnaliseCreditoLookupQueryForSetup(instruction),
+          );
+          const existing = records[0];
+          const matchesFixture =
+            records.length === 1 &&
+            existing.Id__c === propostaAnaliseCredito.idExterno &&
+            existing.Oportunidade__c === expectedOpportunityId &&
+            existing.Status__c === propostaAnaliseCredito.status;
+
+          if (matchesFixture) {
+            replayedCount += 1;
+            recordIds.push(existing.Id);
+            propostaIdsByExternalId.set(
+              propostaAnaliseCredito.idExterno,
+              existing.Id,
+            );
+            continue;
+          }
+          if (records.length > 0) {
+            throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+          }
+
+          const response = compositeResponseSchema.safeParse(
+            await dependencies.restClient.composite([
+              {
+                method: 'POST',
+                url: '/services/data/v61.0/sobjects/PropostaAnaliseCredito__c',
+                referenceId: 'createPropostaAnaliseCredito',
+                body: {
+                  Id__c: propostaAnaliseCredito.idExterno,
+                  Oportunidade__c: expectedOpportunityId,
+                  Status__c: propostaAnaliseCredito.status,
+                },
+              },
+            ]),
+          );
+          if (!response.success) {
+            throw new SalesforceTestDataAdapterError(
+              'SALESFORCE_RESPONSE_INVALID',
+            );
+          }
+          createdCount += 1;
+          const propostaRecordId = response.data.compositeResponse[0]!.body.id;
+          recordIds.push(propostaRecordId);
+          propostaIdsByExternalId.set(
+            propostaAnaliseCredito.idExterno,
+            propostaRecordId,
+          );
+          continue;
+        }
+
+        if (instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO') {
+          const { contestacao } = instruction;
+          const expectedPropostaId = propostaIdsByExternalId.get(
+            contestacao.pacIdExterno,
+          );
+          if (expectedPropostaId === undefined) {
+            throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+          }
+          const records = await queryContestacoes(
+            contestacaoLookupQueryForSetup(instruction),
+          );
+          const existing = records[0];
+          const matchesFixture =
+            records.length === 1 &&
+            existing.Id__c === contestacao.idExterno &&
+            existing.PAC__c === expectedPropostaId &&
+            existing.DataSolucao__c === null;
+
+          if (matchesFixture) {
+            replayedCount += 1;
+            recordIds.push(existing.Id);
+            continue;
+          }
+          if (records.length > 0) {
+            throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+          }
+
+          const response = compositeResponseSchema.safeParse(
+            await dependencies.restClient.composite([
+              {
+                method: 'POST',
+                url: '/services/data/v61.0/sobjects/Contestacao__c',
+                referenceId: 'createContestacao',
+                body: {
+                  Id__c: contestacao.idExterno,
+                  PAC__c: expectedPropostaId,
                 },
               },
             ]),
@@ -1478,8 +1690,11 @@ export function createSalesforceTestDataAdapter(
       const eventIdCliente = 'idcliente' in event ? event.idcliente : undefined;
       const eventCpf = 'numerocpf' in event ? event.numerocpf : undefined;
       const accountIdentityClientId =
-        eventIdCliente ?? pacPrimaryProponente?.idCliente;
-      const accountIdentityCpf = eventCpf ?? pacPrimaryProponente?.cpf;
+        eventIdCliente ??
+        pacPrimaryProponente?.idCliente ??
+        primaryFixtureProponente?.idCliente;
+      const accountIdentityCpf =
+        eventCpf ?? pacPrimaryProponente?.cpf ?? primaryFixtureProponente?.cpf;
       const eventIdProspect =
         'idprospectsalesforce' in event ? event.idprospectsalesforce : undefined;
       const clientEvent = isClientFixtureEventData(event) ? event : undefined;
@@ -2018,6 +2233,8 @@ export function createSalesforceTestDataAdapter(
       }
       if (proponenteTarget !== undefined) {
         resultRecordIds.add(proponenteTarget.Id);
+      } else if (primaryProponenteTarget !== undefined) {
+        resultRecordIds.add(primaryProponenteTarget.Id);
       }
 
       return {
@@ -2166,6 +2383,13 @@ export function createSalesforceTestDataAdapter(
                 .join(',')})`,
             ),
           );
+          const contestacaoRecords = await queryContestacoes(
+            asAllowlistedQuery(
+              `SELECT ${contestacaoFields} FROM Contestacao__c WHERE Id IN (${uniqueIds
+                .map(literal)
+                .join(',')})`,
+            ),
+          );
           const opportunityRecords = await queryOpportunities(
             asAllowlistedQuery(
               `SELECT ${opportunityFields} FROM Opportunity WHERE Id IN (${uniqueIds
@@ -2190,6 +2414,17 @@ export function createSalesforceTestDataAdapter(
               throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
             }
           }
+          for (const record of contestacaoRecords) {
+            if (!uniqueIds.includes(record.Id)) {
+              throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+            }
+            if (
+              propostaRecords.length === 0 ||
+              !propostaRecords.some((proposta) => proposta.Id === record.PAC__c)
+            ) {
+              throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
+            }
+          }
           if (
             propostaRecords.length > 0 &&
             opportunityRecords.length > 0 &&
@@ -2200,6 +2435,9 @@ export function createSalesforceTestDataAdapter(
             throw new SalesforceTestDataAdapterError('OWNERSHIP_MISMATCH');
           }
 
+          for (const record of contestacaoRecords) {
+            await dependencies.restClient.deleteRecord('Contestacao__c', record.Id);
+          }
           for (const record of propostaRecords) {
             await dependencies.restClient.deleteRecord(
               'PropostaAnaliseCredito__c',
@@ -2212,7 +2450,10 @@ export function createSalesforceTestDataAdapter(
               record.Id,
             );
           }
-          deletedCount += propostaRecords.length + opportunityRecords.length;
+          deletedCount +=
+            contestacaoRecords.length +
+            propostaRecords.length +
+            opportunityRecords.length;
           continue;
         }
 

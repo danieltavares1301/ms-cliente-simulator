@@ -11,6 +11,7 @@ const accountId = '001000000000001AAA';
 const controlAccountId = '001000000000002AAA';
 const opportunityId = '006000000000001AAA';
 const propostaId = 'a0A000000000001AAA';
+const contestacaoId = 'a12000000000001AAA';
 const proponenteId = 'a10000000000001AAA';
 const controlProponenteId = 'a10000000000002AAA';
 
@@ -43,6 +44,24 @@ function pacApprovedFixture() {
 }
 
 function pacApprovedInput(rendered = pacApprovedFixture()) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
+function pacContestationFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'pac-update-com-contestacao-pendente-sincroniza-contatos',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_j',
+    eventStartAt: '2026-09-22T00:00:00.000Z',
+  });
+}
+
+function pacContestationInput(rendered = pacContestationFixture()) {
   return {
     runId: rendered.runId,
     scenarioKey: rendered.scenarioKey,
@@ -173,6 +192,26 @@ function pacEventData(rendered = pacFixture()) {
 }
 
 function pacApprovedEventData(rendered = pacApprovedFixture()) {
+  return rendered.steps[0]!.envelope[0]!.data as {
+    id: string;
+    idjornadapac: string;
+    status: string;
+    dataalteracao: string;
+    proponentes: Array<{
+      id: string;
+      idPac: string;
+      idCliente: string;
+      cpf: string;
+      tipoClassificacao: string;
+      dataAlteracao: string;
+      nomeCompleto?: string;
+      email?: string;
+      telefoneCelular?: string;
+    }>;
+  };
+}
+
+function pacContestationEventData(rendered = pacContestationFixture()) {
   return rendered.steps[0]!.envelope[0]!.data as {
     id: string;
     idjornadapac: string;
@@ -388,6 +427,111 @@ describe('Salesforce PAC test data adapter', () => {
     });
   });
 
+  it('creates the synthetic PropostaAnaliseCredito__c and Contestacao__c scaffolding after creating the primary Account and Opportunity', async () => {
+    const rendered = pacContestationFixture();
+    const accountSetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_ACCOUNT',
+    );
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    const propostaSetup = rendered.setup.find(
+      (instruction) =>
+        instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO',
+    );
+    const contestacaoSetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO',
+    );
+    if (
+      accountSetup?.operation !== 'CREATE_SYNTHETIC_ACCOUNT' ||
+      opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY' ||
+      propostaSetup?.operation !== 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO' ||
+      contestacaoSetup?.operation !== 'CREATE_SYNTHETIC_CONTESTACAO'
+    ) {
+      throw new Error('Expected PAC contestation fixture scaffolding');
+    }
+
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000001AAA' }],
+      })
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] });
+    client.composite
+      .mockResolvedValueOnce({
+        compositeResponse: [
+          {
+            body: { id: accountId, success: true, errors: [] },
+            httpStatusCode: 201,
+            referenceId: 'createAccount',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        compositeResponse: [
+          {
+            body: { id: opportunityId, success: true, errors: [] },
+            httpStatusCode: 201,
+            referenceId: 'createOpportunity',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        compositeResponse: [
+          {
+            body: { id: propostaId, success: true, errors: [] },
+            httpStatusCode: 201,
+            referenceId: 'createPropostaAnaliseCredito',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        compositeResponse: [
+          {
+            body: { id: contestacaoId, success: true, errors: [] },
+            httpStatusCode: 201,
+            referenceId: 'createContestacao',
+          },
+        ],
+      });
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).setup(
+        pacContestationInput(rendered),
+      ),
+    ).resolves.toStrictEqual({
+      status: 'CREATED',
+      createdCount: 4,
+      replayedCount: 0,
+      recordIds: [accountId, opportunityId, propostaId, contestacaoId],
+    });
+
+    expect(client.composite.mock.calls[2]?.[0][0]).toMatchObject({
+      method: 'POST',
+      url: '/services/data/v61.0/sobjects/PropostaAnaliseCredito__c',
+      referenceId: 'createPropostaAnaliseCredito',
+      body: {
+        Id__c: propostaSetup.propostaAnaliseCredito.idExterno,
+        Oportunidade__c: opportunityId,
+        Status__c: propostaSetup.propostaAnaliseCredito.status,
+      },
+    });
+    expect(client.composite.mock.calls[3]?.[0][0]).toMatchObject({
+      method: 'POST',
+      url: '/services/data/v61.0/sobjects/Contestacao__c',
+      referenceId: 'createContestacao',
+      body: {
+        Id__c: contestacaoSetup.contestacao.idExterno,
+        PAC__c: propostaId,
+      },
+    });
+  });
+
   it('verifies that the PAC record was created and linked to the synthetic Opportunity', async () => {
     const rendered = pacFixture();
     const event = pacEventData(rendered);
@@ -547,6 +691,112 @@ describe('Salesforce PAC test data adapter', () => {
     );
     expect(client.query.mock.calls[3]?.[0]).toContain(
       'SELECT Id,Id__c,Proponente__c,PropostaAnaliseCredito__c,IdCliente__c,CpfProponente__c,TipoClassificacao__c,EmailAtualizado__c,Celular__c,DataAlteracaoEvento__c,NomeCompleto__c FROM Proponente__c',
+    );
+  });
+
+  it('verifies the PAC contestation scenario by synchronizing Account contacts even when the payload proponente is not Principal', async () => {
+    const rendered = pacContestationFixture();
+    const event = pacContestationEventData(rendered);
+    const proponente = event.proponentes[0]!;
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY') {
+      throw new Error('Expected PAC contestation fixture opportunity scaffolding');
+    }
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: accountId,
+            Id__c: proponente.idCliente,
+            IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+            CPF__pc: proponente.cpf,
+            LastName: 'Cliente Simulado',
+            IsPersonAccount: true,
+            PersonEmail: proponente.email ?? null,
+            PersonMobilePhone: `55${proponente.telefoneCelular}`,
+            Celular__c: proponente.telefoneCelular ?? null,
+            BillingStreet: null,
+            DataAlteracaoEvento__c: event.dataalteracao,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: proponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: proponente.idCliente,
+            CpfProponente__c: proponente.cpf,
+            TipoClassificacao__c: proponente.tipoClassificacao,
+            EmailAtualizado__c: proponente.email ?? null,
+            Celular__c: proponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponente.dataAlteracao,
+            NomeCompleto__c: proponente.nomeCompleto ?? null,
+          },
+        ],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacContestationInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.recordIds).toStrictEqual([
+      accountId,
+      opportunityId,
+      propostaId,
+      proponenteId,
+    ]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
+        {
+          check: 'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+          passed: true,
+          actualCount: 1,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          passed: true,
+        },
+      ]),
     );
   });
 
@@ -737,6 +987,21 @@ describe('Salesforce PAC test data adapter', () => {
             Status__c: event.status,
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
       })
       .mockResolvedValueOnce({
         totalSize: 0,
@@ -1286,6 +1551,11 @@ describe('Salesforce PAC test data adapter', () => {
         ],
       })
       .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
         totalSize: 1,
         done: true,
         records: [
@@ -1373,6 +1643,11 @@ describe('Salesforce PAC test data adapter', () => {
             Status__c: event.status,
           },
         ],
+      },
+      {
+        totalSize: 0,
+        done: true,
+        records: [],
       },
       {
         totalSize: 1,
@@ -1485,6 +1760,11 @@ describe('Salesforce PAC test data adapter', () => {
         ],
       },
       {
+        totalSize: 0,
+        done: true,
+        records: [],
+      },
+      {
         totalSize: 1,
         done: true,
         records: [
@@ -1524,6 +1804,128 @@ describe('Salesforce PAC test data adapter', () => {
       2,
       'Proponente__c',
       controlProponenteId,
+    );
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      3,
+      'PropostaAnaliseCredito__c',
+      propostaId,
+    );
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      4,
+      'Opportunity',
+      opportunityId,
+    );
+  });
+
+  it('deletes the synthetic Contestacao__c before deleting its PAC and Opportunity scaffolding', async () => {
+    const rendered = pacContestationFixture();
+    const event = pacContestationEventData(rendered);
+    const contestacaoSetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO',
+    );
+    if (contestacaoSetup?.operation !== 'CREATE_SYNTHETIC_CONTESTACAO') {
+      throw new Error('Expected PAC contestation cleanup scaffolding');
+    }
+
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: event.proponentes[0]!.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: event.proponentes[0]!.idCliente,
+            CpfProponente__c: event.proponentes[0]!.cpf,
+            TipoClassificacao__c: event.proponentes[0]!.tipoClassificacao,
+            EmailAtualizado__c: event.proponentes[0]!.email ?? null,
+            Celular__c: event.proponentes[0]!.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: event.proponentes[0]!.dataAlteracao,
+            NomeCompleto__c: event.proponentes[0]!.nomeCompleto ?? null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: contestacaoId,
+            Id__c: contestacaoSetup.contestacao.idExterno,
+            PAC__c: propostaId,
+            DataSolucao__c: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: event.idjornadapac,
+            AccountId: accountId,
+            Name: 'Opportunity Sintética PAC',
+            StageName: 'Simulação',
+            CloseDate: '2027-12-31',
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      });
+    client.deleteRecord.mockResolvedValue(undefined);
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        pacContestationInput(rendered),
+        [proponenteId, contestacaoId, propostaId, opportunityId],
+      ),
+    ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 4 });
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      1,
+      'Proponente__c',
+      proponenteId,
+    );
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      2,
+      'Contestacao__c',
+      contestacaoId,
     );
     expect(client.deleteRecord).toHaveBeenNthCalledWith(
       3,
@@ -1693,6 +2095,11 @@ describe('Salesforce PAC test data adapter', () => {
         totalSize: 0,
         done: true,
         records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
       });
     client.deleteRecord.mockResolvedValue(undefined);
 
@@ -1725,6 +2132,11 @@ describe('Salesforce PAC test data adapter', () => {
             Status__c: event.status ?? null,
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
       })
       .mockResolvedValueOnce({
         totalSize: 0,

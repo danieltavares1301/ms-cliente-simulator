@@ -27,7 +27,8 @@ type GeneratedValue =
   | 'OPPORTUNITY_EXTERNAL_ID'
   | 'PAC_EXTERNAL_ID'
   | 'PROPONENTE_EXTERNAL_ID'
-  | 'PROPONENTE_EXTERNAL_ID_X';
+  | 'PROPONENTE_EXTERNAL_ID_X'
+  | 'CONTESTACAO_EXTERNAL_ID';
 
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
@@ -1960,6 +1961,109 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithOpportunity,
+  },
+  {
+    key: 'pac-update-com-contestacao-pendente-sincroniza-contatos',
+    version: 1,
+    name: 'PAC update com contestação pendente sincroniza contatos',
+    description:
+      'Exercita o caminho paralelo em que uma contestação pendente faz o payload sincronizar email e celular da Account mesmo sem Proponente principal.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-7',
+      'pac-update',
+      'contestacao',
+      'sincronizacao-contatos',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC Contestação',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO',
+        propostaAnaliseCredito: {
+          idExterno: generated('PAC_EXTERNAL_ID'),
+          opportunityIdExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          status: 'ANALISE_CREDITO_INICIADA',
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_CONTESTACAO',
+        contestacao: {
+          idExterno: generated('CONTESTACAO_EXTERNAL_ID'),
+          pacIdExterno: generated('PAC_EXTERNAL_ID'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-update-com-contestacao-pendente',
+        target: 'PAC',
+        eventType: 'pac-update',
+        delayMs: 0,
+        payloadTemplate: pacPayload('pac-update', {
+          status: 'ANALISE_CREDITO_INICIADA',
+          proponentes: [
+            {
+              id: generated('PROPONENTE_EXTERNAL_ID'),
+              idPac: generated('PAC_EXTERNAL_ID'),
+              idCliente: generated('CLIENT_ID'),
+              cpf: generated('CPF'),
+              tipoClassificacao: 'Coobrigado',
+              dataAlteracao: generated('EVENT_TIME'),
+              nomeCompleto: generated('PERSON_NAME'),
+              email: generated('PAC_EMAIL'),
+              telefoneCelular: generated('PAC_CELULAR'),
+            },
+          ],
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A contestação pendente deve permitir que um Proponente não principal sincronize email e celular na Account, mantendo a PAC vinculada à Opportunity.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          'PROPONENTE_COUNT_BY_ID_EXTERNO_IS_ONE',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('PAC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('PAC_CELULAR'),
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
   },
   {
     key: 'pac-conflito-proponentes-principais',

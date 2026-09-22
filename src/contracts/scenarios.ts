@@ -41,13 +41,17 @@ const generatedFixtureValueSchema = z.enum([
   'COLLISION_CPF',
   'COLLISION_EMAIL',
   'CLEAN_CELULAR',
+  'CLEAN_CELULAR_X',
   'PAC_EMAIL',
   'PAC_CELULAR',
   'SYNTHETIC_EMAIL',
+  'SYNTHETIC_EMAIL_X',
   'SYNTHETIC_STREET',
   'OPPORTUNITY_EXTERNAL_ID',
   'PAC_EXTERNAL_ID',
   'PROPONENTE_EXTERNAL_ID',
+  'PROPONENTE_EXTERNAL_ID_X',
+  'CONTESTACAO_EXTERNAL_ID',
 ]);
 
 export const scenarioScopeSchema = z.enum(['CORE', 'EXTENDED']);
@@ -604,6 +608,33 @@ const syntheticOpportunityTemplateSchema = z
   })
   .strict();
 
+const syntheticPropostaAnaliseCreditoTemplateSchema = z
+  .object({
+    idExterno: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().trim().min(1).max(50),
+    ]),
+    opportunityIdExterno: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().trim().min(1).max(50),
+    ]),
+    status: generatedOrStaticStringSchema,
+  })
+  .strict();
+
+const syntheticContestacaoTemplateSchema = z
+  .object({
+    idExterno: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().trim().min(1).max(50),
+    ]),
+    pacIdExterno: z.union([
+      generatedFixtureReferenceSchema,
+      z.string().trim().min(1).max(50),
+    ]),
+  })
+  .strict();
+
 const ensureLeadAbsentKeysSchema = z
   .object({
     idExterno: z
@@ -686,6 +717,18 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
     .object({
       operation: z.literal('CREATE_SYNTHETIC_OPPORTUNITY'),
       opportunity: syntheticOpportunityTemplateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO'),
+      propostaAnaliseCredito: syntheticPropostaAnaliseCreditoTemplateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal('CREATE_SYNTHETIC_CONTESTACAO'),
+      contestacao: syntheticContestacaoTemplateSchema,
     })
     .strict(),
   z
@@ -774,6 +817,15 @@ export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
         (instruction) =>
           instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
       ) ?? [];
+    const syntheticPropostaSetups =
+      setup?.filter(
+        (instruction) =>
+          instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO',
+      ) ?? [];
+    const syntheticContestacaoSetups =
+      setup?.filter(
+        (instruction) => instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO',
+      ) ?? [];
     const primaryCount = syntheticAccountSetups.filter(
       (instruction) => instruction.role === 'PRIMARY',
     ).length;
@@ -819,6 +871,20 @@ export const scenarioDefinitionSchema = scenarioDefinitionBaseSchema
       context.addIssue({
         code: 'custom',
         message: 'At most one synthetic Opportunity is allowed',
+        path: ['setup'],
+      });
+    }
+    if (syntheticPropostaSetups.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one synthetic PropostaAnaliseCredito is allowed',
+        path: ['setup'],
+      });
+    }
+    if (syntheticContestacaoSetups.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'At most one synthetic Contestacao is allowed',
         path: ['setup'],
       });
     }

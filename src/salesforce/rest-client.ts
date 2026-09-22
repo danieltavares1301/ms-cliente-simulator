@@ -20,6 +20,7 @@ export type AllowlistedQuery = string & {
 
 export type AllowlistedObjectApiName =
   | 'Account'
+  | 'Contestacao__c'
   | 'Lead'
   | 'Opportunity'
   | 'Proponente__c'
@@ -75,10 +76,33 @@ export type SalesforceOpportunityCompositeRequest = {
   };
 };
 
+export type SalesforcePropostaAnaliseCreditoCompositeRequest = {
+  method: 'POST';
+  url: `/services/data/${typeof SALESFORCE_API_VERSION}/sobjects/PropostaAnaliseCredito__c`;
+  referenceId: 'createPropostaAnaliseCredito';
+  body: {
+    Id__c: string;
+    Oportunidade__c: string;
+    Status__c: string;
+  };
+};
+
+export type SalesforceContestacaoCompositeRequest = {
+  method: 'POST';
+  url: `/services/data/${typeof SALESFORCE_API_VERSION}/sobjects/Contestacao__c`;
+  referenceId: 'createContestacao';
+  body: {
+    Id__c: string;
+    PAC__c: string;
+  };
+};
+
 export type SalesforceCompositeRequest =
   | SalesforceAccountCompositeRequest
+  | SalesforceContestacaoCompositeRequest
   | SalesforceLeadCompositeRequest
-  | SalesforceOpportunityCompositeRequest;
+  | SalesforceOpportunityCompositeRequest
+  | SalesforcePropostaAnaliseCreditoCompositeRequest;
 
 export interface SalesforceRestClient {
   query<T>(soql: AllowlistedQuery): Promise<T>;
@@ -223,6 +247,35 @@ const compositeRequestsSchema = z
               Id__c: z.string().min(1).max(50),
               AccountId: salesforceIdSchema,
               RecordTypeId: salesforceIdSchema.optional(),
+            })
+            .strict(),
+        })
+        .strict(),
+      z
+        .object({
+          method: z.literal('POST'),
+          url: z.literal(
+            '/services/data/v61.0/sobjects/PropostaAnaliseCredito__c',
+          ),
+          referenceId: z.literal('createPropostaAnaliseCredito'),
+          body: z
+            .object({
+              Id__c: z.string().min(1).max(50),
+              Oportunidade__c: salesforceIdSchema,
+              Status__c: z.string().min(1).max(255),
+            })
+            .strict(),
+        })
+        .strict(),
+      z
+        .object({
+          method: z.literal('POST'),
+          url: z.literal('/services/data/v61.0/sobjects/Contestacao__c'),
+          referenceId: z.literal('createContestacao'),
+          body: z
+            .object({
+              Id__c: z.string().min(1).max(50),
+              PAC__c: salesforceIdSchema,
             })
             .strict(),
         })
@@ -406,6 +459,7 @@ export function createSalesforceRestClient(
       if (
         ![
           'Account',
+          'Contestacao__c',
           'Lead',
           'Opportunity',
           'Proponente__c',
