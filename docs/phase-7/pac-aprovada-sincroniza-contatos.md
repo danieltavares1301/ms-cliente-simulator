@@ -141,7 +141,18 @@ Nenhum resíduo foi deixado em `mrv-devDan`. A limpeza final removeu:
 - PropostaAnaliseCredito__c
 - Proponente__c
 
-## Pendente para o incremento 3
+## Desfecho no incremento 3
 
-- Reexecutar O08 (`cpf-divergente-identidade-antiga`) reutilizando a estrutura
-  de `proponentes[]` e o caminho de PAC aprovada validados aqui.
+O reteste pendente de O08 foi concluído na variante
+`cpf-divergente-identidade-antiga-pac-aprovada`. Resultado real:
+
+- Y continuou vazia após o `/Cliente`, confirmando novamente o comportamento
+  isolado do O08 original;
+- depois do `pac-insert` aprovado, Y recebeu `PersonEmail`/`Celular__c`
+  diretamente do Proponente principal;
+- o Lead novo de Y também recebeu os mesmos contatos via reconciliação
+  pós-PAC;
+- X permaneceu com os contatos antigos recebidos pelos `contato-insert`.
+
+Ver `docs/phase-7/o08-retest-pac-aprovada.md` para a evidência completa e a
+resposta definitiva da pergunta em aberto da sessão.

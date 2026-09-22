@@ -627,21 +627,18 @@ apenas na identidade usada no payload (`IDCLI-Y` inexistente em O01 vs
 contra `mrv-devDan` para documentar o comportamento real observado do Apex,
 nao inferido.
 
-**Hipotese confirmada por leitura de codigo sobre a divergencia do O08:** o
-resultado real observado de O08 (X alterada, Y sem contatos) diverge do
-texto do catalogo (X invariante, Y recebe C/D). Investigacao em
-`ClienteService.sincronizarContatosAprovadosPac` (`ClienteService.cls:747`)
-encontrou o mecanismo provavel responsavel pelo comportamento descrito no
-catalogo: quando um `Proponente__c` vinculado a uma PAC atinge o status
-`CREDITO_APROVADO_CONDICIONADO`, os contatos aprovados sao copiados
-**diretamente** para a Account que detem o Proponente Principal (Y no fluxo
-real), via um caminho de dados totalmente diferente dos eventos crus
-`contato-insert` do `/Cliente` (que ficam presos em X, como observado). Isso
-sera revisitado na Tarefa 7.1 (contratos `/PAC`): o cenario
-`cpf-divergente-identidade-antiga` deve ganhar uma variante com PAC aprovada
-para confirmar se, com esse mecanismo em acao, o resultado passa a bater com
-o texto original do catalogo. Ver `docs/phase-6/o08-cpf-divergente-identidade-antiga.md`
-para a analise completa.
+**Hipotese confirmada na Tarefa 7.1 sobre a divergencia do O08:** o resultado
+real observado de O08 isolado (X alterada, Y sem contatos) divergia do texto
+do catalogo (X invariante, Y recebe C/D). A revisita com PAC aprovada em
+`cpf-divergente-identidade-antiga-pac-aprovada` confirmou o mecanismo lido em
+`ClienteService.sincronizarContatosAprovadosPac` (`ClienteService.cls:747`):
+depois que o `/Cliente` deixa Y vazia, o fluxo pós-PAC copia
+**diretamente** os contatos aprovados para Y e também reconcilia o Lead novo
+de Y, preservando X com os contatos antigos. Em outras palavras, o texto do
+catalogo só se concretiza quando o contexto de PAC/reconciliação está
+presente. Ver `docs/phase-6/o08-cpf-divergente-identidade-antiga.md` para a
+análise isolada do `/Cliente` e `docs/phase-7/o08-retest-pac-aprovada.md`
+para a resposta definitiva do reteste com PAC.
 
 ## 12. Modelo de dados
 
@@ -1832,7 +1829,11 @@ adicionais, mas concluido no mesmo incremento).
 
 #### Tarefa 7.1: Adicionar contratos `/PAC`
 
-**Criterios de aceite:**
+**Status:** concluída em três incrementos (`pac-insert-minimo`,
+`pac-aprovada-sincroniza-contatos`,
+`cpf-divergente-identidade-antiga-pac-aprovada`).
+
+**Critérios de aceite (escopo final rebaselined após execução real):**
 
 - [x] **Incremento 1 concluido:** fixture `pac-insert-minimo` validada por
   contrato/determinismo/ausencia de segredos; `target: 'PAC'` suportado no
@@ -1844,15 +1845,14 @@ adicionais, mas concluido no mesmo incremento).
   validada por contrato + adapter + execucao real; Account sincroniza
   `PersonEmail`/`Celular__c` a partir do Proponente principal; cleanup real
   remove `Proponente__c -> PropostaAnaliseCredito__c -> Opportunity -> Account`.
-- [ ] Ordem relativa a cliente e configuravel.
 - [x] Proponente principal pode ser verificado nos fluxos PAC alem das assertions ja cobertas pelo MVP.
-- [ ] Retestar `cpf-divergente-identidade-antiga` (O08) com uma PAC aprovada
+- [x] **Incremento 3 concluido:** `cpf-divergente-identidade-antiga` (O08)
+  foi retestado com uma PAC aprovada
   (`Proponente__c` com status `CREDITO_APROVADO_CONDICIONADO` vinculado a Y):
-  confirmar se `ClienteService.sincronizarContatosAprovadosPac`
-  (`ClienteService.cls:747`) projeta os contatos aprovados diretamente em Y
-  (independente do que os `contato-insert` crus escreveram em X), fazendo o
-  resultado bater com o texto original do catalogo O08 ("X invariante, Y
-  recebe C/D"). Ver `docs/phase-6/o08-cpf-divergente-identidade-antiga.md`.
+  `ClienteService.sincronizarContatosAprovadosPac`
+  (`ClienteService.cls:747`) realmente projeta os contatos aprovados
+  diretamente em Y, preserva X com os contatos antigos e reconcilia também o
+  Lead novo de Y. Ver `docs/phase-7/o08-retest-pac-aprovada.md`.
 
 **Dependencias:** MVP.
 
@@ -1872,14 +1872,12 @@ adicionais, mas concluido no mesmo incremento).
 - Cleanup real executado ao final do diagnostico (Account + Opportunity +
   PropostaAnaliseCredito__c removidas via fluxo allowlisted).
 
-**Ainda falta nesta tarefa 7.1:**
+**Follow-up fora da Tarefa 7.1:**
 
-- ordem relativa entre eventos de `/Cliente` e `/PAC`;
-- reteste de O08 (`cpf-divergente-identidade-antiga`) com PAC aprovada,
-  reaproveitando a fixture com `proponentes[]`;
-- revisita da Regra 6.6 / O08 com PAC aprovada e contatos aprovados;
-- eventuais asserts adicionais alem da verificacao forte ja restaurada
-  para o Proponente principal.
+- ordem relativa entre eventos de `/Cliente` e `/PAC`, se voltar a ser
+  priorizada como capacidade configurável independente;
+- novos asserts opcionais sobre reparenting de Opportunity, agora observados
+  como efeito colateral do fluxo real pós-PAC.
 
 **Progresso real (incremento 2, PAC aprovada + sincronizacao de contatos):**
 
@@ -1894,6 +1892,29 @@ adicionais, mas concluido no mesmo incremento).
   limitacao real de schema/metadado: a causa raiz era FLS ausente no Permission
   Set `AcessoDeAPI`, corrigida diretamente pelo usuario em `mrv-devDan` fora
   deste repositorio.
+
+**Progresso real (incremento 3, reteste O08 com PAC aprovada):**
+
+- O cenário novo `cpf-divergente-identidade-antiga-pac-aprovada` confirmou,
+  contra `mrv-devDan`, exatamente a pergunta em aberto desta sessão:
+  **sim, o contexto de PAC/reconciliação futura existe e consegue popular Y
+  mesmo depois que o `/Cliente` a deixou vazia**.
+- Antes do `pac-insert`, Y e o Lead novo de Y estavam sem
+  email/celular; X carregava os contatos antigos recebidos pelos dois
+  `contato-insert`.
+- Depois do `pac-insert` aprovado, Y passou a ter
+  `PersonEmail=pac.<token>@simulador.mrv.invalid` e
+  `Celular__c=119<token>`, enquanto o Lead novo de Y recebeu os mesmos valores
+  via reconciliação pós-PAC.
+- A leitura de `ClienteService.getClientePosPac` +
+  `deveDescartarMatchPosPac` mostrou por que o payload desta variante funciona:
+  o pós-PAC prioriza `idCliente` -> `cpf` antes de qualquer fallback por
+  `idProponente`; como o payload do Proponente principal aponta diretamente
+  para Y, o descarte defensivo por `ID_PROSPECT` não é acionado.
+- Evidência adicional observada ao vivo: a `Opportunity` sintética criada no
+  setup deixou de apontar para X e passou a referenciar Y depois do fluxo PAC.
+- Cleanup real removeu `Proponente__c`, `PropostaAnaliseCredito__c`,
+  `Opportunity`, `Lead`, `Account X` e `Account Y` sem deixar resíduos.
 - Depois do ajuste de FLS, a query completa de `Proponente__c`
   (`IdCliente__c`, `CpfProponente__c`, `TipoClassificacao__c`,
   `EmailAtualizado__c`, `Celular__c`, `DataAlteracaoEvento__c` e
