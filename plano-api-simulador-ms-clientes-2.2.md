@@ -2347,7 +2347,7 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   reentrega real, obsolescencia e `Estado` nao reconhecido agora estao
   cobertos no simulador.
 
-### Checkpoint 7.2 parcial (7 de N incrementos)
+### Checkpoint 7.2 (final)
 
 **Estado tecnico final:** 727/727 testes, build limpo (`npm run build`
 valida todas as fixtures), 10 cenarios `/MaquinaEstado` publicados no
@@ -2435,24 +2435,57 @@ silencioso por obsolescencia.
   ultimo estado correto conhecido (commit `661ad41`) apos auditoria de
   documentacao pedida pelo usuario (commit `e08a2a7`). Nenhuma outra
   duplicacao equivalente foi encontrada no restante do documento.
+- A amostra real de **250 eventos** de `jornadausuario-update` revelou
+  `IdCorretor` preenchido em **100% dos casos** - porem nenhum incremento
+  desta tarefa envia esse campo (decisao deliberada desde o incremento 1,
+  para evitar a logica de `atribuirProprietariosOportunidade`, que exige
+  dados reais de `Equipe__c`/`EspecialistaEquipe__c` e reatribui
+  `OwnerId`/`Equipe__c`/`Gerente__c`/`Imobiliaria__c` da Opportunity -
+  mais sensivel que Product2/Pricebook ja usados). Documentado e
+  deliberadamente deferido para investigacao futura dedicada.
+- O incremento 7 (`troca_unidade`, ≈2,4% da amostra real) exigiu um
+  diagnostico extenso: a validacao ao vivo inicial retornou HTTP 500/
+  NullPointerException em ambos os cenarios. A causa raiz real, confirmada
+  por Debug Log real (`ApexLog`/Tooling API, `APEX_CODE=FINEST`), **nao
+  era um bug do simulador nem do branch `troca_unidade`** - era um
+  artefato de um harness de diagnostico manual ad-hoc (JSON malformado:
+  objeto em vez de array Event Grid, depois BOM UTF-8). Com o payload
+  correto, ambos os cenarios funcionaram exatamente como esperado
+  (200/200/200 com troca real de `Unidade__c`/`OpportunityLineItem`;
+  400 real com `Oportunidade não encontrada para troca de unidade`).
+  **O diagnostico confirmou, no entanto, um bug real e genuino no Apex**:
+  `NotificacaoMaquinaEstado.realizaPost` (linha 218) mascara a excecao
+  original com um `NullPointerException` generico sempre que
+  `NotificacaoHelper` falha ao fazer parse do JSON de entrada - um
+  problema real de robustez/observabilidade no codigo de producao,
+  documentado com stack trace real completo em
+  `docs/phase-7/maquina-estado-troca-unidade.md`, mas fora do escopo de
+  correcao deste projeto (codigo Salesforce, nao do simulador).
 
-**Fora de escopo / deferido nesta consolidacao parcial:**
+**Fora de escopo / deferido nesta consolidacao:**
 
 - Reproducao deterministica da contencao de lock real (43% dos erros de
   `update`, mesmo com o retry de 5 tentativas da versao de `mrv-staging`) -
   exigiria dispatch verdadeiramente concorrente para a mesma Opportunity,
   incompativel com o guard `OUT_OF_ORDER` do orquestrador sequencial (mesma
   limitacao ja documentada para o O10 na Fase 6).
-- `ID_CORRETOR`/`atribuirProprietariosOportunidade`, `codigocupom`/
-  `associaJornadaNoCupomDeDesconto`, `troca_unidade`/`TrocarUnidade`, e a
-  maior parte dos ~30 campos adicionais do payload real de
-  `jornadausuario-*` (ver `docs/staging-logs-analysis.md`) - nunca
+- `ID_CORRETOR`/`atribuirProprietariosOportunidade` (100% de frequencia
+  real, ver achado acima) e `codigocupom`/`associaJornadaNoCupomDeDesconto`
+  (0% na amostra), e a maior parte dos ~30 campos adicionais do payload
+  real de `jornadausuario-*` (ver `docs/staging-logs-analysis.md`) - nunca
   exercitados por nenhum cenario desta tarefa.
+- O bug real de mascaramento de excecao em
+  `NotificacaoMaquinaEstado.realizaPost` (linha 218) - fora do escopo de
+  correcao deste projeto (codigo Salesforce), documentado para
+  conhecimento da equipe responsavel pelo repositorio `com_salesforce_mrv`.
 
-**Conclusao:** os criterios tecnicos da Tarefa 7.2 passaram a estar cobertos
-no simulador, mas o fechamento formal permanece dependente de revisao externa.
-Este checkpoint documenta um estado limpo, validado ao vivo contra
-`mrv-devDan`, antes da transicao para a Tarefa 7.3.
+**Conclusao:** a Tarefa 7.2 esta **concluida**. Os 3 criterios de aceite
+originais (eventos atuais e obsoletos, casos com/sem Id Cliente, reentrega)
+foram cobertos e validados ao vivo contra `mrv-devDan` em 10 cenarios
+publicados, com 7 achados reais documentados (incluindo 3 casos de drift de
+versao entre `mrv-staging`/`mrv-devDan`/repositorio, 1 bug real de robustez
+no Apex, e 1 correcao de robustez no proprio orquestrador do simulador).
+Pronto para a transicao para a Tarefa 7.3.
 
 **Criterios de aceite:**
 
