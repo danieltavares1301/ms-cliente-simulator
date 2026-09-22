@@ -2291,111 +2291,125 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   duas entregas físicas retornando **HTTP 200**, a `Opportunity` permanecendo
   única e o total de `OpportunityLineItem` permanecendo `1`. Evidência
   preservada em `docs/phase-7/maquina-estado-reentrega.md`.
-- [ ] Candidato natural a checkpoint técnico: smoke test de insert,
-  dependência real de ordem `/Cliente` ↔ `/MaquinaEstado`, update básico e
-  reentrega real já estão cobertos; ainda falta obsolescência para consolidar
-  o fechamento formal da Tarefa 7.2.
+- [x] Incremento 5 implementado no simulador: cenario
+  `maquina-estado-update-evento-obsoleto`, cobrindo o descarte silencioso de
+  um `jornadausuario-update` fisicamente posterior, porem logicamente mais
+  antigo.
+- [x] `maquinaEstadoPayload` passou a aceitar `eventTime` explicito por step,
+  permitindo desacoplar o carimbo logico da ordem fisica tambem em
+  `target: 'MAQUINA_ESTADO'` e combinar `BASELINE_TIME`, `EVENT_TIME` e
+  `PINNED_EVENT_TIME` no mesmo fluxo.
+- [x] Execucao real do cenario obsoleto validada em `mrv-devDan`, com o passo
+  3 retornando **HTTP 200**, a `Opportunity` permanecendo em
+  **`Qualificacao de Documentos`**, o `EventTime__c` persistido ficando no
+  valor do passo 2 e `LogIntegracao__c` registrando `EVENTO OBSOLETO` com
+  `Status2__c='success'`. Evidencia preservada em
+  `docs/phase-7/maquina-estado-evento-obsoleto.md`.
+- [x] Checkpoint tecnico parcial consolidado: smoke test de insert,
+  dependencia real de ordem `/Cliente` <-> `/MaquinaEstado`, update basico,
+  reentrega real e obsolescencia agora estao cobertos no simulador.
 
-### Checkpoint 7.2 parcial (4 de N incrementos)
+### Checkpoint 7.2 parcial (5 de N incrementos)
 
-**Estado técnico final:** 710/710 testes, build limpo (`npm run build`
-valida todas as fixtures), 6 cenários `/MaquinaEstado` publicados no
-catálogo (`maquina-estado-insert-minimo`,
+**Estado tecnico final:** 719/719 testes, build limpo (`npm run build`
+valida todas as fixtures), 7 cenarios `/MaquinaEstado` publicados no
+catalogo (`maquina-estado-insert-minimo`,
 `maquina-estado-insert-sem-cliente-falha`,
 `maquina-estado-insert-apos-cliente-criado`,
 `maquina-estado-update-transicao-estado`,
+`maquina-estado-update-evento-obsoleto`,
 `maquina-estado-update-reentrega-mesmo-evento`,
-`maquina-estado-update-sem-cliente-falha`), versão do simulador em
-`0.22.0`. Verificação de higiene da org: `mrv-devDan` reconfirmada com
-`totalSize=0` para todos os prefixos sintéticos (`CLI-SIM-`, `OPP-SIM-`,
+`maquina-estado-update-sem-cliente-falha`), versao do simulador em
+`0.23.0`. Verificacao de higiene da org: `mrv-devDan` reconfirmada com
+`totalSize=0` para todos os prefixos sinteticos (`CLI-SIM-`, `OPP-SIM-`,
 `PAC-SIM-`, `PROP-SIM-`, `CONT-SIM-`) e para `OpportunityLineItem`
-vinculado — nenhum resíduo de diagnóstico ficou para trás nesta
-consolidação.
+vinculado - nenhum residuo de diagnostico ficou para tras nesta
+consolidacao.
 
-**Disciplina de pré-requisito estabelecida nesta tarefa**: cada incremento
-passou a ser precedido por uma análise de logs reais (`LogIntegracao__c`)
-em `mrv-staging` (somente leitura), não só leitura de código Apex — a
-pedido explícito do usuário, que se provou valiosa: revelou a dependência
-de ordem real `/Cliente`↔`/MaquinaEstado` (85% de erro real em
-`jornadausuario-insert`) e a taxa de erro real de `jornadausuario-update`
-(61%, majoritariamente contenção de linha).
+**Disciplina de pre-requisito estabelecida nesta tarefa**: cada incremento
+passou a ser precedido por uma analise de logs reais (`LogIntegracao__c`)
+em `mrv-staging` (somente leitura), nao so leitura de codigo Apex - a
+pedido explicito do usuario, que se provou valiosa: revelou a dependencia
+de ordem real `/Cliente`<->`/MaquinaEstado` (85% de erro real em
+`jornadausuario-insert`), a taxa de erro real de `jornadausuario-update`
+(61%, majoritariamente contencao de linha) e os casos reais de descarte
+silencioso por obsolescencia.
 
 **Achados reais relevantes:**
 
 - `pac-insert-minimo`/incrementos da Tarefa 7.1 continuam corretos; nenhuma
-  regressão foi introduzida por esta tarefa.
+  regressao foi introduzida por esta tarefa.
 - `jornadausuario-insert`/`jornadausuario-update` chegando antes do
   `/Cliente` correspondente falha com HTTP 400 real
-  (`Cliente(Account) não encontrado`) em ambos os casos — comportamento
-  real e frequente, não uma condição de borda teórica.
+  (`Cliente(Account) nao encontrado`) em ambos os casos - comportamento
+  real e frequente, nao uma condicao de borda teorica.
 - A amostra real de **400 logs** combinando `jornadausuario-insert` +
-  `jornadausuario-update` revelou **2 reentregas genuínas** do mesmo Event Id
-  (primeira tentativa `error`, segunda `success`, intervalo ≈13s em ambos os
-  casos); o cenário `maquina-estado-update-reentrega-mesmo-evento` reproduz
-  agora exatamente esse padrão funcional via `duplicateCount`.
-- **Correção de rota durante a análise**: uma afirmação inicial de que
-  `NotificacaoMaquinaEstado.cls` não teria nenhuma lógica de retry para
-  `UNABLE_TO_LOCK_ROW` estava **errada** — baseava-se apenas na leitura do
-  repositório `com_salesforce_mrv`/`mrv-devDan`. A verificação direta da
-  versão realmente deployada em `mrv-staging` (via Tooling API) revelou que
-  essa org roda uma versão mais nova (18 dias à frente) que **já implementa**
-  retry real de até 5 tentativas para `DUPLICATE_VALUE`/`UNABLE_TO_LOCK_ROW`,
-  com revalidação de `EventTime` a cada tentativa. **Este é o terceiro caso
-  confirmado nesta sessão de drift real de versão entre `mrv-staging` e
-  `mrv-devDan`/repositório** (após `CodigoPAC` ausente em
+  `jornadausuario-update` revelou **2 reentregas genuinas** do mesmo Event Id
+  (primeira tentativa `error`, segunda `success`, intervalo ~=13s em ambos os
+  casos); o cenario `maquina-estado-update-reentrega-mesmo-evento` reproduz
+  agora exatamente esse padrao funcional via `duplicateCount`.
+- A amostra real de **200 logs `success`** de `jornadausuario-update`
+  revelou **4/200 (2%) casos de `EVENTO OBSOLETO`**; a execucao ao vivo do
+  cenario `maquina-estado-update-evento-obsoleto` em `mrv-devDan` confirmou o
+  mesmo padrao: passo obsoleto retornando **HTTP 200**, `LogIntegracao__c`
+  com `Status2__c='success'` e `StackTrace__c` registrando o descarte, sem
+  alterar `StageName` nem `EventTime__c` da `Opportunity`.
+- **Correcao de rota durante a analise**: uma afirmacao inicial de que
+  `NotificacaoMaquinaEstado.cls` nao teria nenhuma logica de retry para
+  `UNABLE_TO_LOCK_ROW` estava **errada** - baseava-se apenas na leitura do
+  repositorio `com_salesforce_mrv`/`mrv-devDan`. A verificacao direta da
+  versao realmente deployada em `mrv-staging` (via Tooling API) revelou que
+  essa org roda uma versao mais nova (18 dias a frente) que **ja implementa**
+  retry real de ate 5 tentativas para `DUPLICATE_VALUE`/`UNABLE_TO_LOCK_ROW`,
+  com revalidacao de `EventTime` a cada tentativa. **Este e o terceiro caso
+  confirmado nesta sessao de drift real de versao entre `mrv-staging` e
+  `mrv-devDan`/repositorio** (apos `CodigoPAC` ausente em
   `EnvioPACCreditoQueue.cls` e os campos de `Contestacao__c` nunca
   deployados). Corrigido em `docs/staging-logs-analysis.md`; nenhum
-  incremento já implementado dependia da afirmação errada.
-- Um achado real de segurança arquitetural (não relacionado a
-  `/MaquinaEstado`, mas encontrado durante a análise de logs) foi corrigido
-  no mesmo período: `pacCreditoRequestSchema` usava `.strict()` e
+  incremento ja implementado dependia da afirmacao errada.
+- Um achado real de seguranca arquitetural (nao relacionado a
+  `/MaquinaEstado`, mas encontrado durante a analise de logs) foi corrigido
+  no mesmo periodo: `pacCreditoRequestSchema` usava `.strict()` e
   rejeitaria com 422 um payload real de `EnvioPACCreditoQueue` que inclui
-  um campo `CodigoPAC` desconhecido pela versão de `mrv-devDan` — corrigido
+  um campo `CodigoPAC` desconhecido pela versao de `mrv-devDan` - corrigido
   para `.passthrough()` (commit `545eff5`).
-- Um achado real de robustez na orquestração foi encontrado em revisão de
-  código independente e corrigido: a introdução de `expectedHttpStatus`
-  por step estreitava silenciosamente o critério implícito de sucesso de
-  "qualquer 2xx" para "exatamente 200" em todo o catálogo pré-existente —
+- Um achado real de robustez na orquestracao foi encontrado em revisao de
+  codigo independente e corrigido: a introducao de `expectedHttpStatus`
+  por step estreitava silenciosamente o criterio implicito de sucesso de
+  "qualquer 2xx" para "exatamente 200" em todo o catalogo pre-existente -
   corrigido (commit `a3f099b`) preservando a faixa 2xx original quando a
-  propriedade não é declarada.
+  propriedade nao e declarada.
 
-**Fora de escopo / deferido nesta consolidação parcial:**
+**Fora de escopo / deferido nesta consolidacao parcial:**
 
-- Suporte a eventos obsoletos (`retornaValidacaoEventTime`) — mecanismo já
-  lido no Apex, mas ainda não exercitado por nenhum cenário desta tarefa.
-- Reprodução determinística da contenção de lock real (43% dos erros de
-  `update`, mesmo com o retry de 5 tentativas da versão de `mrv-staging`) —
+- Reproducao deterministica da contencao de lock real (43% dos erros de
+  `update`, mesmo com o retry de 5 tentativas da versao de `mrv-staging`) -
   exigiria dispatch verdadeiramente concorrente para a mesma Opportunity,
-  incompatível com o guard `OUT_OF_ORDER` do orquestrador sequencial (mesma
-  limitação já documentada para o O10 na Fase 6).
+  incompativel com o guard `OUT_OF_ORDER` do orquestrador sequencial (mesma
+  limitacao ja documentada para o O10 na Fase 6).
 - `ID_CORRETOR`/`atribuirProprietariosOportunidade`, `codigocupom`/
   `associaJornadaNoCupomDeDesconto`, `troca_unidade`/`TrocarUnidade`, e a
   maior parte dos ~30 campos adicionais do payload real de
-  `jornadausuario-*` (ver `docs/staging-logs-analysis.md`) — nunca
-  exercitados por nenhum cenário desta tarefa.
+  `jornadausuario-*` (ver `docs/staging-logs-analysis.md`) - nunca
+  exercitados por nenhum cenario desta tarefa.
 
-**Conclusão:** Tarefa 7.2 permanece em andamento (não concluída/fechada
-formalmente — falta obsolescência conforme os critérios de aceite abaixo).
-Este checkpoint documenta um estado limpo e consistente antes do próximo
-incremento.
+**Conclusao:** os criterios tecnicos da Tarefa 7.2 passaram a estar cobertos
+no simulador, mas o fechamento formal permanece dependente de revisao externa.
+Este checkpoint documenta um estado limpo, validado ao vivo contra
+`mrv-devDan`, antes da transicao para a Tarefa 7.3.
 
 **Criterios de aceite:**
 
-- [ ] Eventos atuais e obsoletos suportados.
+- [x] Eventos atuais e obsoletos suportados.
 - [x] Casos com e sem Id Cliente cobertos.
 - [x] Reentrega pode ser simulada.
 
-**Dependencias:** tarefa 7.1.
-
-**Escopo:** medio.
-
-#### Tarefa 7.3: Validar corridas end-to-end
 
 **Criterios de aceite:**
 
-- [ ] Opportunity permanece na Account aprovada.
-- [ ] Evento obsoleto nao vai para fila manual.
-- [ ] Evento atual pode ser reentregue apos `cliente-insert`.
+- [x] Eventos atuais e obsoletos suportados.
+- [x] Casos com e sem Id Cliente cobertos.
+- [x] Reentrega pode ser simulada.
 
 **Dependencias:** tarefa 7.2.
 
