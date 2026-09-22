@@ -2048,6 +2048,77 @@ export const basicScenarioDefinitions = [
     cleanup: cleanupWithOpportunity,
   },
   {
+    key: 'maquina-estado-update-reentrega-mesmo-evento',
+    version: 1,
+    name: 'MaquinaEstado update com reentrega do mesmo evento',
+    description:
+      'Cria a Opportunity via jornadausuario-insert e depois reenfileira o mesmo envelope de jornadausuario-update para confirmar que o upsert por Id__c converge sem duplicar Opportunity nem OpportunityLineItem.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'maquina-estado', 'update', 'reentrega'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-inicial',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert'),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-update-documentacao-reentrega',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-update',
+        delayMs: 3_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-update', {
+          estado: 'Documentacao',
+        }),
+        deliveryPolicy: {
+          duplicateCount: 1,
+          retryOn: [],
+          maxAttempts: 1,
+        },
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'A reentrega física do mesmo jornadausuario-update deve reexecutar o upsert idempotente sobre a mesma Opportunity externa, mantendo apenas um OpportunityLineItem e a fase final em Qualificação de Documentos.',
+        checks: [
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Qualificação de Documentos',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
     key: 'maquina-estado-update-sem-cliente-falha',
     version: 1,
     name: 'MaquinaEstado update sem cliente falha',

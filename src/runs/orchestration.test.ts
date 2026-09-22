@@ -645,6 +645,93 @@ describe('run orchestration service', () => {
     }
   });
 
+  it('expands the maquina-estado reentrega scenario into three physical dispatches', async () => {
+    vi.resetModules();
+
+    try {
+      const { createRunOrchestrationService: createMockedService } =
+        await import('./orchestration');
+      const repository = new MemoryRunRepository();
+      const scheduler = { schedule: vi.fn(), cancelPending: vi.fn() };
+      const service = createMockedService({
+        repository,
+        scheduler,
+        idempotencyPepper: 'p'.repeat(32),
+        requestedBy: 'simulator-admin-api',
+        now: () => now,
+        generateRunId: () => runId,
+      });
+
+      const result = await service.createRun({
+        idempotencyKey: '323e4567-e89b-12d3-a456-426614174000',
+        request: {
+          scenarioKey: 'maquina-estado-update-reentrega-mesmo-evento',
+          scenarioVersion: 1,
+          variables: {
+            seed: 'TC001-A',
+            eventStartAt: '2026-08-21T10:00:00Z',
+          },
+          execution: { dryRun: true, speed: 1, stopOnFailure: true },
+        },
+      });
+
+      expect(result.preview?.steps).toStrictEqual([
+        {
+          key: 'maquina-estado-insert-inicial',
+          target: 'MAQUINA_ESTADO',
+          eventType: 'jornadausuario-insert',
+          scheduledAt: '2026-08-21T10:00:00.000Z',
+        },
+        {
+          key: 'maquina-estado-update-documentacao-reentrega',
+          target: 'MAQUINA_ESTADO',
+          eventType: 'jornadausuario-update',
+          scheduledAt: '2026-08-21T10:00:03.000Z',
+        },
+        {
+          key: 'maquina-estado-update-documentacao-reentrega-redelivery-1',
+          target: 'MAQUINA_ESTADO',
+          eventType: 'jornadausuario-update',
+          scheduledAt: '2026-08-21T10:00:03.500Z',
+        },
+      ]);
+
+      const dispatchSteps =
+        repository.steps
+          .get(runId)
+          ?.filter(({ stepKind }) => stepKind === 'DISPATCH') ?? [];
+
+      expect(dispatchSteps).toHaveLength(3);
+      expect(
+        dispatchSteps.map(({ stepKey, scheduledAt }) => ({
+          stepKey,
+          scheduledAt: scheduledAt?.toISOString(),
+        })),
+      ).toStrictEqual([
+        {
+          stepKey: 'maquina-estado-insert-inicial',
+          scheduledAt: '2026-08-21T10:00:00.000Z',
+        },
+        {
+          stepKey: 'maquina-estado-update-documentacao-reentrega',
+          scheduledAt: '2026-08-21T10:00:03.000Z',
+        },
+        {
+          stepKey: 'maquina-estado-update-documentacao-reentrega-redelivery-1',
+          scheduledAt: '2026-08-21T10:00:03.500Z',
+        },
+      ]);
+      expect(dispatchSteps[2]?.requestRedacted).toStrictEqual(
+        dispatchSteps[1]?.requestRedacted,
+      );
+      expect(dispatchSteps[2]?.eventEnvelope).toStrictEqual(
+        dispatchSteps[1]?.eventEnvelope,
+      );
+    } finally {
+      vi.resetModules();
+    }
+  });
+
   it('replays the original run and conflicts when the normalized body changes', async () => {
     const repository = new MemoryRunRepository();
     const service = createService(repository);
