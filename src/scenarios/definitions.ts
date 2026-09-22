@@ -21,7 +21,8 @@ type GeneratedValue =
   | 'SYNTHETIC_EMAIL'
   | 'SYNTHETIC_STREET'
   | 'OPPORTUNITY_EXTERNAL_ID'
-  | 'PAC_EXTERNAL_ID';
+  | 'PAC_EXTERNAL_ID'
+  | 'PROPONENTE_EXTERNAL_ID';
 
 const generated = <T extends GeneratedValue>(value: T) =>
   ({ source: 'GENERATED', value }) as const;
@@ -204,6 +205,41 @@ function pacPayload(eventType: 'pac-insert' | 'pac-update') {
   } as const;
 }
 
+function approvedPacWithPrincipalProponentePayload() {
+  return {
+    kind: 'DECLARATIVE',
+    contract: 'EVENT_GRID',
+    value: {
+      id: generated('EVENT_ID'),
+      subject: 'MS_Clientes',
+      eventType: 'pac-insert',
+      eventTime: generated('EVENT_TIME'),
+      dataVersion: '1.0',
+      metadataVersion: '1',
+      topic: '/simulator/ms-clientes',
+      data: {
+        id: generated('PAC_EXTERNAL_ID'),
+        idjornadapac: generated('OPPORTUNITY_EXTERNAL_ID'),
+        status: 'CREDITO_APROVADO_CONDICIONADO',
+        dataalteracao: generated('EVENT_TIME'),
+        proponentes: [
+          {
+            id: generated('PROPONENTE_EXTERNAL_ID'),
+            idPac: generated('PAC_EXTERNAL_ID'),
+            idCliente: generated('CLIENT_ID'),
+            cpf: generated('CPF'),
+            tipoClassificacao: 'Principal',
+            dataAlteracao: generated('EVENT_TIME'),
+            nomeCompleto: generated('PERSON_NAME'),
+            email: generated('SYNTHETIC_EMAIL'),
+            telefoneCelular: generated('CLEAN_CELULAR'),
+          },
+        ],
+      },
+    },
+  } as const;
+}
+
 const cleanup: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
 ];
@@ -214,6 +250,12 @@ const cleanupWithLead: ScenarioDefinition['cleanup'] = [
 ];
 
 const cleanupWithOpportunity: ScenarioDefinition['cleanup'] = [
+  { operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' },
+  { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
+];
+
+const cleanupWithProponenteAndOpportunity: ScenarioDefinition['cleanup'] = [
+  { operation: 'DELETE_OWNED_RECORDS', target: 'PROPONENTE' },
   { operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' },
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
 ];
@@ -1539,6 +1581,73 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy,
     cleanup,
+  },
+  {
+    key: 'pac-aprovada-sincroniza-contatos',
+    version: 1,
+    name: 'PAC aprovada sincroniza contatos',
+    description:
+      'Valida o fluxo real em que a PAC aprovada sincroniza email e celular da Account a partir do Proponente principal.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'pac-aprovada', 'sincronizacao-contatos'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-aprovada',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload(),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC aprovada deve criar o Proponente principal, vinculá-lo à PAC e sincronizar email/celular aprovados na Account.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
   },
   {
     key: 'pac-insert-minimo',

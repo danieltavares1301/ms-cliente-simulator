@@ -95,6 +95,43 @@ const enderecoDataSchema = forbidDataId(
     .strict(),
 );
 
+const pacProponenteDataSchema = z
+  .object({
+    comprova36MesesApurado: z.boolean().optional(),
+    cpfConjuge: optionalText,
+    cpf: z.string().min(1),
+    declaraImpostoRendaDesc: optionalText,
+    declaraImpostoRenda: optionalText,
+    email: optionalText,
+    estadoCivilChklistDesc: optionalText,
+    scoreSerasa: z.number().int().optional(),
+    estadoCivil: optionalText,
+    fatorSocial: optionalText,
+    fatorSocialDesc: optionalText,
+    fonteRenda: optionalText,
+    fonteRendaDesc: optionalText,
+    grauInstrucao: optionalText,
+    id: z.string().min(1),
+    idPac: z.string().min(1),
+    idCliente: z.string().min(1),
+    idProponente: optionalText,
+    nomeCompleto: optionalText,
+    nomeConjuge: optionalText,
+    possui3AnosCarteiraDesc: optionalText,
+    possui3AnosCarteira: optionalText,
+    possuiImovelNaMesmaCidadeDoEmpreendimento: z.boolean().optional(),
+    possuiSubsidioGoverno: optionalText,
+    possuiSubsidioGovernoDesc: optionalText,
+    telefoneCelular: optionalText,
+    tipoNotificacao: optionalText,
+    valorFGTSApurado: z.number().finite().optional(),
+    tipoClassificacao: z.string().min(1),
+    rendaTotal: z.number().finite().optional(),
+    dataNascimento: z.iso.date().optional(),
+    dataAlteracao: apexCompatibleUtcDateTimeSchema,
+  })
+  .strict();
+
 const pacDataSchema = z
   .object({
     id: z.string().min(1),
@@ -103,6 +140,7 @@ const pacDataSchema = z
     datavalidade: z.iso.date().optional(),
     dataaprovacao: apexCompatibleUtcDateTimeSchema.optional(),
     dataalteracao: apexCompatibleUtcDateTimeSchema.optional(),
+    proponentes: z.array(pacProponenteDataSchema).max(100).optional(),
   })
   .strict();
 

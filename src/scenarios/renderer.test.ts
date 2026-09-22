@@ -26,6 +26,7 @@ const scenarioKeys = [
   'ordem-mesmo-eventtime-cliente-primeiro',
   'ordem-mesmo-eventtime-contato-primeiro',
   'ordem-mesmo-eventtime-endereco-primeiro',
+  'pac-aprovada-sincroniza-contatos',
   'pac-insert-minimo',
 ] as const;
 
@@ -47,6 +48,7 @@ const expectedStepCountByScenario = {
   'ordem-mesmo-eventtime-cliente-primeiro': 4,
   'ordem-mesmo-eventtime-contato-primeiro': 4,
   'ordem-mesmo-eventtime-endereco-primeiro': 4,
+  'pac-aprovada-sincroniza-contatos': 1,
   'pac-insert-minimo': 1,
 } as const;
 
@@ -383,12 +385,43 @@ describe('basic scenario fixture definitions', () => {
     },
   );
   expect(
+    scenarioCatalog.get('pac-aprovada-sincroniza-contatos', 1)?.steps[0],
+  ).toMatchObject({
+    target: 'PAC',
+    eventType: 'pac-insert',
+  });
+  expect(
+    scenarioCatalog.get('pac-aprovada-sincroniza-contatos', 1)
+      ?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+      {
+        check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+      },
+      {
+        check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+      },
+      'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+    ]),
+  });
+  expect(
     scenarioCatalog.get('pac-insert-minimo', 1)?.expectedOutcomes[0],
   ).toMatchObject({
     result: 'PAC_CREATED_AND_LINKED',
     checks: ['PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY'],
   });
   expect(scenarioCatalog.get('pac-insert-minimo', 1)?.asyncPolicy).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
+    scenarioCatalog.get('pac-aprovada-sincroniza-contatos', 1)?.asyncPolicy,
+  ).toStrictEqual({
     expectedCallbacks: { min: 1, max: 1 },
     waitTimeoutMs: 30_000,
     missingCallbackResult: 'PARTIAL',

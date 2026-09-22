@@ -171,7 +171,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(18);
+    expect(scenarioCatalog.listActive()).toHaveLength(19);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -261,6 +261,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'ordem-mesmo-eventtime-endereco-primeiro',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'pac-aprovada-sincroniza-contatos',
         version: 1,
         availability: 'READY',
       },

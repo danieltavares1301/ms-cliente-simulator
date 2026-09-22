@@ -22,6 +22,7 @@ export type AllowlistedObjectApiName =
   | 'Account'
   | 'Lead'
   | 'Opportunity'
+  | 'Proponente__c'
   | 'PropostaAnaliseCredito__c';
 
 type SalesforceAccountCompositeRequest = {
@@ -407,6 +408,7 @@ export function createSalesforceRestClient(
           'Account',
           'Lead',
           'Opportunity',
+          'Proponente__c',
           'PropostaAnaliseCredito__c',
         ].includes(objectApiName) ||
         !salesforceIdSchema.safeParse(id).success

@@ -175,6 +175,19 @@ const renderedCleanupInstructionSchema = z.discriminatedUnion('target', [
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      operation: z.literal('DELETE_OWNED_RECORDS'),
+      target: z.literal('PROPONENTE'),
+      ownership: z
+        .object({
+          idExterno: z.string().min(1).max(50),
+          pacIdExterno: z.string().min(1).max(50),
+          idCliente: z.string().min(1).max(50),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 const pacEventTypeSchema = z.enum(['pac-insert', 'pac-update']);

@@ -45,7 +45,8 @@ type GeneratedValue =
   | 'SYNTHETIC_EMAIL'
   | 'SYNTHETIC_STREET'
   | 'OPPORTUNITY_EXTERNAL_ID'
-  | 'PAC_EXTERNAL_ID';
+  | 'PAC_EXTERNAL_ID'
+  | 'PROPONENTE_EXTERNAL_ID';
 
 type RenderContext = Readonly<Record<GeneratedValue, string>>;
 
@@ -117,6 +118,7 @@ export function renderScenarioFixture(
   );
   const syntheticOpportunityExternalId = `OPP-SIM-${namespaceToken}-${seedToken}`;
   const syntheticPacExternalId = `PAC-SIM-${namespaceToken}-${seedToken}`;
+  const syntheticProponenteExternalId = `PROP-SIM-${namespaceToken}-${seedToken}`;
   const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
   const collisionCpf = generateSyntheticCpf(`${input.seed}:collision`, input.runId);
   const collisionEmail = `colisao.${seedToken}@simulador.mrv.invalid`;
@@ -148,6 +150,7 @@ export function renderScenarioFixture(
     SYNTHETIC_STREET: `Rua Simulada ${seedToken}`,
     OPPORTUNITY_EXTERNAL_ID: syntheticOpportunityExternalId,
     PAC_EXTERNAL_ID: syntheticPacExternalId,
+    PROPONENTE_EXTERNAL_ID: syntheticProponenteExternalId,
   } satisfies RenderContext;
   const hasControlAccount =
     definition.setup?.some(
@@ -210,6 +213,17 @@ export function renderScenarioFixture(
         ownership: {
           idExterno: syntheticOpportunityExternalId,
           pacIdExterno: syntheticPacExternalId,
+        },
+      };
+    }
+    if (instruction.target === 'PROPONENTE') {
+      return {
+        operation: instruction.operation,
+        target: instruction.target,
+        ownership: {
+          idExterno: syntheticProponenteExternalId,
+          pacIdExterno: syntheticPacExternalId,
+          idCliente: accountIdCliente,
         },
       };
     }

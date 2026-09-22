@@ -45,6 +45,7 @@ const generatedFixtureValueSchema = z.enum([
   'SYNTHETIC_STREET',
   'OPPORTUNITY_EXTERNAL_ID',
   'PAC_EXTERNAL_ID',
+  'PROPONENTE_EXTERNAL_ID',
 ]);
 
 export const scenarioScopeSchema = z.enum(['CORE', 'EXTENDED']);
@@ -287,6 +288,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'LEAD_NOT_CREATED',
   'LEAD_NOT_REQUIRED',
   'PROPONENTE_NOT_REQUIRED',
+  'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
   'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
 ]);
 
@@ -603,7 +605,13 @@ export const setupInstructionSchema = z.discriminatedUnion('operation', [
 const cleanupInstructionSchema = z
   .object({
     operation: z.literal('DELETE_OWNED_RECORDS'),
-    target: z.enum(['ACCOUNT', 'LEAD', 'CLIENT_STRUCTURE', 'OPPORTUNITY']),
+    target: z.enum([
+      'ACCOUNT',
+      'LEAD',
+      'CLIENT_STRUCTURE',
+      'OPPORTUNITY',
+      'PROPONENTE',
+    ]),
   })
   .strict();
 

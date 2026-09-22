@@ -10,6 +10,7 @@ import {
 const accountId = '001000000000001AAA';
 const opportunityId = '006000000000001AAA';
 const propostaId = 'a0A000000000001AAA';
+const proponenteId = 'a10000000000001AAA';
 
 function pacFixture() {
   return renderScenarioFixture({
@@ -29,11 +30,49 @@ function pacInput(rendered = pacFixture()) {
   };
 }
 
+function pacApprovedFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'pac-aprovada-sincroniza-contatos',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_b',
+    eventStartAt: '2026-09-22T00:00:00.000Z',
+  });
+}
+
+function pacApprovedInput(rendered = pacApprovedFixture()) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
 function pacEventData(rendered = pacFixture()) {
   return rendered.steps[0]!.envelope[0]!.data as {
     id: string;
     idjornadapac: string;
     status?: string;
+  };
+}
+
+function pacApprovedEventData(rendered = pacApprovedFixture()) {
+  return rendered.steps[0]!.envelope[0]!.data as {
+    id: string;
+    idjornadapac: string;
+    status: string;
+    dataalteracao: string;
+    proponentes: Array<{
+      id: string;
+      idPac: string;
+      idCliente: string;
+      cpf: string;
+      tipoClassificacao: string;
+      dataAlteracao: string;
+      nomeCompleto?: string;
+      email?: string;
+      telefoneCelular?: string;
+    }>;
   };
 }
 
@@ -163,7 +202,7 @@ describe('Salesforce PAC test data adapter', () => {
             Id: propostaId,
             Id__c: event.id,
             Oportunidade__c: opportunityId,
-            Status__c: event.status ?? null,
+            Status__c: event.status,
           },
         ],
       });
@@ -178,6 +217,114 @@ describe('Salesforce PAC test data adapter', () => {
       check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
       passed: true,
     });
+  });
+
+  it('verifies PAC approval by asserting Account contact sync and principal Proponente linkage', async () => {
+    const rendered = pacApprovedFixture();
+    const event = pacApprovedEventData(rendered);
+    const proponente = event.proponentes[0]!;
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY') {
+      throw new Error('Expected PAC fixture opportunity scaffolding');
+    }
+    const client = restClient();
+    const queryResponses = [
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: accountId,
+            Id__c: proponente.idCliente,
+            IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+            CPF__pc: proponente.cpf,
+            LastName: 'Cliente Simulado',
+            IsPersonAccount: true,
+            PersonEmail: proponente.email ?? null,
+            PersonMobilePhone: `55${proponente.telefoneCelular}`,
+            Celular__c: proponente.telefoneCelular ?? null,
+            BillingStreet: null,
+            DataAlteracaoEvento__c: event.dataalteracao,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: proponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: proponente.idCliente,
+            CpfProponente__c: proponente.cpf,
+            TipoClassificacao__c: proponente.tipoClassificacao,
+            EmailAtualizado__c: proponente.email ?? null,
+            Celular__c: proponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponente.dataAlteracao,
+            NomeCompleto__c: proponente.nomeCompleto ?? null,
+          },
+        ],
+      },
+    ];
+    let queryIndex = 0;
+    client.query.mockImplementation(async () => queryResponses[queryIndex++]!);
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacApprovedInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.recordIds).toStrictEqual([
+      accountId,
+      opportunityId,
+      propostaId,
+      proponenteId,
+    ]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED', passed: true },
+        { check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED', passed: true },
+        {
+          check: 'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+          passed: true,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          passed: true,
+        },
+      ]),
+    );
   });
 
   it('deletes the PAC record before deleting its synthetic Opportunity', async () => {
@@ -232,6 +379,103 @@ describe('Salesforce PAC test data adapter', () => {
     );
     expect(client.deleteRecord).toHaveBeenNthCalledWith(
       2,
+      'Opportunity',
+      opportunityId,
+    );
+  });
+
+  it('deletes the synthetic Proponente before deleting its PAC and Opportunity scaffolding', async () => {
+    const rendered = pacApprovedFixture();
+    const event = pacApprovedEventData(rendered);
+    const proponente = event.proponentes[0]!;
+    const client = restClient();
+    const queryResponses = [
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: proponenteId,
+            Id__c: proponente.id,
+            Proponente__c: accountId,
+            PropostaAnaliseCredito__c: propostaId,
+            IdCliente__c: proponente.idCliente,
+            CpfProponente__c: proponente.cpf,
+            TipoClassificacao__c: proponente.tipoClassificacao,
+            EmailAtualizado__c: proponente.email ?? null,
+            Celular__c: proponente.telefoneCelular ?? null,
+            DataAlteracaoEvento__c: proponente.dataAlteracao,
+            NomeCompleto__c: proponente.nomeCompleto ?? null,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      },
+      {
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: event.idjornadapac,
+            AccountId: accountId,
+            Name: 'Opportunity Sintética PAC',
+            StageName: 'Simulação',
+            CloseDate: '2027-12-31',
+            PACAtual__c: propostaId,
+          },
+        ],
+      },
+      {
+        totalSize: 0,
+        done: true,
+        records: [],
+      },
+    ];
+    let queryIndex = 0;
+    client.query.mockImplementation(async () => queryResponses[queryIndex++]!);
+    client.deleteRecord.mockResolvedValue(undefined);
+
+    await expect(
+      createSalesforceTestDataAdapter({ restClient: client }).cleanup(
+        pacApprovedInput(rendered),
+        [proponenteId, propostaId, opportunityId],
+      ),
+    ).resolves.toStrictEqual({ status: 'DELETED', deletedCount: 3 });
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      1,
+      'Proponente__c',
+      proponenteId,
+    );
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      2,
+      'PropostaAnaliseCredito__c',
+      propostaId,
+    );
+    expect(client.deleteRecord).toHaveBeenNthCalledWith(
+      3,
       'Opportunity',
       opportunityId,
     );

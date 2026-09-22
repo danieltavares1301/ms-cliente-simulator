@@ -268,6 +268,58 @@ describe('Event Grid contracts', () => {
     ).toThrow();
   });
 
+  it('accepts PAC payloads with proponentes and enforces their required fields', () => {
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'pac-insert',
+          data: {
+            id: 'PAC-SIM-010',
+            idjornadapac: 'OPP-SIM-010',
+            status: 'CREDITO_APROVADO_CONDICIONADO',
+            dataalteracao: '2026-08-21T10:00:00.000Z',
+            proponentes: [
+              {
+                id: 'PROP-SIM-010',
+                idPac: 'PAC-SIM-010',
+                idCliente: 'CLI-SIM-001',
+                cpf: '00000000000',
+                tipoClassificacao: 'Principal',
+                dataAlteracao: '2026-08-21T10:00:00.000Z',
+                nomeCompleto: 'Cliente Sintético',
+                email: 'pac.aprovada@example.invalid',
+                telefoneCelular: '31999990000',
+              },
+            ],
+          },
+        },
+      ]),
+    ).not.toThrow();
+
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'pac-update',
+          data: {
+            id: 'PAC-SIM-011',
+            idjornadapac: 'OPP-SIM-011',
+            proponentes: [
+              {
+                id: 'PROP-SIM-011',
+                idPac: 'PAC-SIM-011',
+                idCliente: 'CLI-SIM-001',
+                cpf: '00000000000',
+                tipoClassificacao: 'Principal',
+              },
+            ],
+          },
+        },
+      ]),
+    ).toThrow();
+  });
+
   it('accepts only Apex-compatible UTC timestamps and strict public fields', () => {
     expect(() =>
       eventGridEnvelopeSchema.parse([
