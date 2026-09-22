@@ -279,6 +279,61 @@ Contrato real confirma alinhamento com o que já implementamos
 `UsuarioCriacao`, `UsuarioAlteracao`, `IdUsuarioCriacao`, `Deletado` — todos
 tolerados pelo Apex quando ausentes.
 
+### 6. `jornadausuario-update` (`/MaquinaEstado`, update) — análise de acompanhamento
+
+Amostra adicional de 60 registros reais de `LogIntegracao__c`
+(`EventType__c='jornadausuario-update'`) para informar o incremento 3 da
+Tarefa 7.2:
+
+```
+success   48.777
+error     76.730   (≈61% de taxa de erro real, ainda maior que insert)
+```
+
+Categorização real dos erros (amostra de 60):
+
+- **26/60 (≈43%)**: `System.QueryException: Registro atualmente indisponível:
+  O registro que você está tentando editar, ou um de seus registros
+  relacionados, está sendo modificado por outro usuário. Tente novamente.`
+  — contenção real de lock de linha (`UNABLE_TO_LOCK_ROW`), tipicamente
+  disparada por múltiplos eventos concorrentes tentando atualizar a MESMA
+  Opportunity ao mesmo tempo (jornada do usuário avançando rapidamente por
+  múltiplos estados).
+- **30/60 (50%)**: logs com `StackTrace__c` mínimo (`error` / `### EventType
+  não Informado -> Alterado para jornadausuario-update`), sem
+  `BodyRequest__c`/`Response__c` capturado — aparentam ser um registro de log
+  secundário/parcial para a mesma falha de lock (possivelmente um log
+  duplicado emitido antes do corpo da requisição ser totalmente processado).
+- **4/60 (≈7%)**: `Cliente(Account) não encontrado` — mesma causa já coberta
+  pelo incremento 2 (`/Cliente` chegando depois do `/MaquinaEstado`), agora
+  confirmada também para `update`, não só `insert`.
+
+**Achado arquitetural real**: `NotificacaoMaquinaEstado.cls` **não tem
+nenhuma lógica de retry para `UNABLE_TO_LOCK_ROW`** (confirmado por leitura —
+nenhuma ocorrência de `UNABLE_TO_LOCK_ROW`/retry no arquivo), diferente de
+`NotificacaoPAC.cls`, que já implementa retry explícito para essa condição em
+pelo menos uma de suas sub-operações (`reconciliarIdProponentePrincipalPos`).
+Isso significa que, na prática, qualquer `jornadausuario-update` que colida
+com outra transação concorrente na mesma Opportunity falha **imediatamente e
+sem retry automático**, propagando o erro para o chamador (MS Cliente real),
+que presumivelmente reenviaria o evento depois.
+
+**Valores reais de `Estado` em updates de sucesso**: `"Documentacao"`,
+`"MG"` (aparenta ser um valor de UF vazado no campo errado, ou um estado
+customizado específico de algum fluxo não mapeado — não investigado a
+fundo). Confirma, mais uma vez, que o operador `==` case-insensitive do Apex
+absorve variações de capitalização sem problema.
+
+**Decisão de escopo**: reproduzir deterministicamente a contenção de lock
+real (43% dos erros) exigiria dispatch verdadeiramente concorrente para a
+MESMA Opportunity — a mesma classe de infraestrutura construída para o O10
+(Fase 6), que é incompatível com o guard `OUT_OF_ORDER` do orquestrador
+sequencial (documentado desde a Fase 6: dispatch concorrente só é possível
+via script standalone, fora do motor de cenários do catálogo). Por ora, este
+achado fica **documentado, mas deferido** — o incremento 3 desta sessão
+cobre o caminho mais simples e imediatamente acionável (`jornadausuario-update`
+happy path + reteste de `Cliente(Account) não encontrado` para `update`).
+
 ## Ações tomadas nesta análise
 
 - [ ] **Corrigir `pacCreditoRequestSchema`** para tolerar campos extras
