@@ -2404,12 +2404,17 @@ Este checkpoint documenta um estado limpo, validado ao vivo contra
 - [x] Casos com e sem Id Cliente cobertos.
 - [x] Reentrega pode ser simulada.
 
+**Dependencias:** tarefa 7.1.
+
+**Escopo:** medio.
+
+#### Tarefa 7.3: Validar corridas end-to-end
 
 **Criterios de aceite:**
 
-- [x] Eventos atuais e obsoletos suportados.
-- [x] Casos com e sem Id Cliente cobertos.
-- [x] Reentrega pode ser simulada.
+- [ ] Opportunity permanece na Account aprovada.
+- [ ] Evento obsoleto nao vai para fila manual.
+- [ ] Evento atual pode ser reentregue apos `cliente-insert`.
 
 **Dependencias:** tarefa 7.2.
 
