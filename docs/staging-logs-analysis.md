@@ -525,6 +525,51 @@ se não houver automação/default preenchendo o campo.
 **Implementado**: este achado motivou o cenário
 `maquina-estado-update-estado-nao-reconhecido` (Tarefa 7.2, incremento 6).
 
+### 10. Frequência real de outros campos/valores em `jornadausuario-update` (informa o incremento 7)
+
+Amostra adicional de 250 eventos reais bem-sucedidos de
+`jornadausuario-update`, medindo a presença/valor de outros campos
+relevantes:
+
+| Campo/valor | Frequência real |
+| --- | --- |
+| `IdCorretor` preenchido (não nulo) | **250/250 (100%)** |
+| `Estado='troca_unidade'`/`'TrocarUnidade'` | 6/250 (≈2,4%) |
+| `Estado='CONTRATO'` | 3/250 (≈1,2%) |
+| `Estado='DISTRATO'` | 0/250 |
+| `CodigoCupom` preenchido | 0/250 |
+
+**Achado mais significativo: `IdCorretor` está presente em 100% da
+amostra real**, mas **nenhum dos 6 incrementos já implementados desta
+sessão envia esse campo** — decisão deliberada desde o incremento 1
+("smoke test mínimo"), para evitar a lógica de
+`atribuirProprietariosOportunidade`. Essa função é significativamente
+mais complexa que os campos já cobertos: depende de registros reais de
+`EspecialistaEquipe__c`/`Equipe__c` correspondentes ao `idCorretor`
+enviado (via `EspecialistaEquipeSelector`/`EquipeSelector`), reatribuindo
+`Opportunity.OwnerId`/`Equipe__c`/`Gerente__c`/`GerenteAtual__c`/
+`CorretorImobiliaria__c`/`Imobiliaria__c`/`ParceiroIniciouJornada__c` —
+ou é um no-op seguro se nenhuma equipe corresponder. **Dado o custo/risco
+de modelar isso com segurança (reatribuição de Owner/Gerente exige dados
+reais de equipe comercial, mais sensível que Product2/Pricebook já
+usados), este achado fica documentado, mas deliberadamente deferido**
+para uma investigação dedicada futura — não é o próximo incremento
+desta sessão.
+
+`Estado='troca_unidade'`, embora menos frequente (2,4%), é
+arquiteturalmente mais simples e autocontido: um branch DEDICADO (não um
+fallback) que preserva `StageName` da Opportunity existente E lança
+`NotificacaoException('Oportunidade não encontrada para troca de
+unidade')` se a Opportunity não existir — modo de falha explícito e
+testável. Confirmado em payload real: o evento de `troca_unidade` inclui
+um `IdUnidade` (a nova unidade/Product2), sugerindo que o campo
+`Unidade__r`/`Unidade__c` da Opportunity é atualizado normalmente (via o
+mapeamento genérico de campos), enquanto `StageName` permanece
+preservado.
+
+**Implementado**: este achado motivou o cenário
+`maquina-estado-update-troca-unidade` (Tarefa 7.2, incremento 7).
+
 ## Ações tomadas nesta análise
 
 - [ ] **Corrigir `pacCreditoRequestSchema`** para tolerar campos extras
