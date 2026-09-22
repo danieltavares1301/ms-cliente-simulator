@@ -1928,6 +1928,42 @@ adicionais, mas concluido no mesmo incremento).
   base da Account sintetica, nao ao `nomeCompleto` enviado no payload; por
   isso a assertion segue sem depender desse campo.
 
+#### Tarefa 7.1b: Variacoes adicionais do universo `/PAC`
+
+**Status:** iniciada. Variacao 1 de 5 concluida (`pac-update` basico).
+
+**Objetivo:** explorar subcomportamentos reais do endpoint `/PAC` que nao eram
+cobertos pelos tres incrementos originais da Tarefa 7.1, mantendo a mesma
+disciplina de execucao real contra `mrv-devDan`.
+
+**Critérios de aceite da sequência:**
+
+- [x] **Variacao 1/5 concluida:** `pac-update` basico coberto em dois cenarios
+  complementares:
+  - `pac-update-altera-status-sem-proponentes`
+  - `pac-update-reenviando-proponentes`
+- [x] O simulador verifica automaticamente a diferenca entre:
+  - update final sem `proponentes[]` (ausencia do Proponente);
+  - update final reenviando `proponentes[]` (upsert sem duplicacao).
+- [x] Achado arquitetural real documentado:
+  **`pac-update` sem `proponentes[]` apaga os `Proponente__c` existentes da
+  PAC**.
+- [ ] Variacoes 2/5 a 5/5 pendentes de priorizacao.
+
+**Progresso real (variacao 1/5, `pac-update` basico):**
+
+- no cenario A, `pac-update` sem `proponentes[]` manteve a
+  `PropostaAnaliseCredito__c`, atualizou `Status__c` para
+  `CREDITO_APROVADO_CONDICIONADO` e removeu o `Proponente__c` que existia
+  depois do `pac-insert`;
+- no cenario B, `pac-update` reenviando o mesmo Proponente principal preservou
+  um unico registro por `Id__c`, atualizou email/celular do
+  `Proponente__c` e sincronizou os mesmos valores na Account;
+- os dois cenarios foram executados ao vivo com setup/dispatch/query/cleanup
+  reais e cleanup final sem residuos.
+
+**Evidencia:** `docs/phase-7/pac-update-basico.md`.
+
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
 
