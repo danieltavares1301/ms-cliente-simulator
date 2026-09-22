@@ -2315,24 +2315,45 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   mais novo do evento - comprovando que o valor desconhecido e tolerado como
   **no-op de fase**, nao como erro ou descarte por obsolescencia. Evidencia
   preservada em `docs/phase-7/maquina-estado-estado-nao-reconhecido.md`.
+- [x] Incremento 7 implementado no simulador: cenarios
+  `maquina-estado-update-troca-unidade` e
+  `maquina-estado-insert-troca-unidade-falha`, cobrindo o branch dedicado
+  `troca_unidade`/`TrocarUnidade`.
+- [x] A verificacao ganhou checks explicitos para a unidade final da
+  `Opportunity` e para o `Product2` final do `OpportunityLineItem`, permitindo
+  provar a troca real de unidade quando a org responder conforme o contrato.
+- [x] Segundo `Product2` real selecionado por query somente-leitura em
+  `mrv-devDan`: `Product2Id = 01tV200000AQbuDIAT`,
+  `Product2.Id__c = 6eeda6b4-1ee9-48a2-a5db-123044783c25`,
+  `PricebookEntryId = 01uV2000002uywPIAQ`, todos ativos no Price Book padrao e
+  com `Cidade__c = null`.
+- [ ] Execucao real conclusiva do incremento 7 ficou **bloqueada** em
+  `mrv-devDan`: os dois cenarios (e o proprio passo inicial equivalente ao
+  smoke test minimo) retornaram **HTTP 500 / APEX_ERROR** com
+  `System.NullPointerException` em
+  `Class.NotificacaoMaquinaEstado.realizaPost: line 218, column 1`, sem criar
+  nenhuma `Opportunity`. Evidencia preservada em
+  `docs/phase-7/maquina-estado-troca-unidade.md`.
 - [x] Checkpoint tecnico parcial consolidado: smoke test de insert,
   dependencia real de ordem `/Cliente` <-> `/MaquinaEstado`, update basico,
   reentrega real, obsolescencia e `Estado` nao reconhecido agora estao
   cobertos no simulador.
 
-### Checkpoint 7.2 parcial (6 de N incrementos)
+### Checkpoint 7.2 parcial (7 de N incrementos)
 
-**Estado tecnico final:** 722/722 testes, build limpo (`npm run build`
-valida todas as fixtures), 8 cenarios `/MaquinaEstado` publicados no
+**Estado tecnico final:** 727/727 testes, build limpo (`npm run build`
+valida todas as fixtures), 10 cenarios `/MaquinaEstado` publicados no
 catalogo (`maquina-estado-insert-minimo`,
 `maquina-estado-insert-sem-cliente-falha`,
 `maquina-estado-insert-apos-cliente-criado`,
+`maquina-estado-insert-troca-unidade-falha`,
 `maquina-estado-update-estado-nao-reconhecido`,
 `maquina-estado-update-transicao-estado`,
+`maquina-estado-update-troca-unidade`,
 `maquina-estado-update-evento-obsoleto`,
 `maquina-estado-update-reentrega-mesmo-evento`,
 `maquina-estado-update-sem-cliente-falha`), versao do simulador em
-`0.24.0`. Verificacao de higiene da org: `mrv-devDan` reconfirmada com
+`0.25.0`. Verificacao de higiene da org: `mrv-devDan` reconfirmada com
 `totalSize=0` para todos os prefixos sinteticos (`CLI-SIM-`, `OPP-SIM-`,
 `PAC-SIM-`, `PROP-SIM-`, `CONT-SIM-`) e para `OpportunityLineItem`
 vinculado - nenhum residuo de diagnostico ficou para tras nesta
