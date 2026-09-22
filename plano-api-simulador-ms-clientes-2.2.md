@@ -2254,11 +2254,27 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
   tentado (`01tV200000AVSn3IAH`) apontava para `Cidade__c =
   a0S4T000000hBf7UAE`, referência inconsistente na org. Evidência preservada em
   `docs/phase-7/maquina-estado-insert-minimo.md`.
+- [x] Incremento 2 implementado no simulador: cenários
+  `maquina-estado-insert-sem-cliente-falha` e
+  `maquina-estado-insert-apos-cliente-criado`, cobrindo a corrida real
+  `/MaquinaEstado` → `/Cliente` observada em `mrv-staging`.
+- [x] O runtime agora aceita `cliente.idCliente = null` em `jornadausuario-*`,
+  alinhando o contrato ao payload real mais frequente visto nos logs.
+- [x] O orquestrador passou a suportar `expectedHttpStatus` por step de
+  dispatch (default implícito mantido em `200`), permitindo tratar um
+  `HTTP 400` esperado como sucesso de transporte sem quebrar cenários
+  existentes.
+- [x] A verificação ganhou o check `OPPORTUNITY_NOT_CREATED`, preservando
+  `expectedOutcomes` como camada de resultado de negócio enquanto o status HTTP
+  fica modelado no próprio step.
+- [x] Execução real de ambos os cenários validada em `mrv-devDan`, com cleanup
+  confirmado por query direta. Evidência preservada em
+  `docs/phase-7/maquina-estado-sem-cliente.md`.
 
 **Criterios de aceite:**
 
 - [ ] Eventos atuais e obsoletos suportados.
-- [ ] Casos com e sem Id Cliente cobertos.
+- [x] Casos com e sem Id Cliente cobertos.
 - [ ] Reentrega pode ser simulada.
 
 **Dependencias:** tarefa 7.1.
