@@ -1007,6 +1007,21 @@ describe('Salesforce PAC test data adapter', () => {
         totalSize: 0,
         done: true,
         records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 0,
+        done: true,
+        records: [],
       });
 
     const result = await createSalesforceTestDataAdapter({
@@ -1537,44 +1552,48 @@ describe('Salesforce PAC test data adapter', () => {
     const rendered = pacFixture();
     const event = pacEventData(rendered);
     const client = restClient();
-    client.query
-      .mockResolvedValueOnce({
-        totalSize: 1,
-        done: true,
-        records: [
-          {
-            Id: propostaId,
-            Id__c: event.id,
-            Oportunidade__c: opportunityId,
-            Status__c: event.status ?? null,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        totalSize: 0,
-        done: true,
-        records: [],
-      })
-      .mockResolvedValueOnce({
-        totalSize: 1,
-        done: true,
-        records: [
-          {
-            Id: opportunityId,
-            Id__c: event.idjornadapac,
-            AccountId: accountId,
-            Name: 'Opportunity Sintética',
-            StageName: 'Simulação',
-            CloseDate: '2026-09-30',
-            PACAtual__c: propostaId,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        totalSize: 0,
-        done: true,
-        records: [],
-      });
+    client.query.mockImplementationOnce(async () => ({
+      totalSize: 1,
+      done: true,
+      records: [
+        {
+          Id: propostaId,
+          Id__c: event.id,
+          Oportunidade__c: opportunityId,
+          Status__c: event.status ?? null,
+        },
+      ],
+    }));
+    client.query.mockImplementationOnce(async () => ({
+      totalSize: 0,
+      done: true,
+      records: [],
+    }));
+    client.query.mockImplementationOnce(async () => ({
+      totalSize: 1,
+      done: true,
+      records: [
+        {
+          Id: opportunityId,
+          Id__c: event.idjornadapac,
+          AccountId: accountId,
+          Name: 'Opportunity Sintética',
+          StageName: 'Simulação',
+          CloseDate: '2026-09-30',
+          PACAtual__c: propostaId,
+        },
+      ],
+    }));
+    client.query.mockImplementationOnce(async () => ({
+      totalSize: 0,
+      done: true,
+      records: [],
+    }));
+    client.query.mockImplementationOnce(async () => ({
+      totalSize: 0,
+      done: true,
+      records: [],
+    }));
     client.deleteRecord.mockResolvedValue(undefined);
 
     await expect(
@@ -1663,6 +1682,11 @@ describe('Salesforce PAC test data adapter', () => {
             PACAtual__c: propostaId,
           },
         ],
+      },
+      {
+        totalSize: 0,
+        done: true,
+        records: [],
       },
       {
         totalSize: 0,
@@ -1778,6 +1802,11 @@ describe('Salesforce PAC test data adapter', () => {
             PACAtual__c: propostaId,
           },
         ],
+      },
+      {
+        totalSize: 0,
+        done: true,
+        records: [],
       },
       {
         totalSize: 0,

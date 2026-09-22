@@ -2236,6 +2236,20 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
 
 #### Tarefa 7.2: Adicionar contratos `/MaquinaEstado`
 
+**Status parcial (2026-09-22):**
+
+- [x] Incremento 1 implementado no simulador: contrato `jornadausuario-*`,
+  target `MAQUINA_ESTADO`, cenário `maquina-estado-insert-minimo`, verificação
+  da `Opportunity` e cleanup fail-closed de `OpportunityLineItem`.
+- [x] Pré-condições reais lidas em `mrv-devDan` (RecordType `Unidade`,
+  Price Book padrão, `UsuarioPadraoClientes__c`, `Product2`/`PricebookEntry`
+  ativos).
+- [x] Execução real rodada contra `mrv-devDan` com cleanup validado.
+- [ ] Fluxo funcional ainda bloqueado: o endpoint respondeu `400
+  Cliente(Account) não encontrado` mesmo com a Account sintética confirmada por
+  query direta antes do dispatch. Ver evidência em
+  `docs/phase-7/maquina-estado-insert-minimo.md`.
+
 **Criterios de aceite:**
 
 - [ ] Eventos atuais e obsoletos suportados.
