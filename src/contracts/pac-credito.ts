@@ -27,6 +27,12 @@ export const pacCreditoRequestSchema = z
     IdJornada: z.string().min(1).nullable().optional(),
     DataCriacao: pacCreditoDataCriacaoSchema,
   })
-  .strict();
+  // .passthrough() (not .strict()): mrv-staging's real EnvioPACCreditoQueue
+  // traffic was observed (Fase 7, docs/staging-logs-analysis.md) sending an
+  // extra "CodigoPAC" field that the version deployed to mrv-devDan does not
+  // have — evidence of real version drift between environments. Rejecting
+  // unknown fields would make this endpoint fragile to any future field the
+  // real Apex adds; only the 4 fields we actually rely on are validated.
+  .passthrough();
 
 export type PacCreditoRequest = z.infer<typeof pacCreditoRequestSchema>;

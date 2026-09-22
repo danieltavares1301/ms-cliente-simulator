@@ -237,4 +237,39 @@ describe('createPacCreditoCallbackHandler', () => {
     });
     expect(logSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('tolerates unknown extra fields sent by a newer Apex version (e.g. CodigoPAC observed in mrv-staging)', async () => {
+    // Regression: análise de LogIntegracao__c real em mrv-staging (Fase 7)
+    // mostrou um payload real de EnvioPACCreditoQueue com um campo extra
+    // "CodigoPAC" que não existe no wrapper interno da classe atualmente
+    // deployada em mrv-devDan/no repositório com_salesforce_mrv — evidência
+    // de drift de versão entre ambientes. O schema usava .strict(), que
+    // rejeitaria com 422 qualquer payload real contendo esse (ou outro)
+    // campo desconhecido, mesmo sendo um payload legítimo do ponto de vista
+    // do Apex real.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const handler = createPacCreditoCallbackHandler({
+      environment: validEnvironment,
+      requestIdFactory: () => 'request-extra-field',
+    });
+
+    const response = await handler(
+      createRequest(
+        JSON.stringify({
+          IdSalesforcePac: 'a0BHZ0000001234',
+          IdPac: 'PAC-001',
+          IdJornada: null,
+          DataCriacao: '2026-01-01T00:00:00.000Z',
+          CodigoPAC: 'PAC-751122',
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toStrictEqual({
+      accepted: true,
+      requestId: 'request-extra-field',
+    });
+    expect(logSpy).toHaveBeenCalledTimes(1);
+  });
 });
