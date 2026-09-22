@@ -84,6 +84,12 @@ describe('OpenAPI document', () => {
     }
     expect(openApiDocument.paths['/api/ms-clientes/graphql']).toBeUndefined();
     expect(openApiDocument.paths['/api/ms-clientes/pac-credito']).toBeUndefined();
+    expect(
+      openApiDocument.paths['/api/ms-clientes/contestacao-insert'],
+    ).toBeUndefined();
+    expect(
+      openApiDocument.paths['/api/ms-clientes/contestacao-documentos'],
+    ).toBeUndefined();
     expect(openApiDocument.paths['/api/ms-clientes/token']).toBeUndefined();
   });
 

@@ -18,6 +18,8 @@ const serverEnvironmentKeys = [
   'ORCHESTRATION_ENABLED',
   'AZURE_TOKEN_SIMULATOR_ENABLED',
   'PAC_CREDITO_CALLBACK_ENABLED',
+  'CONTESTACAO_INSERT_CALLBACK_ENABLED',
+  'CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED',
   'GRAPHQL_CALLBACK_ENABLED',
   'GRAPHQL_CALLBACK_AUTH_MODE',
   'SALESFORCE_DISPATCH_ENABLED',
@@ -212,6 +214,14 @@ const serverEnvironmentSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((value) => value === 'true'),
+    CONTESTACAO_INSERT_CALLBACK_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+    CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     GRAPHQL_CALLBACK_ENABLED: z
       .enum(['true', 'false'])
       .default('false')
@@ -260,6 +270,30 @@ const serverEnvironmentSchema = z
         code: 'custom',
         path: ['PAC_CREDITO_CALLBACK_ENABLED'],
         message: 'PAC credito callback requires ORCHESTRATION_ENABLED=true',
+      });
+    }
+
+    if (
+      configuration.CONTESTACAO_INSERT_CALLBACK_ENABLED &&
+      !configuration.ORCHESTRATION_ENABLED
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['CONTESTACAO_INSERT_CALLBACK_ENABLED'],
+        message:
+          'Contestacao insert callback requires ORCHESTRATION_ENABLED=true',
+      });
+    }
+
+    if (
+      configuration.CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED &&
+      !configuration.ORCHESTRATION_ENABLED
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED'],
+        message:
+          'Contestacao documentos callback requires ORCHESTRATION_ENABLED=true',
       });
     }
 
@@ -465,6 +499,8 @@ const serverEnvironmentSchema = z
         ORCHESTRATION_ENABLED: false as const,
         AZURE_TOKEN_SIMULATOR_ENABLED: false as const,
         PAC_CREDITO_CALLBACK_ENABLED: false as const,
+        CONTESTACAO_INSERT_CALLBACK_ENABLED: false as const,
+        CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED: false as const,
         GRAPHQL_CALLBACK_ENABLED: false as const,
         SALESFORCE_DISPATCH_ENABLED: false as const,
         SALESFORCE_TEST_DATA_ENABLED: false as const,
@@ -479,6 +515,10 @@ const serverEnvironmentSchema = z
           configuration.AZURE_TOKEN_SIMULATOR_ENABLED,
         PAC_CREDITO_CALLBACK_ENABLED:
           configuration.PAC_CREDITO_CALLBACK_ENABLED,
+        CONTESTACAO_INSERT_CALLBACK_ENABLED:
+          configuration.CONTESTACAO_INSERT_CALLBACK_ENABLED,
+        CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED:
+          configuration.CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED,
         GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
         GRAPHQL_CALLBACK_AUTH_MODE: graphqlCallbackAuthMode,
         SALESFORCE_DISPATCH_ENABLED: false as const,
@@ -503,6 +543,10 @@ const serverEnvironmentSchema = z
         configuration.AZURE_TOKEN_SIMULATOR_ENABLED,
       PAC_CREDITO_CALLBACK_ENABLED:
         configuration.PAC_CREDITO_CALLBACK_ENABLED,
+      CONTESTACAO_INSERT_CALLBACK_ENABLED:
+        configuration.CONTESTACAO_INSERT_CALLBACK_ENABLED,
+      CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED:
+        configuration.CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED,
       GRAPHQL_CALLBACK_ENABLED: configuration.GRAPHQL_CALLBACK_ENABLED,
       GRAPHQL_CALLBACK_AUTH_MODE: graphqlCallbackAuthMode,
       SALESFORCE_DISPATCH_ENABLED: true as const,
@@ -538,6 +582,8 @@ export type ServerEnvironment = BaseServerEnvironment &
         ORCHESTRATION_ENABLED: false;
         AZURE_TOKEN_SIMULATOR_ENABLED: false;
         PAC_CREDITO_CALLBACK_ENABLED: false;
+        CONTESTACAO_INSERT_CALLBACK_ENABLED: false;
+        CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED: false;
         GRAPHQL_CALLBACK_ENABLED: false;
         SALESFORCE_DISPATCH_ENABLED: false;
         SALESFORCE_TEST_DATA_ENABLED: false;
@@ -546,6 +592,8 @@ export type ServerEnvironment = BaseServerEnvironment &
         ORCHESTRATION_ENABLED: true;
         AZURE_TOKEN_SIMULATOR_ENABLED: boolean;
         PAC_CREDITO_CALLBACK_ENABLED: boolean;
+        CONTESTACAO_INSERT_CALLBACK_ENABLED: boolean;
+        CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED: boolean;
         GRAPHQL_CALLBACK_ENABLED: boolean;
         GRAPHQL_CALLBACK_AUTH_MODE: GraphqlCallbackAuthMode;
         SALESFORCE_DISPATCH_ENABLED: false;
@@ -562,6 +610,8 @@ export type ServerEnvironment = BaseServerEnvironment &
         ORCHESTRATION_ENABLED: true;
         AZURE_TOKEN_SIMULATOR_ENABLED: boolean;
         PAC_CREDITO_CALLBACK_ENABLED: boolean;
+        CONTESTACAO_INSERT_CALLBACK_ENABLED: boolean;
+        CONTESTACAO_DOCUMENTOS_CALLBACK_ENABLED: boolean;
         GRAPHQL_CALLBACK_ENABLED: boolean;
         GRAPHQL_CALLBACK_AUTH_MODE: GraphqlCallbackAuthMode;
         SALESFORCE_DISPATCH_ENABLED: true;
