@@ -96,7 +96,10 @@ describe('scenarioDefinitionSchema', () => {
           operation: 'CREATE_SYNTHETIC_LEAD',
           role: 'COLLISION',
           lead: {
-            idExterno: { source: 'GENERATED', value: 'COLLISION_LEAD_ID_EXTERNO' },
+            idExterno: {
+              source: 'GENERATED',
+              value: 'COLLISION_LEAD_ID_EXTERNO',
+            },
             cpf: { source: 'GENERATED', value: 'COLLISION_CPF' },
             lastName: 'Terceiro Colidente',
             email: { source: 'GENERATED', value: 'COLLISION_EMAIL' },
@@ -144,7 +147,11 @@ describe('scenarioDefinitionSchema', () => {
     expect(() =>
       scenarioDefinitionSchema.parse({
         ...noMatchDefinition,
-        setup: [collisionLead, collisionLead, ...(noMatchDefinition.setup ?? [])],
+        setup: [
+          collisionLead,
+          collisionLead,
+          ...(noMatchDefinition.setup ?? []),
+        ],
       }),
     ).toThrow(/collision/i);
   });
@@ -171,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(19);
+    expect(scenarioCatalog.listActive()).toHaveLength(20);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -201,6 +208,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'cpf-divergente-identidade-antiga',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'cpf-divergente-identidade-antiga-pac-aprovada',
         version: 1,
         availability: 'READY',
       },

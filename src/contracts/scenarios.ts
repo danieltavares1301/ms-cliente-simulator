@@ -41,6 +41,8 @@ const generatedFixtureValueSchema = z.enum([
   'COLLISION_CPF',
   'COLLISION_EMAIL',
   'CLEAN_CELULAR',
+  'PAC_EMAIL',
+  'PAC_CELULAR',
   'SYNTHETIC_EMAIL',
   'SYNTHETIC_STREET',
   'OPPORTUNITY_EXTERNAL_ID',

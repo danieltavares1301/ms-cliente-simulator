@@ -18,6 +18,8 @@ type GeneratedValue =
   | 'COLLISION_CPF'
   | 'COLLISION_EMAIL'
   | 'CLEAN_CELULAR'
+  | 'PAC_EMAIL'
+  | 'PAC_CELULAR'
   | 'SYNTHETIC_EMAIL'
   | 'SYNTHETIC_STREET'
   | 'OPPORTUNITY_EXTERNAL_ID'
@@ -205,7 +207,25 @@ function pacPayload(eventType: 'pac-insert' | 'pac-update') {
   } as const;
 }
 
-function approvedPacWithPrincipalProponentePayload(): ScenarioDefinition['steps'][number]['payloadTemplate'] {
+function approvedPacWithPrincipalProponentePayload(
+  options: {
+    idCliente?: ReturnType<typeof generated>;
+    cpf?: ReturnType<typeof generated>;
+    personName?: ReturnType<typeof generated>;
+    email?: ReturnType<typeof generated>;
+    celular?: ReturnType<typeof generated>;
+    idProponente?: ReturnType<typeof generated>;
+  } = {},
+): ScenarioDefinition['steps'][number]['payloadTemplate'] {
+  const {
+    idCliente = generated('CLIENT_ID'),
+    cpf = generated('CPF'),
+    personName = generated('PERSON_NAME'),
+    email = generated('SYNTHETIC_EMAIL'),
+    celular = generated('CLEAN_CELULAR'),
+    idProponente,
+  } = options;
+
   return {
     kind: 'DECLARATIVE',
     contract: 'EVENT_GRID',
@@ -226,13 +246,14 @@ function approvedPacWithPrincipalProponentePayload(): ScenarioDefinition['steps'
           {
             id: generated('PROPONENTE_EXTERNAL_ID'),
             idPac: generated('PAC_EXTERNAL_ID'),
-            idCliente: generated('CLIENT_ID'),
-            cpf: generated('CPF'),
+            idCliente,
+            cpf,
             tipoClassificacao: 'Principal',
             dataAlteracao: generated('EVENT_TIME'),
-            nomeCompleto: generated('PERSON_NAME'),
-            email: generated('SYNTHETIC_EMAIL'),
-            telefoneCelular: generated('CLEAN_CELULAR'),
+            nomeCompleto: personName,
+            email,
+            telefoneCelular: celular,
+            ...(idProponente ? { idProponente } : {}),
           },
         ],
       },
@@ -258,6 +279,13 @@ const cleanupWithProponenteAndOpportunity: ScenarioDefinition['cleanup'] = [
   { operation: 'DELETE_OWNED_RECORDS', target: 'PROPONENTE' },
   { operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' },
   { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
+];
+
+const cleanupWithLeadProponenteAndOpportunity: ScenarioDefinition['cleanup'] = [
+  { operation: 'DELETE_OWNED_RECORDS', target: 'PROPONENTE' },
+  { operation: 'DELETE_OWNED_RECORDS', target: 'OPPORTUNITY' },
+  { operation: 'DELETE_OWNED_RECORDS', target: 'ACCOUNT' },
+  { operation: 'DELETE_OWNED_RECORDS', target: 'LEAD' },
 ];
 
 function prospectDivergenteSetup(): NonNullable<ScenarioDefinition['setup']> {
@@ -504,12 +532,7 @@ export const basicScenarioDefinitions = [
     description:
       'Executa O03 com cliente, contatos e endereco compartilhando o mesmo eventTime logico, enquanto o dispatch fisico ocorre em instantes diferentes com cliente primeiro.',
     scope: 'EXTENDED',
-    tags: [
-      'regression',
-      'o03',
-      'mesmo-eventtime',
-      'cliente-primeiro',
-    ],
+    tags: ['regression', 'o03', 'mesmo-eventtime', 'cliente-primeiro'],
     availability: 'READY',
     variablesSchema,
     setup: [
@@ -577,14 +600,10 @@ export const basicScenarioDefinitions = [
         target: 'CLIENTE',
         eventType: 'endereco-insert',
         delayMs: 3_000,
-        payloadTemplate: enderecoPayload(
-          generated('SYNTHETIC_STREET'),
-          false,
-          {
-            dataAlteracao: generated('PINNED_EVENT_TIME'),
-            eventTime: generated('PINNED_EVENT_TIME'),
-          },
-        ),
+        payloadTemplate: enderecoPayload(generated('SYNTHETIC_STREET'), false, {
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
         deliveryPolicy,
       },
     ],
@@ -624,12 +643,7 @@ export const basicScenarioDefinitions = [
     description:
       'Executa O03 com contato-email primeiro, preservando o mesmo eventTime logico nos quatro eventos e mudando apenas a ordem fisica do dispatch.',
     scope: 'EXTENDED',
-    tags: [
-      'regression',
-      'o03',
-      'mesmo-eventtime',
-      'contato-primeiro',
-    ],
+    tags: ['regression', 'o03', 'mesmo-eventtime', 'contato-primeiro'],
     availability: 'READY',
     variablesSchema,
     setup: [
@@ -680,14 +694,10 @@ export const basicScenarioDefinitions = [
         target: 'CLIENTE',
         eventType: 'endereco-insert',
         delayMs: 2_000,
-        payloadTemplate: enderecoPayload(
-          generated('SYNTHETIC_STREET'),
-          false,
-          {
-            dataAlteracao: generated('PINNED_EVENT_TIME'),
-            eventTime: generated('PINNED_EVENT_TIME'),
-          },
-        ),
+        payloadTemplate: enderecoPayload(generated('SYNTHETIC_STREET'), false, {
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
         deliveryPolicy,
       },
       {
@@ -744,12 +754,7 @@ export const basicScenarioDefinitions = [
     description:
       'Executa O03 com endereco primeiro e os demais eventos em ordem fisica diferente, mantendo o mesmo eventTime logico em toda a permutacao.',
     scope: 'EXTENDED',
-    tags: [
-      'regression',
-      'o03',
-      'mesmo-eventtime',
-      'endereco-primeiro',
-    ],
+    tags: ['regression', 'o03', 'mesmo-eventtime', 'endereco-primeiro'],
     availability: 'READY',
     variablesSchema,
     setup: [
@@ -772,14 +777,10 @@ export const basicScenarioDefinitions = [
         target: 'CLIENTE',
         eventType: 'endereco-insert',
         delayMs: 0,
-        payloadTemplate: enderecoPayload(
-          generated('SYNTHETIC_STREET'),
-          false,
-          {
-            dataAlteracao: generated('PINNED_EVENT_TIME'),
-            eventTime: generated('PINNED_EVENT_TIME'),
-          },
-        ),
+        payloadTemplate: enderecoPayload(generated('SYNTHETIC_STREET'), false, {
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
         deliveryPolicy,
       },
       {
@@ -1274,6 +1275,163 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithLead,
+  },
+  {
+    key: 'cpf-divergente-identidade-antiga-pac-aprovada',
+    version: 1,
+    name: 'CPF divergente com identidade antiga e PAC aprovada',
+    description:
+      'Retesta o perfil O08 adicionando uma PAC aprovada para medir se a sincronização pós-PAC consegue preencher os contatos de Y depois que o fluxo /Cliente a deixou vazia.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-7', 'o08', 'retest-pac', 'pos-pac'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'CONTROL',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID_X'),
+          idProspect: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF_X'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID_X'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID_X'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-email-x',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('COLLISION_EMAIL'),
+          true,
+          generated('CLIENT_ID_X'),
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-celular-x',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 1_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR'),
+          true,
+          generated('CLIENT_ID_X'),
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert-y',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: {
+          kind: 'DECLARATIVE',
+          contract: 'EVENT_GRID',
+          value: {
+            id: generated('EVENT_ID'),
+            subject: 'MS_Clientes',
+            eventType: 'cliente-insert',
+            eventTime: generated('EVENT_TIME'),
+            dataVersion: '1.0',
+            metadataVersion: '1',
+            topic: '/simulator/ms-clientes',
+            data: {
+              idcliente: generated('CLIENT_ID'),
+              idprospectsalesforce: generated('PROSPECT_ID_X'),
+              numerocpf: generated('CPF'),
+              dataalteracao: generated('EVENT_TIME'),
+              nomecompleto: generated('PERSON_NAME'),
+            },
+          },
+        },
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-insert-aprovada-y',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 3_000,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload({
+          idCliente: generated('CLIENT_ID'),
+          cpf: generated('CPF'),
+          personName: generated('PERSON_NAME'),
+          email: generated('PAC_EMAIL'),
+          celular: generated('PAC_CELULAR'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'Resultado observado ao vivo: Y nasce sem contatos após o fluxo /Cliente; a PAC aprovada cria o Proponente principal, preserva X com os contatos antigos e sincroniza email/celular aprovados em Y e no Lead novo.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('COLLISION_EMAIL'),
+          },
+          {
+            check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('PAC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('PAC_CELULAR'),
+          },
+          {
+            check: 'LEAD_EMAIL_EQUALS_EXPECTED',
+            value: generated('PAC_EMAIL'),
+          },
+          {
+            check: 'LEAD_MOBILE_EQUALS_EXPECTED',
+            value: generated('PAC_CELULAR'),
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithLeadProponenteAndOpportunity,
   },
   {
     key: 'evento-duplicado',

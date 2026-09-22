@@ -42,6 +42,8 @@ type GeneratedValue =
   | 'COLLISION_CPF'
   | 'COLLISION_EMAIL'
   | 'CLEAN_CELULAR'
+  | 'PAC_EMAIL'
+  | 'PAC_CELULAR'
   | 'SYNTHETIC_EMAIL'
   | 'SYNTHETIC_STREET'
   | 'OPPORTUNITY_EXTERNAL_ID'
@@ -60,9 +62,7 @@ function normalizeUtc(value: string): string {
 
 function deterministicDigits(value: string, length: number): string {
   return digest(value)
-    .replace(/[a-f]/g, (character) =>
-      String(character.charCodeAt(0) % 10),
-    )
+    .replace(/[a-f]/g, (character) => String(character.charCodeAt(0) % 10))
     .slice(0, length);
 }
 
@@ -120,10 +120,18 @@ export function renderScenarioFixture(
   const syntheticPacExternalId = `PAC-SIM-${namespaceToken}-${seedToken}`;
   const syntheticProponenteExternalId = `PROP-SIM-${namespaceToken}-${seedToken}`;
   const collisionLeadIdExterno = `LEAD-SIM-COL-${namespaceToken}-${seedToken}`;
-  const collisionCpf = generateSyntheticCpf(`${input.seed}:collision`, input.runId);
+  const collisionCpf = generateSyntheticCpf(
+    `${input.seed}:collision`,
+    input.runId,
+  );
   const collisionEmail = `colisao.${seedToken}@simulador.mrv.invalid`;
   const cleanCelular = `119${deterministicDigits(
     `celular|${input.seed}|${input.runId}`,
+    8,
+  )}`;
+  const pacEmail = `pac.${seedToken}@simulador.mrv.invalid`;
+  const pacCelular = `119${deterministicDigits(
+    `pac-celular|${input.seed}|${input.runId}`,
     8,
   )}`;
   const baseContext = {
@@ -146,6 +154,8 @@ export function renderScenarioFixture(
     COLLISION_CPF: collisionCpf,
     COLLISION_EMAIL: collisionEmail,
     CLEAN_CELULAR: cleanCelular,
+    PAC_EMAIL: pacEmail,
+    PAC_CELULAR: pacCelular,
     SYNTHETIC_EMAIL: `cliente.${seedToken}@simulador.mrv.invalid`,
     SYNTHETIC_STREET: `Rua Simulada ${seedToken}`,
     OPPORTUNITY_EXTERNAL_ID: syntheticOpportunityExternalId,
@@ -168,9 +178,7 @@ export function renderScenarioFixture(
   const setup = resolveTemplate(definition.setup ?? [], baseContext);
   const steps = definition.steps.map((step) => {
     if (step.payloadTemplate.kind !== 'DECLARATIVE')
-      throw new Error(
-        'Core fixture step must be declarative',
-      );
+      throw new Error('Core fixture step must be declarative');
 
     const scheduledAt = new Date(
       Date.parse(eventStartAt) + step.delayMs,

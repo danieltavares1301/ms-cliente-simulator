@@ -10,6 +10,7 @@ import { renderScenarioFixture } from './renderer';
 
 const scenarioKeys = [
   'contato-antes-cliente-colisao',
+  'cpf-divergente-identidade-antiga-pac-aprovada',
   'cpf-divergente-contato-primeiro',
   'cpf-divergente-identidade-antiga',
   'cliente-insert-prospect-divergente',
@@ -32,6 +33,7 @@ const scenarioKeys = [
 
 const expectedStepCountByScenario = {
   'contato-antes-cliente-colisao': 3,
+  'cpf-divergente-identidade-antiga-pac-aprovada': 4,
   'cpf-divergente-contato-primeiro': 3,
   'cpf-divergente-identidade-antiga': 3,
   'cliente-insert-prospect-divergente': 1,
@@ -211,7 +213,9 @@ describe('basic scenario fixture definitions', () => {
         maxAttempts: 1,
       },
     });
-    expect(scenarioCatalog.get('evento-duplicado', 1)?.expectedOutcomes[0]).toMatchObject({
+    expect(
+      scenarioCatalog.get('evento-duplicado', 1)?.expectedOutcomes[0],
+    ).toMatchObject({
       result: 'ACCOUNT_UPDATED_ONLY',
       checks: [
         'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
@@ -221,7 +225,9 @@ describe('basic scenario fixture definitions', () => {
         'NO_OTHER_ACCOUNT_UPDATED',
       ],
     });
-    expect(scenarioCatalog.get('evento-obsoleto', 1)?.expectedOutcomes[0]).toMatchObject({
+    expect(
+      scenarioCatalog.get('evento-obsoleto', 1)?.expectedOutcomes[0],
+    ).toMatchObject({
       result: 'ACCOUNT_UPDATED_ONLY',
       checks: [
         'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
@@ -241,7 +247,9 @@ describe('basic scenario fixture definitions', () => {
         },
       },
     });
-    expect(scenarioCatalog.get('graphql-erro-500', 1)?.graphqlResponse).toStrictEqual({
+    expect(
+      scenarioCatalog.get('graphql-erro-500', 1)?.graphqlResponse,
+    ).toStrictEqual({
       policy: 'HTTP_500',
     });
     expect(
@@ -249,12 +257,15 @@ describe('basic scenario fixture definitions', () => {
     ).toStrictEqual({
       policy: 'INVALID_JSON_200',
     });
-    expect(scenarioCatalog.get('graphql-timeout', 1)?.graphqlResponse).toStrictEqual({
+    expect(
+      scenarioCatalog.get('graphql-timeout', 1)?.graphqlResponse,
+    ).toStrictEqual({
       policy: 'DELAYED_RESPONSE',
       delayMs: 8_000,
     });
     expect(
-      scenarioCatalog.get('id-prospect-igual-id-cliente', 1)?.expectedOutcomes[0],
+      scenarioCatalog.get('id-prospect-igual-id-cliente', 1)
+        ?.expectedOutcomes[0],
     ).toMatchObject({
       result: 'PERSON_ACCOUNT_CREATED',
       checks: [
@@ -266,7 +277,8 @@ describe('basic scenario fixture definitions', () => {
       ],
     });
     expect(
-      scenarioCatalog.get('id-prospect-igual-id-cliente', 1)?.steps[0]?.payloadTemplate,
+      scenarioCatalog.get('id-prospect-igual-id-cliente', 1)?.steps[0]
+        ?.payloadTemplate,
     ).toMatchObject({
       kind: 'DECLARATIVE',
       value: {
@@ -378,12 +390,10 @@ describe('basic scenario fixture definitions', () => {
       ).toStrictEqual({ min: 0, max: 0 });
     }
   });
-  expect(scenarioCatalog.get('pac-insert-minimo', 1)?.steps[0]).toMatchObject(
-    {
-      target: 'PAC',
-      eventType: 'pac-insert',
-    },
-  );
+  expect(scenarioCatalog.get('pac-insert-minimo', 1)?.steps[0]).toMatchObject({
+    target: 'PAC',
+    eventType: 'pac-insert',
+  });
   expect(
     scenarioCatalog.get('pac-aprovada-sincroniza-contatos', 1)?.steps[0],
   ).toMatchObject({
@@ -414,13 +424,56 @@ describe('basic scenario fixture definitions', () => {
     result: 'PAC_CREATED_AND_LINKED',
     checks: ['PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY'],
   });
-  expect(scenarioCatalog.get('pac-insert-minimo', 1)?.asyncPolicy).toStrictEqual({
+  expect(
+    scenarioCatalog.get('pac-insert-minimo', 1)?.asyncPolicy,
+  ).toStrictEqual({
     expectedCallbacks: { min: 1, max: 1 },
     waitTimeoutMs: 30_000,
     missingCallbackResult: 'PARTIAL',
   });
   expect(
     scenarioCatalog.get('pac-aprovada-sincroniza-contatos', 1)?.asyncPolicy,
+  ).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
+    scenarioCatalog.get('cpf-divergente-identidade-antiga-pac-aprovada', 1)
+      ?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      {
+        check: 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'COLLISION_EMAIL' },
+      },
+      {
+        check: 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+      },
+      {
+        check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+      },
+      {
+        check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+      },
+      {
+        check: 'LEAD_EMAIL_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_EMAIL' },
+      },
+      {
+        check: 'LEAD_MOBILE_EQUALS_EXPECTED',
+        value: { source: 'GENERATED', value: 'PAC_CELULAR' },
+      },
+      'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+    ]),
+  });
+  expect(
+    scenarioCatalog.get('cpf-divergente-identidade-antiga-pac-aprovada', 1)
+      ?.asyncPolicy,
   ).toStrictEqual({
     expectedCallbacks: { min: 1, max: 1 },
     waitTimeoutMs: 30_000,
@@ -586,6 +639,44 @@ describe('renderScenarioFixture', () => {
     });
   });
 
+  it('renders the O08 PAC retest with the same three O08 steps plus an approved PAC step for Y', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'cpf-divergente-identidade-antiga-pac-aprovada',
+      version: 1,
+      seed: input.seed,
+      runId: input.runId,
+      eventStartAt: input.eventStartAt,
+    });
+
+    expect(fixture.steps.map((step) => step.key)).toStrictEqual([
+      'contato-email-x',
+      'contato-celular-x',
+      'cliente-insert-y',
+      'pac-insert-aprovada-y',
+    ]);
+    for (const step of fixture.steps.slice(0, 2)) {
+      expect(step.envelope[0]?.data).toMatchObject({
+        idcliente: fixture.identifiers.controlAccountIdCliente,
+        idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
+      });
+    }
+    expect(fixture.steps[2]?.envelope[0]?.data).toMatchObject({
+      idcliente: fixture.identifiers.accountIdCliente,
+      idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
+    });
+    expect(fixture.steps[3]?.envelope[0]?.data).toMatchObject({
+      idjornadapac: expect.stringMatching(/^OPP-SIM-/),
+      status: 'CREDITO_APROVADO_CONDICIONADO',
+      proponentes: [
+        expect.objectContaining({
+          idCliente: fixture.identifiers.accountIdCliente,
+          cpf: expect.stringMatching(/^\d{11}$/),
+          email: expect.stringMatching(/^pac\..+@simulador\.mrv\.invalid$/),
+        }),
+      ],
+    });
+  });
+
   it('renders O03 with the same logical eventTime across different physical dispatch times', () => {
     const fixture = renderScenarioFixture({
       scenarioKey: 'ordem-mesmo-eventtime-endereco-primeiro',
@@ -611,9 +702,7 @@ describe('renderScenarioFixture', () => {
       new Set(fixture.steps.map((step) => step.envelope[0].eventTime)),
     ).toStrictEqual(new Set([input.eventStartAt]));
     expect(
-      new Set(
-        fixture.steps.map((step) => step.envelope[0].data.dataalteracao),
-      ),
+      new Set(fixture.steps.map((step) => step.envelope[0].data.dataalteracao)),
     ).toStrictEqual(new Set([input.eventStartAt]));
     expect(
       fixture.steps.find((step) => step.eventType === 'endereco-insert')
@@ -821,9 +910,7 @@ describe('renderScenarioFixture', () => {
 
         expect(step.scheduledAt).toBe(expectedTime);
         expect(step.envelope[0].eventTime).toBe(expectedEventTime);
-        expect(step.envelope[0].data.dataalteracao).toBe(
-          expectedDataAlteracao,
-        );
+        expect(step.envelope[0].data.dataalteracao).toBe(expectedDataAlteracao);
       }
     },
   );
@@ -944,9 +1031,8 @@ describe('renderScenarioFixture', () => {
     }));
 
     try {
-      const { renderScenarioFixture: renderMockedFixture } = await import(
-        './renderer'
-      );
+      const { renderScenarioFixture: renderMockedFixture } =
+        await import('./renderer');
 
       const fixture = renderMockedFixture({
         scenarioKey: obsoleteScenarioDefinition.key,
@@ -997,7 +1083,8 @@ describe('renderScenarioFixture', () => {
     }));
 
     try {
-      const { renderScenarioFixture: renderMockedFixture } = await import('./renderer');
+      const { renderScenarioFixture: renderMockedFixture } =
+        await import('./renderer');
       const fixture = renderMockedFixture({
         ...input,
         scenarioKey: 'graphql-timeout-mock',
@@ -1073,7 +1160,9 @@ describe('renderScenarioFixture', () => {
         ownership: { idCliente: noMatch.identifiers.accountIdCliente },
       },
     ]);
-    expect(contatoAntesCliente.identifiers.collisionLeadIdExterno).toBeDefined();
+    expect(
+      contatoAntesCliente.identifiers.collisionLeadIdExterno,
+    ).toBeDefined();
     expect(
       contatoAntesCliente.setup.filter(
         (instruction) => instruction.operation === 'CREATE_SYNTHETIC_LEAD',
@@ -1134,8 +1223,7 @@ describe('renderScenarioFixture', () => {
     });
     expect(echo.graphqlResponse).toBeUndefined();
     const echoData = echo.steps[0]?.envelope[0].data as
-      | { idcliente?: string; idprospectsalesforce?: string }
-      | undefined;
+      { idcliente?: string; idprospectsalesforce?: string } | undefined;
     expect(echoData?.idcliente).toBe(echoData?.idprospectsalesforce);
   });
 
