@@ -278,6 +278,70 @@ describe('PAC smoke scenario definition', () => {
     );
   });
 
+  it('publishes a READY PAC insert scenario for a Perdido Opportunity and documents the observed persisted status', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-insert-opportunity-perdida-forca-cancelado',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-insert-opportunity-perdida-forca-cancelado',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining([
+        'fase-7',
+        'pac-insert',
+        'opportunity-perdida',
+        'regression',
+      ]),
+    });
+    expect(scenario?.steps).toEqual([
+      expect.objectContaining({
+        target: 'PAC',
+        eventType: 'pac-insert',
+      }),
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'PAC_CREATED_AND_LINKED',
+      checks: expect.arrayContaining([
+        'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          value: 'CREDITO_APROVADO_CONDICIONADO',
+        },
+      ]),
+    });
+  });
+
+  it('renders the lost-Opportunity PAC fixture sending a non-Cancelado payload status while scaffolding the Opportunity with StageName Perdido', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-insert-opportunity-perdida-forca-cancelado',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_i',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(1);
+    expect(fixture.steps[0]!.eventType).toBe('pac-insert');
+    expect(fixture.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+          opportunity: expect.objectContaining({
+            stageName: 'Perdido',
+          }),
+        }),
+      ]),
+    );
+    expect(fixture.steps[0]!.envelope[0]!.data).toMatchObject({
+      id: expect.stringMatching(/^PAC-SIM-/),
+      idjornadapac: expect.stringMatching(/^OPP-SIM-/),
+      status: 'CREDITO_APROVADO_CONDICIONADO',
+    });
+  });
+
   it('publishes a READY PAC update scenario that changes status and omits proponentes to exercise the real deletion branch', () => {
     const scenario = scenarioCatalog.get(
       'pac-update-altera-status-sem-proponentes',

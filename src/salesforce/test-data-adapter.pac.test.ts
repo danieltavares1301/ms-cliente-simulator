@@ -68,6 +68,24 @@ function pacPrincipalConflictInput(rendered = pacPrincipalConflictFixture()) {
   };
 }
 
+function pacOpportunityLostFixture() {
+  return renderScenarioFixture({
+    scenarioKey: 'pac-insert-opportunity-perdida-forca-cancelado',
+    version: 1,
+    seed: 'phase-seven-seed',
+    runId: 'run_phase_seven_i',
+    eventStartAt: '2026-09-22T00:00:00.000Z',
+  });
+}
+
+function pacOpportunityLostInput(rendered = pacOpportunityLostFixture()) {
+  return {
+    runId: rendered.runId,
+    scenarioKey: rendered.scenarioKey,
+    fixture: rendered,
+  };
+}
+
 function pacUpdateWithoutProponentesFixture() {
   return renderScenarioFixture({
     scenarioKey: 'pac-update-altera-status-sem-proponentes',
@@ -191,6 +209,14 @@ function pacPrincipalConflictEventData(rendered = pacPrincipalConflictFixture())
       email?: string;
       telefoneCelular?: string;
     }>;
+  };
+}
+
+function pacOpportunityLostEventData(rendered = pacOpportunityLostFixture()) {
+  return rendered.steps[0]!.envelope[0]!.data as {
+    id: string;
+    idjornadapac: string;
+    status: string;
   };
 }
 
@@ -521,6 +547,65 @@ describe('Salesforce PAC test data adapter', () => {
     );
     expect(client.query.mock.calls[3]?.[0]).toContain(
       'SELECT Id,Id__c,Proponente__c,PropostaAnaliseCredito__c,IdCliente__c,CpfProponente__c,TipoClassificacao__c,EmailAtualizado__c,Celular__c,DataAlteracaoEvento__c,NomeCompleto__c FROM Proponente__c',
+    );
+  });
+
+  it('verifies the lost-Opportunity PAC scenario by preserving the payload status observed in the real org', async () => {
+    const rendered = pacOpportunityLostFixture();
+    const event = pacOpportunityLostEventData(rendered);
+    const opportunitySetup = rendered.setup.find(
+      (instruction) => instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY',
+    );
+    if (opportunitySetup?.operation !== 'CREATE_SYNTHETIC_OPPORTUNITY') {
+      throw new Error('Expected PAC fixture opportunity scaffolding');
+    }
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: opportunityId,
+            Id__c: opportunitySetup.opportunity.idExterno,
+            AccountId: accountId,
+            Name: opportunitySetup.opportunity.name,
+            StageName: opportunitySetup.opportunity.stageName,
+            CloseDate: opportunitySetup.opportunity.closeDate,
+            PACAtual__c: propostaId,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [
+          {
+            Id: propostaId,
+            Id__c: event.id,
+            Oportunidade__c: opportunityId,
+            Status__c: event.status,
+          },
+        ],
+      });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(pacOpportunityLostInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.recordIds).toStrictEqual([opportunityId, propostaId]);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          passed: true,
+        },
+        {
+          check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+          passed: true,
+        },
+      ]),
     );
   });
 

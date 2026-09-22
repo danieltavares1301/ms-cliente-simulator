@@ -1892,6 +1892,76 @@ export const basicScenarioDefinitions = [
     cleanup: cleanupWithOpportunity,
   },
   {
+    key: 'pac-insert-opportunity-perdida-forca-cancelado',
+    version: 1,
+    name: 'PAC insert com Opportunity Perdido mantém status observado',
+    description:
+      'Registra o comportamento observado em mrv-devDan quando a Opportunity sintética já nasce com StageName Perdido: apesar da hipótese de override para Cancelado, o pac-insert persiste o mesmo status enviado no payload.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-7',
+      'pac-insert',
+      'opportunity-perdida',
+      'status-override',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC Perdido',
+          stageName: 'Perdido',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-opportunity-perdida',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: pacPayload('pac-insert', {
+          status: 'CREDITO_APROVADO_CONDICIONADO',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A PAC deve ser criada e vinculada à Opportunity sintética perdida, mantendo o Status__c exatamente como veio no payload segundo o comportamento real observado em mrv-devDan.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+            value: 'CREDITO_APROVADO_CONDICIONADO',
+          },
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithOpportunity,
+  },
+  {
     key: 'pac-conflito-proponentes-principais',
     version: 1,
     name: 'PAC conflito de proponentes principais',

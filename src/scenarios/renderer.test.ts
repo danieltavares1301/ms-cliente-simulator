@@ -30,6 +30,7 @@ const scenarioKeys = [
   'pac-aprovada-sincroniza-contatos',
   'pac-conflito-proponentes-principais',
   'pac-insert-minimo',
+  'pac-insert-opportunity-perdida-forca-cancelado',
   'pac-update-altera-status-sem-proponentes',
   'pac-update-reenviando-proponentes',
 ] as const;
@@ -56,6 +57,7 @@ const expectedStepCountByScenario = {
   'pac-aprovada-sincroniza-contatos': 1,
   'pac-conflito-proponentes-principais': 1,
   'pac-insert-minimo': 1,
+  'pac-insert-opportunity-perdida-forca-cancelado': 1,
   'pac-update-altera-status-sem-proponentes': 2,
   'pac-update-reenviando-proponentes': 2,
 } as const;
@@ -431,7 +433,32 @@ describe('basic scenario fixture definitions', () => {
     checks: ['PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY'],
   });
   expect(
+    scenarioCatalog.get(
+      'pac-insert-opportunity-perdida-forca-cancelado',
+      1,
+    )?.expectedOutcomes[0],
+  ).toMatchObject({
+    result: 'PAC_CREATED_AND_LINKED',
+    checks: expect.arrayContaining([
+      'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+      {
+        check: 'PROPOSTA_ANALISE_CREDITO_STATUS_EQUALS_EXPECTED',
+        value: 'CREDITO_APROVADO_CONDICIONADO',
+      },
+    ]),
+  });
+  expect(
     scenarioCatalog.get('pac-insert-minimo', 1)?.asyncPolicy,
+  ).toStrictEqual({
+    expectedCallbacks: { min: 1, max: 1 },
+    waitTimeoutMs: 30_000,
+    missingCallbackResult: 'PARTIAL',
+  });
+  expect(
+    scenarioCatalog.get(
+      'pac-insert-opportunity-perdida-forca-cancelado',
+      1,
+    )?.asyncPolicy,
   ).toStrictEqual({
     expectedCallbacks: { min: 1, max: 1 },
     waitTimeoutMs: 30_000,
