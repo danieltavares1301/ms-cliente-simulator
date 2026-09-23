@@ -2695,11 +2695,18 @@ independentemente de quem vence.
   disputam os mesmos campos (PAC sempre "vence" o contato, por ser o unico
   a escrever email/celular); e a tentativa de troca de prospect no CQ-Y foi
   corretamente bloqueada pela regra de "so carimba se estiver em branco".
-- [ ] `O09` (Ordem composta Clarice): a cadeia completa (intervencao manual
+- [x] `O09` (Ordem composta Clarice): a cadeia completa (intervencao manual
   de `O06` + corrida de `O07`, na ordem do catalogo) e executavel ponta-a-
   ponta; o estado final (Account e Lead convergindo para os contatos
   aprovados) e validado, mesmo que o estado intermediario exato do catalogo
-  nao ocorra em toda execucao.
+  nao ocorra em toda execucao. **Concluido e validado ao vivo**:
+  `scripts/composite-o09-ordem-clarice.ts` — ver
+  `docs/phase-8/tarefa-8-4-o09.md`. Composicao das duas tecnicas ja validadas
+  isoladamente (O06 + O07) em uma unica execucao real: a Account referenciada
+  pela PAC convergiu corretamente para os contatos aprovados mesmo sob a
+  corrida genuina, e a Account manualmente criada teve seu prospect
+  provisorio "curado" automaticamente pelo Apex apos ser limpo, exatamente
+  como ja confirmado isoladamente no O06.
 - [x] `O11` (Jornada sem `idCliente`): alem da reentrega identica ja coberta,
   existe uma variante que envia a transicao explicita
   `idCliente=null -> IDCLI-Y` no mesmo `PROS`, como o catalogo descreve.

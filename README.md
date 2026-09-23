@@ -422,6 +422,7 @@ roda automaticamente no build/deploy.
 - [Tarefa 8.4 — O12 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o12.md)
 - [Tarefa 8.4 — O06 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o06.md)
 - [Tarefa 8.4 — O07 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o07.md)
+- [Tarefa 8.4 — O09 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o09.md)
 
 ### Segurança, decisões e escopo
 

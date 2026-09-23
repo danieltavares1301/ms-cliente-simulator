@@ -27,7 +27,8 @@
     "stress:o10": "node scripts/run-stress-o10-concurrent-events.cjs",
     "stress:o12": "tsx scripts/stress-o12-contencao-account-y.ts",
     "manual-intervention:o06": "tsx scripts/manual-intervention-o06.ts",
-    "stress:o07": "tsx scripts/stress-o07-corrida-queueable-vs-pac.ts"
+    "stress:o07": "tsx scripts/stress-o07-corrida-queueable-vs-pac.ts",
+    "composite:o09": "tsx scripts/composite-o09-ordem-clarice.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
