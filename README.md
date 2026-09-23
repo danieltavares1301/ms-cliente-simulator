@@ -331,6 +331,9 @@ roda automaticamente no build/deploy.
 - [Análise de logs reais de `mrv-staging`](docs/staging-logs-analysis.md) —
   documento mais denso em evidência real: taxas de erro observadas, casos de
   drift de versão `mrv-staging`/`mrv-devDan` e a base de toda a Tarefa 7.2.
+- [Catálogo de ordens de eventos do MS Cliente no Pós-PAC](docs/catalogo-ordens-eventos-ms-cliente-pos-pac.md) —
+  contrato funcional original (15 ordens `O01`–`O15`), com adendo mapeando
+  cada ordem ao estado real de implementação no catálogo de cenários.
 
 ### Fase 0 — Validação e configuração técnica
 
