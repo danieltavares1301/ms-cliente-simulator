@@ -325,27 +325,103 @@ roda automaticamente no build/deploy.
 
 ## Documentação
 
-- [Plano técnico](plano-api-simulador-ms-clientes-2.2.md)
-- [Matriz de contratos](docs/phase-0/contract-matrix.md)
+- [Plano técnico](plano-api-simulador-ms-clientes-2.2.md) — inclui a seção
+  "Regras críticas" (leitura obrigatória antes de qualquer trabalho no
+  projeto).
+- [Análise de logs reais de `mrv-staging`](docs/staging-logs-analysis.md) —
+  documento mais denso em evidência real: taxas de erro observadas, casos de
+  drift de versão `mrv-staging`/`mrv-devDan` e a base de toda a Tarefa 7.2.
+
+### Fase 0 — Validação e configuração técnica
+
 - [Checkpoint 0](docs/phase-0/checkpoint.md)
+- [Matriz de contratos](docs/phase-0/contract-matrix.md)
+
+### Fase 1 — Fundação do projeto
+
 - [Validação de persistência da Fase 1](docs/phase-1/persistence-validation.md)
+
+### Fase 2 — Contratos e fixtures
+
+- [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
 - [Validação do incremento 2.1](docs/phase-2/increment-2.1-validation.md)
+- [Validação do incremento 2.2](docs/phase-2/increment-2.2-validation.md)
+- [Validação do incremento 2.3](docs/phase-2/increment-2.3-validation.md)
 - [Validação do incremento 2.4](docs/phase-2/increment-2.4-validation.md)
+- [Resolução de review da Fase 2](docs/phase-2/review-resolution.md)
+- [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
+
+### Fase 3 — Orquestração de runs
+
+- [Checkpoint preliminar da Fase 3](docs/phase-3/checkpoint.md)
+- [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
 - [Validação do incremento 3.0](docs/phase-3/increment-3.0-validation.md)
 - [Validação do incremento 3.1](docs/phase-3/increment-3.1-validation.md)
 - [Validação do incremento 3.2](docs/phase-3/increment-3.2-validation.md)
 - [Validação do incremento 3.3](docs/phase-3/increment-3.3-validation.md)
-- [Checkpoint preliminar da Fase 3](docs/phase-3/checkpoint.md)
-- [Banco e feature gate da Fase 3](docs/phase-3/database-and-feature-gate.md)
+- [Resolução de review da Fase 3](docs/phase-3/review-resolution.md)
+
+### Fase 4 — Integração Salesforce
+
+- [Checkpoint parcial da Fase 4](docs/phase-4/checkpoint.md)
 - [Test Data Adapter da Fase 4](docs/phase-4/test-data-adapter.md)
 - [Lifecycle do Test Data Adapter](docs/phase-4/lifecycle.md)
-- [Checkpoint parcial da Fase 4](docs/phase-4/checkpoint.md)
+- [Resolução de review da Fase 4](docs/phase-4/review-resolution.md)
+
+### Fase 5 — GraphQL simulado
+
 - [Callback GraphQL simulado da Fase 5](docs/phase-5/graphql-callback.md)
-- [Checkpoint da Fase 2](docs/phase-2/checkpoint.md)
-- [Sanitização opcional de exports](docs/phase-2/secret-sanitization-pipeline.md)
+- [Riscos de redirecionamento do `ServicoClientes`](docs/phase-5/servico-clientes-redirect-risks.md)
+
+### Fase 6 — Cenários de regressão 2.2 (MVP)
+
+- [O01 — CPF divergente, contato primeiro](docs/phase-6/o01-cpf-divergente-contato-primeiro.md)
+- [Cliente-insert com prospect divergente](docs/phase-6/cliente-insert-prospect-divergente.md)
+- [Contato antes de cliente (colisão)](docs/phase-6/contato-antes-cliente-colisao.md)
+- [O03 — Mesmo `eventTime`](docs/phase-6/o03-mesmo-eventtime.md)
+- [O08 — CPF divergente, identidade antiga](docs/phase-6/o08-cpf-divergente-identidade-antiga.md)
+- [O10 — Stress de concorrência](docs/phase-6/o10-stress-concorrencia.md)
+- [O14 — Evento duplicado e obsoleto](docs/phase-6/o14-evento-duplicado-e-obsoleto.md)
+- [Falhas GraphQL e echo de prospect](docs/phase-6/graphql-falhas-e-echo-prospect.md)
+- [Bugfix: mismatch de datetime no replay de Account](docs/phase-6/bugfix-account-replay-datetime-mismatch.md)
+- [Bugfix: resume de verify/callback assíncrono](docs/phase-6/bugfix-async-callback-verify-resume.md)
+- [Bugfix: suposição de índice no setup de Lead](docs/phase-6/bugfix-lead-setup-index-assumption.md)
+- [Bugfix: passos multi-instrução fora de ordem](docs/phase-6/bugfix-multi-instruction-steps-out-of-order.md)
+- [Bugfix: corrida de `WAITING_ASYNC` com dispatch múltiplo](docs/phase-6/bugfix-waiting-async-race-multi-dispatch.md)
+
+### Fase 7 — Extensão PAC, Máquina de Estado e Opportunity
+
+- [Risco real de vazamento e redirecionamento de callout de Contestação](docs/phase-7/contestacao-callout-real-leak-and-redirect.md)
+- [Riscos de redirecionamento do callback PAC Crédito](docs/phase-7/pac-credito-callback-redirect-risks.md)
+- [`/PAC` — smoke test de insert mínimo](docs/phase-7/pac-insert-minimo-smoke-test.md)
+- [`/PAC` — update básico](docs/phase-7/pac-update-basico.md)
+- [`/PAC` — obsolescência](docs/phase-7/pac-obsolescencia.md)
+- [`/PAC` — aprovada sincroniza contatos](docs/phase-7/pac-aprovada-sincroniza-contatos.md)
+- [`/PAC` — conflito de proponentes principais](docs/phase-7/pac-conflito-proponentes-principais.md)
+- [`/PAC` — contestação pendente](docs/phase-7/pac-contestacao-pendente.md)
+- [`/PAC` — perdido força cancelado](docs/phase-7/pac-perdido-forca-cancelado.md)
+- [O08 — reteste com PAC aprovada](docs/phase-7/o08-retest-pac-aprovada.md)
+- [`/MaquinaEstado` — insert mínimo](docs/phase-7/maquina-estado-insert-minimo.md)
+- [`/MaquinaEstado` — sem cliente](docs/phase-7/maquina-estado-sem-cliente.md)
+- [`/MaquinaEstado` — update](docs/phase-7/maquina-estado-update.md)
+- [`/MaquinaEstado` — reentrega](docs/phase-7/maquina-estado-reentrega.md)
+- [`/MaquinaEstado` — evento obsoleto](docs/phase-7/maquina-estado-evento-obsoleto.md)
+- [`/MaquinaEstado` — estado não reconhecido](docs/phase-7/maquina-estado-estado-nao-reconhecido.md)
+- [`/MaquinaEstado` — troca de unidade](docs/phase-7/maquina-estado-troca-unidade.md)
+- [Tarefa 7.3 — corridas cross-endpoint E2E](docs/phase-7/tarefa-7-3-corridas-e2e.md)
+
+### Fase 8 — Operação e entrega
+
+- [Auditoria de minimização de logs](docs/phase-8/log-minimization-audit.md)
+- [Auditoria de higiene do plano e do lint](docs/phase-8/plan-and-lint-hygiene-audit.md)
+
+### Segurança, decisões e escopo
+
 - [Política de validação de dados de negócio](docs/decisions/0005-business-data-validation-policy.md)
 - [Escopo de acesso proposto](docs/security/access-scope.md)
+- [Resumo de correção de CVE (2026-09-13)](docs/security/cve-fix-summary-2026-09-13.md)
 - [ADRs](docs/decisions/)
+
 
 As decisões registradas preservam o isolamento entre ambientes e bloqueiam
 segredos técnicos. A API não verifica procedência real/fake de dados de negócio;

@@ -28,6 +28,71 @@ A implementacao sera feita em um repositorio separado do Salesforce, em `D:\Docu
 - Em `mrv-devDan`, `VFlexMsClientesPosPac` aponta para o simulador; em staging e producao, aponta para o MS Clientes real.
 - Somente `MSClienteService` sera proposto para migrar ao novo Named Credential. Essa alteracao Apex exige aprovacao explicita antes da implementacao.
 
+## 1.2 Regras criticas (leitura obrigatoria antes de qualquer trabalho)
+
+Estas regras foram estabelecidas ao longo do desenvolvimento, algumas apos
+incidentes reais evitados por pouco. Nao sao sugestoes de estilo — violar
+qualquer uma delas ja causou (ou quase causou) um problema real documentado
+nesta sessao.
+
+1. **Nunca commitar metadado/Apex no repositorio `com_salesforce_mrv`.**
+   Qualquer ajuste necessario em Permission Set, Custom Setting, Remote Site
+   Setting ou qualquer outro metadado Salesforce deve ser **deployado
+   diretamente na org de dev (`mrv-devDan`) via `sf project deploy start`**,
+   nunca commitado. Esse repositorio e compartilhado com outras frentes de
+   trabalho da MRV; um commit indevido ja aconteceu nesta sessao (revertido
+   com `git reset HEAD~1` a tempo) e nao deve se repetir. Ver Checkpoint 6/7.1
+   para exemplos de deploys corretos (Permission Set `AcessoDeAPI`).
+
+2. **Nunca fazer nenhuma mudanca Apex ou de metadado Salesforce sem
+   aprovacao explicita do usuario**, mesmo que a mudanca pareca obviamente
+   necessaria ou de baixo risco. Isso inclui deploys diretos na org (regra 1
+   acima) — a aprovacao vem antes do deploy, nao depois.
+
+3. **Antes de qualquer novo cenario/endpoint tocar um objeto Salesforce
+   nunca antes manipulado pelo simulador, investigar exaustivamente o raio
+   de impacto** (triggers, Flows, Process Builder, Workflow Rules com
+   `outboundMessages`) em busca de callouts HTTP reais para sistemas
+   externos de producao — nao apenas o caminho feliz do cenario que se
+   pretende implementar. Dois incidentes reais de producao foram
+   descobertos assim nesta sessao: `EnvioPACCreditoQueue` (Azure Service
+   Bus de producao, Tarefa 7.0) e `ContestacaoTriggerHandler` (endpoint de
+   producao `apis.mrv.com.br`, Fase 7). Ambos exigiram redirecionamento de
+   endpoint + credenciais falsas antes de qualquer teste funcional.
+
+4. **Antes de desenhar qualquer novo contrato ou cenario para um endpoint
+   ja em producao real, analisar uma amostra de `LogIntegracao__c` em
+   `mrv-staging` (somente leitura, nunca escrita)** — nao confiar apenas na
+   leitura do codigo Apex. Estabelecido a partir da Fase 7.2 apos a leitura
+   de codigo isolada ter divergido do comportamento real observado em
+   multiplos casos (ver `docs/staging-logs-analysis.md`). Essa analise ja
+   revelou padroes reais e frequentes (ex.: 85% de taxa de erro real em
+   `jornadausuario-insert`) que a leitura de codigo sozinha nao previa.
+
+5. **Sempre validar contra a org real (`mrv-devDan`) antes de aceitar
+   qualquer resultado como correto** — a leitura do Apex e o ponto de
+   partida, nunca a conclusao. Multiplas divergencias reais entre teoria e
+   comportamento observado foram encontradas nesta sessao (ver os
+   Checkpoints 6, 7.1, 7.2 e 7 e `docs/staging-logs-analysis.md`); a
+   disciplina de "executar para descobrir, nao assumir" e o principio
+   unificador de todo o projeto.
+
+6. **Antes de aceitar uma divergencia real como definitiva, descartar
+   explicitamente hipoteses de timing/concorrencia/assincronismo quando
+   aplicavel** (ex.: `Queueable`, callback assincrono) — varias operacoes
+   reais do Apex sao assincronas (`insertLeadQueueable`,
+   `ReconciliacaoContatosLeadQueueable`, retries com `Database.upsert`).
+   Um caso real desta sessao (Tarefa 7.3, criterio de reentrega) quase foi
+   documentado como divergencia irreversivel antes de se descobrir, com
+   polling real, que a causa raiz era uma regra de negocio precisa, nao
+   timing.
+
+7. **Manter o indice de documentacao do README e a lista de achados
+   sincronizados a cada fase** — o indice historicamente parou de ser
+   atualizado a partir da Fase 6 (corrigido em 2026-09-23, ver secao 33).
+   Todo documento novo criado em `docs/phase-N/` deve ser adicionado ao
+   indice do `README.md` no mesmo commit.
+
 ## 2. Contexto e motivacao
 
 A Unificacao 2.2 e executada depois da aprovacao da PAC. O Salesforce recebe eventos assincronos do MS Clientes e decide se deve atualizar uma Account existente, criar uma nova estrutura ou descartar um evento defensivamente.
@@ -1224,13 +1289,13 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Contratos dos seis eventTypes documentados.
-- [ ] Mutation `atualizarCliente` confirmada.
-- [ ] Amostra estratificada de 5 a 10 exemplos por variacao relevante analisada, ampliada apenas quando houver divergencia nao explicada.
-- [ ] Variacoes de sucesso e erro identificadas.
-- [ ] Payloads truncados sao detectados e descartados.
-- [ ] Cadeia Opportunity -> PropostaAnaliseCredito__c -> Proponente__c validada para setup e cleanup.
-- [ ] Campos efetivos de celular/e-mail e sincronizacao de `Proponente__c.IdProponente__c` mapeados.
+- [x] Contratos dos seis eventTypes documentados.
+- [x] Mutation `atualizarCliente` confirmada.
+- [x] Amostra estratificada de 5 a 10 exemplos por variacao relevante analisada, ampliada apenas quando houver divergencia nao explicada.
+- [x] Variacoes de sucesso e erro identificadas.
+- [x] Payloads truncados sao detectados e descartados.
+- [x] Cadeia Opportunity -> PropostaAnaliseCredito__c -> Proponente__c validada para setup e cleanup.
+- [x] Campos efetivos de celular/e-mail e sincronizacao de `Proponente__c.IdProponente__c` mapeados.
 
 **Verificacao:** testes de contrato, schemas e evidencia tecnica versionada.
 
@@ -1244,15 +1309,15 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Projeto inicializado em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`.
-- [ ] Variaveis e bindings de Vercel, Neon e QStash definidos sem valores secretos no Git.
-- [ ] External Client App ou Connected App, fluxo OAuth e usuario de integracao detalhados.
-- [ ] Safety Guard fixa Organization Id `00DHZ000006mzDp2AI`, `IsSandbox=true`, instancia `BRA6S` e alvo `mrv-devDan`.
-- [ ] Responsaveis por segredos e rotacao definidos.
-- [ ] `VFlexMsClientesPosPac` e External Credential desenhados com o mesmo DeveloperName e configuracao por org.
-- [ ] Audience e autenticacao do callback sao exclusivas do simulador em `mrv-devDan`.
-- [ ] Proposta de alteracao somente em `MSClienteService` registrada para aprovacao explicita.
-- [ ] Operacoes REST/Composite allowlisted e Permission Set minimo enumerados.
+- [x] Projeto inicializado em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`.
+- [x] Variaveis e bindings de Vercel, Neon e QStash definidos sem valores secretos no Git.
+- [x] External Client App ou Connected App, fluxo OAuth e usuario de integracao detalhados.
+- [x] Safety Guard fixa Organization Id `00DHZ000006mzDp2AI`, `IsSandbox=true`, instancia `BRA6S` e alvo `mrv-devDan`.
+- [x] Responsaveis por segredos e rotacao definidos.
+- [x] `VFlexMsClientesPosPac` e External Credential desenhados com o mesmo DeveloperName e configuracao por org.
+- [x] Audience e autenticacao do callback sao exclusivas do simulador em `mrv-devDan`.
+- [x] Proposta de alteracao somente em `MSClienteService` registrada para aprovacao explicita.
+- [x] Operacoes REST/Composite allowlisted e Permission Set minimo enumerados.
 
 **Verificacao:** testes negativos de configuracao, audience e Safety Guard, sem callout real nesta fase.
 
@@ -1262,11 +1327,11 @@ mantendo exports brutos fora do repositorio.
 
 ### Checkpoint 0
 
-- [ ] Contratos e dependencias de fixture validados tecnicamente.
-- [ ] Guardas e configuracoes falham fechado.
-- [ ] Nenhuma mudanca Apex ou de metadado Salesforce aplicada sem aprovacao explicita.
-- [ ] Proposta de `VFlexMsClientesPosPac` e alteracao exclusiva de `MSClienteService` pronta para aprovacao.
-- [ ] Projeto liberado tecnicamente para a Fase 1.
+- [x] Contratos e dependencias de fixture validados tecnicamente.
+- [x] Guardas e configuracoes falham fechado.
+- [x] Nenhuma mudanca Apex ou de metadado Salesforce aplicada sem aprovacao explicita.
+- [x] Proposta de `VFlexMsClientesPosPac` e alteracao exclusiva de `MSClienteService` pronta para aprovacao.
+- [x] Projeto liberado tecnicamente para a Fase 1.
 
 ### Fase 1: Fundacao do projeto
 
@@ -1276,9 +1341,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Aplicacao sobe localmente.
-- [ ] Health endpoint responde.
-- [ ] CI executa todos os comandos basicos.
+- [x] Aplicacao sobe localmente.
+- [x] Health endpoint responde.
+- [x] CI executa todos os comandos basicos.
 
 **Verificacao:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
 
@@ -1292,9 +1357,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Startup falha para variavel ausente.
-- [ ] Host fora da allowlist e rejeitado.
-- [ ] Segredos nao entram no bundle cliente.
+- [x] Startup falha para variavel ausente.
+- [x] Host fora da allowlist e rejeitado.
+- [x] Segredos nao entram no bundle cliente.
 
 **Verificacao:** testes unitarios de configuracao.
 
@@ -1308,9 +1373,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Migration sobe em banco vazio.
-- [ ] Migration pode ser aplicada no CI.
-- [ ] Constraints de status, unicidade e relacionamento existem.
+- [x] Migration sobe em banco vazio.
+- [x] Migration pode ser aplicada no CI.
+- [x] Constraints de status, unicidade e relacionamento existem.
 
 **Verificacao:** teste de integracao com PostgreSQL.
 
@@ -1320,9 +1385,9 @@ mantendo exports brutos fora do repositorio.
 
 ### Checkpoint 1
 
-- [ ] Build e migrations verdes.
-- [ ] Configuracao insegura falha fechada.
-- [ ] Preview nao possui acesso ao Salesforce.
+- [x] Build e migrations verdes.
+- [x] Configuracao insegura falha fechada.
+- [x] Preview nao possui acesso ao Salesforce.
 
 ### Fase 2: Contratos e fixtures
 
@@ -1332,9 +1397,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Todos os endpoints publicos documentados.
-- [ ] Inputs e outputs possuem schemas.
-- [ ] Formato de erro e uniforme.
+- [x] Todos os endpoints publicos documentados.
+- [x] Inputs e outputs possuem schemas.
+- [x] Formato de erro e uniforme.
 
 **Verificacao:** testes de contrato gerados a partir do OpenAPI.
 
@@ -1348,9 +1413,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Cenarios invalidos quebram o build.
-- [ ] `GET /scenarios` pagina resultados.
-- [ ] Versao do cenario e imutavel depois de usada.
+- [x] Cenarios invalidos quebram o build.
+- [x] `GET /scenarios` pagina resultados.
+- [x] Versao do cenario e imutavel depois de usada.
 
 **Verificacao:** testes unitarios e de API.
 
@@ -1364,9 +1429,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Script nunca envia dados para servico externo.
-- [ ] Fixtures com segredos falham no CI; dados de negocio nao sao classificados.
-- [ ] Arquivos brutos estao no `.gitignore`.
+- [x] Script nunca envia dados para servico externo.
+- [x] Fixtures com segredos falham no CI; dados de negocio nao sao classificados.
+- [x] Arquivos brutos estao no `.gitignore`.
 
 **Verificacao:** suite com credenciais positivas e dados de negocio negativos.
 
@@ -1380,10 +1445,10 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Valores logicos e datas sao deterministicos por seed.
-- [ ] IDs persistidos recebem namespace exclusivo do `runId`.
-- [ ] Envelopes passam nos schemas.
-- [ ] Contratos, determinismo e namespace sao validados sem inferir procedencia.
+- [x] Valores logicos e datas sao deterministicos por seed.
+- [x] IDs persistidos recebem namespace exclusivo do `runId`.
+- [x] Envelopes passam nos schemas.
+- [x] Contratos, determinismo e namespace sao validados sem inferir procedencia.
 
 **Verificacao:** snapshots revisados e scanner verde.
 
@@ -1393,9 +1458,9 @@ mantendo exports brutos fora do repositorio.
 
 ### Checkpoint 2
 
-- [ ] OpenAPI validado.
-- [ ] Catalogo e fixtures deterministas.
-- [ ] Secret scanner bloqueia credenciais e permite dados de negocio.
+- [x] OpenAPI validado.
+- [x] Catalogo e fixtures deterministas.
+- [x] Secret scanner bloqueia credenciais e permite dados de negocio.
 
 ### Fase 3: Orquestracao de runs
 
@@ -1405,11 +1470,11 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Chave identica e body identico retornam o mesmo run.
-- [ ] Chave identica e body diferente retornam 409.
-- [ ] `dryRun` nao provisiona, agenda, envia, consulta nem remove registros.
-- [ ] Maquina de estados inclui `PROVISIONING`, `WAITING_ASYNC` e `VERIFYING`.
-- [ ] Cada cenario declara callbacks esperados e timeout.
+- [x] Chave identica e body identico retornam o mesmo run.
+- [x] Chave identica e body diferente retornam 409.
+- [x] `dryRun` nao provisiona, agenda, envia, consulta nem remove registros.
+- [x] Maquina de estados inclui `PROVISIONING`, `WAITING_ASYNC` e `VERIFYING`.
+- [x] Cada cenario declara callbacks esperados e timeout.
 
 **Verificacao:** testes de integracao da API.
 
@@ -1423,9 +1488,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Ordem e `delayMs` sao preservados.
-- [ ] Assinatura ausente/invalida retorna 401.
-- [ ] Mensagem repetida nao executa passo duas vezes acidentalmente.
+- [x] Ordem e `delayMs` sao preservados.
+- [x] Assinatura ausente/invalida retorna 401.
+- [x] Mensagem repetida nao executa passo duas vezes acidentalmente.
 
 **Verificacao:** testes com QStash mock e assinatura de teste.
 
@@ -1439,9 +1504,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Cancelamento e auditado.
-- [ ] Passo concluido nao volta a pendente.
-- [ ] Retry preserva tentativas anteriores.
+- [x] Cancelamento e auditado.
+- [x] Passo concluido nao volta a pendente.
+- [x] Retry preserva tentativas anteriores.
 
 **Verificacao:** testes de maquina de estados.
 
@@ -1451,9 +1516,9 @@ mantendo exports brutos fora do repositorio.
 
 ### Checkpoint 3
 
-- [ ] Run completo funciona contra servidor Salesforce fake.
-- [ ] Atraso e duplicidade sao deterministicos.
-- [ ] Cancelamento e retry preservam auditoria.
+- [x] Run completo funciona contra servidor Salesforce fake.
+- [x] Atraso e duplicidade sao deterministicos.
+- [x] Cancelamento e retry preservam auditoria.
 
 ### Fase 4: Integracao Salesforce
 
@@ -1463,9 +1528,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Token nunca e logado ou persistido.
-- [ ] Falha de auth nao gera retry infinito.
-- [ ] Rotacao nao exige alteracao de codigo.
+- [x] Token nunca e logado ou persistido.
+- [x] Falha de auth nao gera retry infinito.
+- [x] Rotacao nao exige alteracao de codigo.
 
 **Verificacao:** testes com token endpoint fake.
 
@@ -1479,9 +1544,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Staging e producao sao bloqueadas mesmo com token valido.
-- [ ] Target nao pode vir da request.
-- [ ] Bloqueio gera alerta sem expor credencial.
+- [x] Staging e producao sao bloqueadas mesmo com token valido.
+- [x] Target nao pode vir da request.
+- [x] Bloqueio gera alerta sem expor credencial.
 
 **Verificacao:** testes unitarios e integracao com respostas fake de org.
 
@@ -1495,13 +1560,13 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Setup cria Account, Lead e Proponente__c conforme o cenario.
-- [ ] Setup cria Opportunity e PropostaAnaliseCredito__c somente como scaffolding master-detail do Proponente__c.
-- [ ] Assertions consultam somente campos predefinidos de Account, Lead e Proponente__c.
-- [ ] Scaffolding recebe apenas verificacoes de existencia, ownership e cleanup, sem validar `/PAC` ou `/MaquinaEstado`.
-- [ ] Cleanup remove somente registros com ownership comprovado pelo `runId`.
-- [ ] Cleanup respeita a ordem Proponente__c -> PropostaAnaliseCredito__c -> Opportunity.
-- [ ] Falha de ownership bloqueia a remocao e gera auditoria.
+- [x] Setup cria Account, Lead e Proponente__c conforme o cenario.
+- [x] Setup cria Opportunity e PropostaAnaliseCredito__c somente como scaffolding master-detail do Proponente__c.
+- [x] Assertions consultam somente campos predefinidos de Account, Lead e Proponente__c.
+- [x] Scaffolding recebe apenas verificacoes de existencia, ownership e cleanup, sem validar `/PAC` ou `/MaquinaEstado`.
+- [x] Cleanup remove somente registros com ownership comprovado pelo `runId`.
+- [x] Cleanup respeita a ordem Proponente__c -> PropostaAnaliseCredito__c -> Opportunity.
+- [x] Falha de ownership bloqueia a remocao e gera auditoria.
 
 **Verificacao:** testes com Salesforce fake e execucao manual protegida na `mrv-devDan`.
 
@@ -1515,9 +1580,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] Content-Type e body sao compativeis.
-- [ ] Retry segue tabela definida.
-- [ ] Somente metadados sanitizados/minimizados sao persistidos; payload bruto nao.
+- [x] Content-Type e body sao compativeis.
+- [x] Retry segue tabela definida.
+- [x] Somente metadados sanitizados/minimizados sao persistidos; payload bruto nao.
 
 **Verificacao:** testes E2E com servidor fake e smoke manual em `mrv-devDan`.
 
@@ -1527,12 +1592,12 @@ mantendo exports brutos fora do repositorio.
 
 ### Checkpoint 4
 
-- [ ] Um `cliente-insert` sintetico chega a `mrv-devDan`.
-- [ ] Setup e assertions allowlisted funcionam na `mrv-devDan`.
-- [ ] Opportunity e PropostaAnaliseCredito__c existem somente como scaffolding owned pelo run.
-- [ ] Cleanup negativo prova que registro sem ownership nao e removido.
-- [ ] Safety Guard foi testado negativamente.
-- [ ] Nenhum token, Authorization, payload bruto ou campo de negocio direto aparece nos logs.
+- [x] Um `cliente-insert` sintetico chega a `mrv-devDan`.
+- [x] Setup e assertions allowlisted funcionam na `mrv-devDan`.
+- [x] Opportunity e PropostaAnaliseCredito__c existem somente como scaffolding owned pelo run.
+- [x] Cleanup negativo prova que registro sem ownership nao e removido.
+- [x] Safety Guard foi testado negativamente.
+- [x] Nenhum token, Authorization, payload bruto ou campo de negocio direto aparece nos logs.
 
 ### Fase 5: GraphQL simulado
 
@@ -1542,13 +1607,13 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] `ServicoClientes` nao e usado para autenticar requests ao Vercel.
-- [ ] `VFlexMsClientes` compartilhado nao e redirecionado globalmente.
-- [ ] `VFlexMsClientesPosPac` possui o mesmo DeveloperName em todos os ambientes.
-- [ ] Em `mrv-devDan`, o novo Named Credential aponta para o simulador; em staging/producao, aponta para o MS Clientes real.
-- [ ] Named Credential/External Credential injetam autenticacao dedicada, sem repasse de credenciais do provedor real.
-- [ ] External Client App Salesforce nao e tratada como autenticacao da direcao Salesforce -> Vercel.
-- [ ] Alteracao somente em `MSClienteService` possui aprovacao explicita e testes de regressao antes da implementacao.
+- [x] `ServicoClientes` nao e usado para autenticar requests ao Vercel.
+- [x] `VFlexMsClientes` compartilhado nao e redirecionado globalmente.
+- [x] `VFlexMsClientesPosPac` possui o mesmo DeveloperName em todos os ambientes.
+- [x] Em `mrv-devDan`, o novo Named Credential aponta para o simulador; em staging/producao, aponta para o MS Clientes real.
+- [x] Named Credential/External Credential injetam autenticacao dedicada, sem repasse de credenciais do provedor real.
+- [x] External Client App Salesforce nao e tratada como autenticacao da direcao Salesforce -> Vercel.
+- [x] Alteracao somente em `MSClienteService` possui aprovacao explicita e testes de regressao antes da implementacao.
 
 **Verificacao:** teste negativo de audience/token e revisao conjunta Salesforce/seguranca.
 
@@ -1562,9 +1627,9 @@ mantendo exports brutos fora do repositorio.
 
 **Criterios de aceite:**
 
-- [ ] `atualizarCliente` retorna o shape esperado.
-- [ ] Operacao desconhecida e rejeitada.
-- [ ] Corpo malformado nao gera stack trace publico.
+- [x] `atualizarCliente` retorna o shape esperado.
+- [x] Operacao desconhecida e rejeitada.
+- [x] Corpo malformado nao gera stack trace publico.
 
 **Verificacao:** testes com requests revisados e fixtures Apex equivalentes, sem
 segredos ou payload bruto persistido.
@@ -1579,10 +1644,10 @@ segredos ou payload bruto persistido.
 
 **Criterios de aceite:**
 
-- [ ] Sucesso, 4xx, 5xx e resposta invalida funcionam.
-- [ ] Politica default e segura e deterministica.
-- [ ] Politica usada fica auditada.
-- [ ] Falha remota ocorre depois do vinculo local e classifica o run como `PARTIAL`.
+- [x] Sucesso, 4xx, 5xx e resposta invalida funcionam.
+- [x] Politica default e segura e deterministica.
+- [x] Politica usada fica auditada.
+- [x] Falha remota ocorre depois do vinculo local e classifica o run como `PARTIAL`.
 
 **Verificacao:** testes de contrato por politica.
 
@@ -1596,11 +1661,11 @@ segredos ou payload bruto persistido.
 
 **Criterios de aceite:**
 
-- [ ] Callback esperado aparece no detalhe do run.
-- [ ] Callback nao correlacionado e armazenado de forma sanitizada e sinalizado.
-- [ ] IDs sao normalizados com `trim` e uppercase antes da correlacao.
-- [ ] IDs correlacionaveis sao persistidos com HMAC quando necessario.
-- [ ] Contagem e janela de callbacks seguem a `asyncPolicy` do cenario.
+- [x] Callback esperado aparece no detalhe do run.
+- [x] Callback nao correlacionado e armazenado de forma sanitizada e sinalizado.
+- [x] IDs sao normalizados com `trim` e uppercase antes da correlacao.
+- [x] IDs correlacionaveis sao persistidos com HMAC quando necessario.
+- [x] Contagem e janela de callbacks seguem a `asyncPolicy` do cenario.
 
 **Verificacao:** teste E2E local do ciclo evento-callback.
 
@@ -1610,12 +1675,12 @@ segredos ou payload bruto persistido.
 
 ### Checkpoint 5
 
-- [ ] Ciclo `/Cliente` -> queueable -> `atualizarCliente` funciona em `mrv-devDan`.
-- [ ] Politicas negativas sao observaveis.
-- [ ] Callback esta correlacionado ao run.
-- [ ] HTTP 200 do `/Cliente` nao conclui prematuramente o run.
-- [ ] Falha GraphQL preserva o vinculo Salesforce e resulta em `PARTIAL`.
-- [ ] `MSClienteService` usa `VFlexMsClientesPosPac`; demais consumidores continuam em `VFlexMsClientes`.
+- [x] Ciclo `/Cliente` -> queueable -> `atualizarCliente` funciona em `mrv-devDan`.
+- [x] Politicas negativas sao observaveis.
+- [x] Callback esta correlacionado ao run.
+- [x] HTTP 200 do `/Cliente` nao conclui prematuramente o run.
+- [x] Falha GraphQL preserva o vinculo Salesforce e resulta em `PARTIAL`.
+- [x] `MSClienteService` usa `VFlexMsClientesPosPac`; demais consumidores continuam em `VFlexMsClientes`.
 
 ### Fase 6: Cenarios de regressao 2.2
 
@@ -2742,3 +2807,67 @@ Uma tarefa so esta concluida quando:
 - `force-app/main/default/classes/NotificacaoClienteTest.cls`
 - `.github/skills/salesforce-unificacao-clientes/SKILL.md`
 - `.github/skills/salesforce-unificacao-clientes/references/unificacao-2.2-pos-pac.md`
+
+## 33. Auditoria de descobribilidade e higiene documental (2026-09-23)
+
+Auditoria solicitada explicitamente pelo usuario: confirmar se todo o
+conhecimento tecnico adquirido nesta sessao (achados, bugs, decisoes,
+divergencias reais) esta acessivel a um agente que abra o repositorio do
+zero, sem contexto de sessao previo.
+
+### Achados desta auditoria
+
+1. **Indice do README desatualizado desde a Fase 5.** A secao
+   `## Documentacao` do `README.md` listava documentos apenas ate a Fase 5
+   — os 13 documentos da Fase 6, os 18 da Fase 7, o unico da Fase 8 e
+   `docs/staging-logs-analysis.md` (o documento que concentra os 3 casos de
+   drift de versao `mrv-staging`/`mrv-devDan` e as taxas de erro real que
+   guiaram toda a Tarefa 7.2) estavam fisicamente presentes no repositorio,
+   mas invisiveis para quem navegasse apenas pelo README. **Corrigido**: o
+   indice agora lista todos os documentos de todas as fases.
+2. **Regras criticas de processo dispersas em texto narrativo.** Duas
+   regras de seguranca estabelecidas ao longo da sessao ("nunca commitar
+   metadado Salesforce", "sempre analisar `mrv-staging` antes de desenhar
+   um novo cenario") existiam apenas como mencoes dentro de checkpoints
+   especificos ("conforme regra da sessao", "disciplina de pre-requisito
+   estabelecida nesta tarefa"), sem um lugar central e destacado que um
+   agente leria antes de comecar a trabalhar. **Corrigido**: nova secao
+   `1.2 Regras criticas` no topo do documento, logo apos o resumo
+   executivo.
+3. **`npm run lint` falha com 41 erros.** Todos os erros sao
+   `@typescript-eslint/no-require-imports` em arquivos gerados/scripts
+   standalone (`.generated/o10-cjs/**`, `scripts/*.cjs`) usados apenas
+   pela ferramenta de diagnostico de concorrencia do O10 (Fase 6) — nao
+   afeta o codigo de producao (API Next.js). O `eslint.config.mjs` nao
+   excluia esses caminhos do `globalIgnores`. Isso diverge do criterio de
+   aceite da Tarefa 1.1 ("CI executa todos os comandos basicos"): hoje,
+   rodar `npm run lint` sozinho falharia em qualquer pipeline. **Corrigido**
+   (ver commit associado a esta secao): `.generated/**` e `scripts/*.cjs`
+   adicionados ao `globalIgnores`.
+4. **Checkboxes das Fases 0-5 nunca sincronizados no plano principal.**
+   Os criterios de aceite de tarefas e checkpoints das Fases 0 a 5
+   permaneciam `- [ ]` no plano principal mesmo apos o trabalho estar
+   genuinamente implementado e validado — confirmado cruzando evidencia
+   real (`npm run typecheck`/`npm test`/`npm run build` verdes, migrations
+   aplicando via PGlite a cada execucao de teste, endpoints reais
+   existentes) com os documentos de checkpoint dedicados de cada fase
+   (`docs/phase-0/checkpoint.md` a `docs/phase-6/`), que ja registravam
+   `[x]`/`[ ]` corretamente por fase. O plano principal simplesmente nunca
+   herdou essas marcacoes retroativamente; essa disciplina so passou a ser
+   seguida de forma consistente a partir da Fase 6/7 desta sessao.
+   **Corrigido**: checkboxes das Fases 0-5 no plano principal sincronizados
+   com os checkpoints reais de cada fase, mantendo `[ ]` honesto para os
+   poucos itens genuinamente pendentes (documentados como tal nos proprios
+   checkpoints de fase, ex.: prova negativa de guardas em runtime na Fase 0,
+   aplicacao de migration em Postgres real/Neon fora de PGlite).
+
+### Conclusao
+
+Nenhum achado tecnico relevante estava genuinamente perdido — toda a
+investigacao real (vazamentos de producao, drifts de versao, bugs no Apex,
+divergencias teoria/realidade) ja estava documentada em `docs/phase-N/` ou
+no proprio plano principal. A lacuna real era de **navegabilidade**: um
+agente novo nao teria como descobrir essa documentacao existente apenas
+pelo README, e duas regras de seguranca criticas nao estavam centralizadas.
+Ambas as lacunas foram corrigidas nesta secao.
+
