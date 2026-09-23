@@ -241,131 +241,119 @@ O comportamento real ficou alinhado ao contrato Apex:
 
 ## Cenário 3 — `e2e-evento-atual-reentregue-apos-cliente-insert`
 
-### Divergência real prioritária
+### Causa raiz definitiva no Apex real
 
-Este foi o único critério cuja **teoria não bateu com o observado em
-`mrv-devDan`**.
+A leitura final do Apex em `NotificacaoCliente.preencherAtributosAccount`
+explicou o comportamento observado:
 
-### Identidade sintética
+- `cliente-insert` **de primeira vez** cria a `Account`, mas **não** carimba
+  `IdProspectSalesforce__c`;
+- esse campo só é atribuído quando a mesma identidade volta via
+  `cliente-update` e a `Account` **já existe**.
 
-- `runId = run_phase7_task73_redelivery_20260922a`
-- Account criada no passo 2:
-  `CLI-SIM-ff10caedd1-c690c2b69a` → `001HZ000011Rh80YAC`
-- Opportunity esperada:
-  `OPP-SIM-ff10caedd1-c690c2b69a`
+Portanto, a sequência real correta para destravar a reentrega não é apenas
+`cliente-insert` → reentrega, e sim:
 
-### Sequência real observada
+1. `jornadausuario-insert` original falha sem Account;
+2. `cliente-insert` cria a Account;
+3. `cliente-update` subsequente carimba `IdProspectSalesforce__c`;
+4. a reentrega do mesmo `jornadausuario-insert` finalmente passa.
+
+### Evidência intermediária: timing sozinho não resolvia
+
+Antes de encontrar a causa raiz acima, o cenário foi reexecutado com polling
+direto na `Account` por ~28s depois de **apenas** `cliente-insert`, sem
+`cliente-update`. Em todas as 9 tentativas, `IdProspectSalesforce__c` ficou
+`null`, com `Opportunity = 0` e `Lead = 0`.
+
+Isso provou que **não** era um problema de “esperar mais tempo” após o
+`cliente-insert` isolado.
+
+### Diagnóstico confirmatório com `cliente-update`
+
+Foi então executada uma corrida diagnóstica adicionando `cliente-update`
+imediatamente após o `cliente-insert`:
+
+- `runId = run_phase7_task73_redelivery_update_20260922a`
+- `Account.Id__c = CLI-SIM-70e1269a76-59061e00ab`
+- `Account.Id = 001HZ000011SEJwYAO`
+- `Opportunity.Id__c = OPP-SIM-70e1269a76-59061e00ab`
+
+Sequência observada:
 
 1. `maquina-estado-insert-sem-cliente` → **HTTP 400**
 2. `cliente-insert-cria-account` → **HTTP 200**
-3. `maquina-estado-insert-reentregue` (mesmo envelope do passo 1) →
-   **HTTP 400**
+3. `cliente-update-carimba-prospect` → **HTTP 200**
+4. `maquina-estado-insert-reentregue-pos-update` → **HTTP 200**
 
-Corpo real do erro no passo 1 **e** no passo 3:
-
-```json
-{
-  "Status": "Error",
-  "Message": "Cliente(Account) não encontrado no Salesforce. clienteProspect.idClient: null. clienteProspect.idProspectSalesforce: PRO-SIM-ff10caedd1-c690c2b69a."
-}
-```
-
-### Query direta após o passo 2
-
-- `Account` foi criada:
-  - `Id = 001HZ000011Rm01YAC`
-  - `Id__c = CLI-SIM-dbba0baded-6f705ae03f`
-- **Mas** `IdProspectSalesforce__c` permaneceu **em branco**:
-  - `IdProspectSalesforce__c = null`
-
-### Investigação adicional de timing (polling real antes da reentrega)
-
-**Nota de rastreabilidade**: esta investigação foi feita numa **segunda
-execução independente** do cenário (novo `runId`, nova identidade sintética
-`CLI-SIM-dbba0baded-6f705ae03f` / `Account.Id = 001HZ000011Rm01YAC` /
-`OPP-SIM-dbba0baded-6f705ae03f`, distintos dos identificadores da primeira
-execução documentada acima na seção "Identidade sintética"
-`CLI-SIM-ff10caedd1-c690c2b69a`/`001HZ000011Rh80YAC`). Isso foi necessário
-porque o polling exige reexecutar o cenário do zero para observar a Account
-recém-criada ao longo do tempo, antes de disparar a reentrega. Ambas as
-execuções, com identidades diferentes, confirmaram o MESMO resultado real.
-
-Hipótese investigada: o campo `IdProspectSalesforce__c` poderia estar sendo
-carimbado de forma **assíncrona** pelo `Queueable` `insertLeadQueueable`, e o
-teste original talvez estivesse reentregando cedo demais.
-
-Para validar isso, o cenário foi reexecutado do zero e, após o
-`cliente-insert`, foi feito polling direto na `Account` a cada ~2,5–3,5
-segundos por cerca de **28 segundos** antes de disparar a reentrega:
+Polling direto após o `cliente-update`:
 
 | Tentativa | Timestamp UTC | Elapsed | `IdProspectSalesforce__c` | `Opportunity` | `Lead` |
 |---|---|---:|---|---:|---:|
-| 1 | `2026-09-23T00:00:39.907Z` | 0.939s | `null` | 0 | 0 |
-| 2 | `2026-09-23T00:00:43.349Z` | 4.362s | `null` | 0 | 0 |
-| 3 | `2026-09-23T00:00:46.769Z` | 7.771s | `null` | 0 | 0 |
-| 4 | `2026-09-23T00:00:50.184Z` | 11.114s | `null` | 0 | 0 |
-| 5 | `2026-09-23T00:00:53.526Z` | 14.464s | `null` | 0 | 0 |
-| 6 | `2026-09-23T00:00:56.880Z` | 17.843s | `null` | 0 | 0 |
-| 7 | `2026-09-23T00:01:00.262Z` | 21.225s | `null` | 0 | 0 |
-| 8 | `2026-09-23T00:01:03.643Z` | 24.642s | `null` | 0 | 0 |
-| 9 | `2026-09-23T00:01:07.061Z` | 27.999s | `null` | 0 | 0 |
+| 1 | `2026-09-23T01:56:12.161Z` | 0.881s | `PRO-SIM-70e1269a76-59061e00ab` | 0 | 0 |
 
-Observações reais durante o polling:
+Ou seja: o `cliente-update` carimbou o prospect **imediatamente**, antes da
+reentrega.
 
-- a `Account` já existia desde a primeira tentativa;
-- `IdProspectSalesforce__c` permaneceu `null` em **todas** as tentativas;
-- nenhum `Lead` foi criado nesse intervalo (`leadCount = 0`);
-- nenhuma `Opportunity` apareceu nesse intervalo (`opportunityCount = 0`).
+### Execução final do cenário corrigido
 
-A reentrega só foi enviada depois disso, às `2026-09-23T00:01:10.806Z`, ainda
-assim retornando **HTTP 400** com a mesma mensagem de
-`Cliente(Account) não encontrado`.
+Com a definição do cenário atualizada para incluir esse `cliente-update`, foi
+feita uma execução E2E final do próprio cenário:
 
-### Query direta após o passo 3
+- `runId = run_phase7_task73_redelivery_final_20260922a`
+- `Account.Id__c = CLI-SIM-406aaf41cb-c8d1d7947f`
+- `Account.Id = 001HZ000011S6noYAC`
+- `Opportunity.Id__c = OPP-SIM-406aaf41cb-c8d1d7947f`
+- `Opportunity.Id = 006HZ00000U0YlCYAV`
 
-- `Account` continuava existente:
-  - `Id = 001HZ000011Rm01YAC`
-  - `IdProspectSalesforce__c = null`
-- `Opportunity WHERE Id__c = 'OPP-SIM-dbba0baded-6f705ae03f'`:
-  - `totalSize = 0`
-- `OpportunityLineItem` associado:
+Sequência real observada:
+
+1. `maquina-estado-insert-sem-cliente` → **HTTP 400**
+2. `cliente-insert-cria-account` → **HTTP 200**
+3. `cliente-update-carimba-prospect` → **HTTP 200**
+4. `maquina-estado-insert-reentregue` → **HTTP 200**
+
+### Query direta antes do `verify()`
+
+- `Account`:
+  - `Id = 001HZ000011S6noYAC`
+  - `Id__c = CLI-SIM-406aaf41cb-c8d1d7947f`
+  - `IdProspectSalesforce__c = PRO-SIM-406aaf41cb-c8d1d7947f`
+- `Opportunity`:
+  - `Id = 006HZ00000U0YlCYAV`
+  - `Id__c = OPP-SIM-406aaf41cb-c8d1d7947f`
+  - `AccountId = 001HZ000011S6noYAC`
+  - `StageName = Simulação`
+  - `EventTime__c = 2026-09-23T02:05:00.000+0000`
+- `Lead`:
   - `totalSize = 0`
 
 ### Conclusão objetiva
 
-O simulador reproduziu uma divergência real importante:
+O critério foi finalmente confirmado ao vivo, mas com a **sequência correta**:
 
-- o `/Cliente` criou a Account;
-- porém **não** carimbou `IdProspectSalesforce__c`;
-- por isso a reentrega exata do mesmo `jornadausuario-insert` com
-  `idCliente = null` continuou falhando com **HTTP 400**;
-- **nenhuma `Opportunity` foi criada**.
-
-**Conclusão definitiva da investigação adicional:** a hipótese de **timing**
-foi **refutada**. Mesmo aguardando ~28 segundos com polling direto na org real,
-`IdProspectSalesforce__c` continuou `null`, então o comportamento observado não
-é apenas “o teste esperou pouco”; trata-se de uma divergência real reproduzível
-em `mrv-devDan`.
-
-Ou seja: em `mrv-devDan`, o critério “o mesmo evento atual pode ser
-reentregue após `cliente-insert`” **não se confirmou** no formato mais forte
-pedido aqui.
+- `cliente-insert` sozinho **não** basta;
+- `cliente-update` subsequente é o passo que carimba
+  `IdProspectSalesforce__c`;
+- depois disso, a reentrega **idêntica** do mesmo `jornadausuario-insert`
+  funciona e cria a `Opportunity` normalmente.
 
 ### Verificação automatizada
 
-O cenário foi ajustado para registrar o comportamento real observado, e
-`verify()` passou com **5/5 checks**:
+Com o cenário corrigido, `verify()` passou com **7/7 checks**:
 
 - `ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE`
 - `ACCOUNT_IS_PERSON_ACCOUNT`
-- `ACCOUNT_PROSPECT_ID_NOT_STAMPED`
-- `OPPORTUNITY_NOT_CREATED`
-- `OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED = 0`
+- `ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED`
+- `OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE`
+- `OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT`
+- `OPPORTUNITY_STAGE_EQUALS_EXPECTED`
+- `OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED = 1`
 
 ### Cleanup real
 
 - `cleanupResult.status = DELETED`
-- `deletedCount = 1`
+- `deletedCount = 3`
 - estado final pós-cleanup:
   - `Account = 0`
   - `Opportunity = 0`
@@ -377,8 +365,8 @@ O cenário foi ajustado para registrar o comportamento real observado, e
 
 - **Critério 1**: confirmado ao vivo.
 - **Critério 2**: confirmado ao vivo.
-- **Critério 3**: **divergiu da teoria**; o comportamento real observado foi
-  documentado e os asserts foram ajustados para refletir `mrv-devDan`.
+- **Critério 3**: confirmado ao vivo com a sequência correta
+  `cliente-insert` + `cliente-update` + reentrega.
 
 Nenhum bloqueio de permissão ocorreu e nenhum resíduo foi deixado na org ao
 final das execuções.

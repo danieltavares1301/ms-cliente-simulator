@@ -585,7 +585,7 @@ Os cenarios desta secao incluem Proponente__c no MVP, porque `NotificacaoCliente
 | `pac-atrasada-nao-restaura-prospect` | Evento PAC antigo chega depois | Prospect obsoleto nao e restaurado. |
 | `e2e-opportunity-permanece-conta-aprovada` | `/MaquinaEstado` antigo + `/Cliente` + `/PAC` aprovado + `/MaquinaEstado` com identidade antiga | Validado ao vivo: a PAC move a Opportunity para a Account aprovada e o update final nao a reverte. |
 | `e2e-evento-obsoleto-sem-cliente-ignorado` | Evento antigo nao resolve cliente depois de update atual | Validado ao vivo: responde 200 e preserva `StageName`/`EventTime__c`. |
-| `e2e-evento-atual-reentregue-apos-cliente-insert` | Reentrega exata do mesmo evento depois de `cliente-insert` | Divergencia real confirmada por polling direto (~28s): o `/Cliente` cria a Account, mas nao carimba `IdProspectSalesforce__c`; a reentrega identica continua 400 e nao cria Opportunity. |
+| `e2e-evento-atual-reentregue-apos-cliente-insert` | Reentrega exata do mesmo evento depois de `cliente-insert` | Validado ao vivo com a sequencia correta: `cliente-insert` cria a Account, `cliente-update` carimba `IdProspectSalesforce__c` e entao a reentrega identica passa com HTTP 200 e cria a Opportunity. |
 
 ### 11.7 Rastreamento com o catalogo de ordens de eventos (referencia)
 
@@ -2503,7 +2503,7 @@ Pronto para a transicao para a Tarefa 7.3.
 
 - [x] Opportunity permanece na Account aprovada. (`e2e-opportunity-permanece-conta-aprovada`, evidenciado em `docs/phase-7/tarefa-7-3-corridas-e2e.md`)
 - [x] Evento obsoleto nao vai para fila manual. (`e2e-evento-obsoleto-sem-cliente-ignorado`, evidenciado em `docs/phase-7/tarefa-7-3-corridas-e2e.md`)
-- [x] Evento atual pode ser reentregue apos `cliente-insert`. **Coberto com divergencia real**: em `mrv-devDan`, a reentrega identica continua 400 porque o `/Cliente` nao carimba `IdProspectSalesforce__c`, mesmo apos polling direto por ~28s; asserts ajustados para o comportamento observado e documentados em `docs/phase-7/tarefa-7-3-corridas-e2e.md`.
+- [x] Evento atual pode ser reentregue apos `cliente-insert`. Validado ao vivo com a sequencia correta `cliente-insert` + `cliente-update` (o update carimba `IdProspectSalesforce__c`, e entao a reentrega identica passa). Evidencias em `docs/phase-7/tarefa-7-3-corridas-e2e.md`.
 
 **Dependencias:** tarefa 7.2.
 
@@ -2515,10 +2515,9 @@ Pronto para a transicao para a Tarefa 7.3.
 - [x] Corridas criticas reproduziveis.
 - [x] Evidencias de teste anexadas a release.
 
-**Status de preparacao do checkpoint:** pronto para revisao externa, mas **nao
-fechado automaticamente** nesta entrega porque a Tarefa 7.3 encontrou uma
-divergencia real relevante no criterio de reentrega identica apos
-`cliente-insert` (ver `docs/phase-7/tarefa-7-3-corridas-e2e.md`).
+**Status de preparacao do checkpoint:** pronto para revisao externa; o ultimo
+criterio da Tarefa 7.3 foi fechado ao vivo apos identificar a sequencia real
+correta (`cliente-insert` + `cliente-update` antes da reentrega).
 
 ### Fase 8: Operacao e entrega
 
