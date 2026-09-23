@@ -127,6 +127,11 @@ export function createContestacaoInsertCallbackHandler(
 
     const requestId = requestIdFactory();
     const contestacaoId = requestId;
+    // Minimization: descricao is real free text submitted by end users
+    // (confirmed in real mrv-staging traffic, e.g. contestation reasons
+    // describing personal details) and must never reach the plaintext log
+    // stream. Only a boolean presence flag is logged for observability.
+    const { descricao, ...loggableFields } = parsed.data;
     console.log(
       JSON.stringify({
         event: 'contestacao-insert-callback.accepted',
@@ -134,7 +139,9 @@ export function createContestacaoInsertCallbackHandler(
         contestacaoId,
         receivedAt: new Date().toISOString(),
         responseStatusCode: 201,
-        ...parsed.data,
+        ...loggableFields,
+        descricaoProvided:
+          typeof descricao === 'string' && descricao.length > 0,
       }),
     );
 

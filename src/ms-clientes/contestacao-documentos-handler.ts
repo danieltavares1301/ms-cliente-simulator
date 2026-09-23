@@ -127,13 +127,20 @@ export function createContestacaoDocumentosCallbackHandler(
     }
 
     const requestId = requestIdFactory();
+    // Minimization: MotivoContestacao is real free text submitted by end
+    // users and must never reach the plaintext log stream. Only a boolean
+    // presence flag is logged for observability.
+    const { MotivoContestacao, ...loggableFields } = parsed.data;
     console.log(
       JSON.stringify({
         event: 'contestacao-documentos-callback.accepted',
         requestId,
         receivedAt: new Date().toISOString(),
         responseStatusCode: 201,
-        ...parsed.data,
+        ...loggableFields,
+        motivoContestacaoProvided:
+          typeof MotivoContestacao === 'string' &&
+          MotivoContestacao.length > 0,
       }),
     );
 

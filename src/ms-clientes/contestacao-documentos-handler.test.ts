@@ -186,14 +186,18 @@ describe('createContestacaoDocumentosCallbackHandler', () => {
     const [rawLog] = logSpy.mock.calls[0] ?? [];
     expect(typeof rawLog).toBe('string');
     expect(rawLog).not.toContain('Bearer');
+    // Minimization: MotivoContestacao is real free text submitted by end
+    // users and must never reach the plaintext log stream.
+    expect(rawLog).not.toContain('Documento ilegivel');
 
     const parsedLog = JSON.parse(String(rawLog)) as Record<string, unknown>;
     expect(parsedLog).toMatchObject({
       IdJornada: 'JORNADA-001',
-      MotivoContestacao: 'Documento ilegivel',
       requestId: 'request-success',
       responseStatusCode: 201,
+      motivoContestacaoProvided: true,
     });
+    expect(parsedLog).not.toHaveProperty('MotivoContestacao');
     expect(typeof parsedLog.receivedAt).toBe('string');
     expect(new Date(String(parsedLog.receivedAt)).toString()).not.toBe(
       'Invalid Date',

@@ -169,7 +169,7 @@ describe('createContestacaoInsertCallbackHandler', () => {
     expect(logSpy).not.toHaveBeenCalled();
   });
 
-  it('returns 201 with a non-empty id and emits a structured log without leaking the bearer token', async () => {
+  it('returns 201 with a non-empty id and emits a structured log without leaking the bearer token or the free-text descricao', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const handler = createContestacaoInsertCallbackHandler({
       environment: validEnvironment,
@@ -187,17 +187,22 @@ describe('createContestacaoInsertCallbackHandler', () => {
     const [rawLog] = logSpy.mock.calls[0] ?? [];
     expect(typeof rawLog).toBe('string');
     expect(rawLog).not.toContain('Bearer');
+    // Minimization: descricao is real free text submitted by end users
+    // (e.g. "mudar de sexo de masculino para feminino", observed in real
+    // mrv-staging traffic) and must never reach the plaintext log stream.
+    expect(rawLog).not.toContain('Contestacao sintetica');
 
     const parsedLog = JSON.parse(String(rawLog)) as Record<string, unknown>;
     expect(parsedLog).toMatchObject({
       idPac: 'PAC-SIM-001',
       idMotivo: 'MOTIVO-01',
-      descricao: 'Contestacao sintetica',
       usuarioSolucao: null,
       requestId: 'request-success',
       responseStatusCode: 201,
       contestacaoId: 'request-success',
+      descricaoProvided: true,
     });
+    expect(parsedLog).not.toHaveProperty('descricao');
     expect(typeof parsedLog.receivedAt).toBe('string');
     expect(new Date(String(parsedLog.receivedAt)).toString()).not.toBe(
       'Invalid Date',
