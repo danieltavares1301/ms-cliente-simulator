@@ -1,223 +1,32 @@
-import {
-  exec as execCallback,
-  execFile as execFileCallback,
-} from 'node:child_process';
-import { promisify } from 'node:util';
-
-import { z } from 'zod';
-
-import {
-  type EventGridEnvelope,
-} from '../src/contracts/event-grid.ts';
-import type {
+﻿import type {
   SalesforceAccess,
-  SalesforceOAuthAccessProvider,
 } from '../src/salesforce/oauth-client.ts';
 import {
   asAllowlistedQuery,
   createSalesforceRestClient,
-  escapeSoqlLiteral,
 } from '../src/salesforce/rest-client.ts';
 import { createSalesforceSafetyGuard } from '../src/salesforce/safety-guard.ts';
 import { createSalesforceTestDataAdapter } from '../src/salesforce/test-data-adapter.ts';
 import { renderScenarioFixture } from '../src/scenarios/renderer.ts';
 import {
+  accountQuerySchema,
   buildConcurrentDispatchPlan,
+  createAccountStateQuery,
+  createLeadStateQuery,
+  createStaticAccessProvider,
+  detectLockSignals,
+  dispatchConcurrentRequest,
+  leadQuerySchema,
+  loadOrgAccess,
+  logQuerySchema,
+  logStructured,
   parseCliArguments,
   resolveFieldWinners,
-  type ConcurrentDispatchPlanEntry,
+  sleep,
 } from './stress-o10-concurrent-events-lib.ts';
+import type { z } from 'zod';
 
-const execFile = promisify(execFileCallback);
-const exec = promisify(execCallback);
-
-const DEFAULT_ORG_ALIAS = 'mrv-devDan';
-const TARGET_ORG_ID = '00DHZ000006mzDp2AI';
 const SCRIPT_SCENARIO_KEY = 'o10-stress-concorrencia';
-
-const sfOrgDisplaySchema = z
-  .object({
-    status: z.number().int(),
-    result: z
-      .object({
-        accessToken: z.string().min(1),
-        instanceUrl: z.string().url(),
-        id: z.string().min(15).optional(),
-        orgId: z.string().min(15).optional(),
-        alias: z.string().min(1).optional(),
-        username: z.string().min(1).optional(),
-      })
-      .passthrough(),
-  })
-  .passthrough()
-  .transform(({ result }) => ({
-    accessToken: result.accessToken,
-    instanceUrl: result.instanceUrl.replace(/\/+$/, ''),
-    orgId: result.orgId ?? result.id ?? TARGET_ORG_ID,
-    alias: result.alias ?? DEFAULT_ORG_ALIAS,
-    username: result.username ?? null,
-  }));
-
-const accountQuerySchema = z
-  .object({
-    totalSize: z.number().int().nonnegative(),
-    records: z.array(
-      z
-        .object({
-          Id: z.string(),
-          Id__c: z.string().nullable(),
-          IdProspectSalesforce__c: z.string().nullable(),
-          CPF__pc: z.string().nullable(),
-          LastName: z.string().nullable(),
-          PersonEmail: z.string().nullable().optional(),
-          PersonMobilePhone: z.string().nullable().optional(),
-          Celular__c: z.string().nullable().optional(),
-          BillingStreet: z.string().nullable().optional(),
-          DataAlteracaoEvento__c: z.string().nullable().optional(),
-          DataAlteracaoEventoContatoEmail__c: z.string().nullable().optional(),
-          DataAlteracaoEventoContatoCelular__c: z.string().nullable().optional(),
-          DataAlteracaoEventoEndereco__c: z.string().nullable().optional(),
-          LastModifiedDate: z.string().nullable().optional(),
-          CreatedDate: z.string().nullable().optional(),
-        })
-        .passthrough(),
-    ),
-  })
-  .passthrough();
-
-const leadQuerySchema = z
-  .object({
-    totalSize: z.number().int().nonnegative(),
-    records: z.array(
-      z
-        .object({
-          Id: z.string(),
-          Id__c: z.string().nullable(),
-          CPF__c: z.string().nullable(),
-          LastName: z.string().nullable(),
-          Email: z.string().nullable().optional(),
-          MobilePhone: z.string().nullable().optional(),
-          CreatedDate: z.string().nullable().optional(),
-          LastModifiedDate: z.string().nullable().optional(),
-        })
-        .passthrough(),
-    ),
-  })
-  .passthrough();
-
-const logQuerySchema = z
-  .object({
-    totalSize: z.number().int().nonnegative(),
-    records: z.array(
-      z
-        .object({
-          Id: z.string(),
-          CreatedDate: z.string().nullable().optional(),
-          EventType__c: z.string().nullable().optional(),
-          Status2__c: z.string().nullable().optional(),
-          BodyRequest__c: z.string().nullable().optional(),
-          Response__c: z.string().nullable().optional(),
-        })
-        .passthrough(),
-    ),
-  })
-  .passthrough();
-
-type RequestResult = {
-  index: number;
-  eventId: string;
-  eventType: string;
-  eventLabel: string;
-  variantKey: string;
-  eventTime: string;
-  dataalteracao: string;
-  payloadSummary: ConcurrentDispatchPlanEntry['payloadSummary'];
-  httpStatus: number | null;
-  statusText: string;
-  durationMs: number;
-  ok: boolean;
-  responseBody: unknown;
-  responseText: string;
-  detectedLockError: boolean;
-  detectedDmlException: boolean;
-  startedAt: string;
-  finishedAt: string;
-  transportError?: string;
-};
-
-function logStructured(event: string, payload: Record<string, unknown>): void {
-  console.log(
-    JSON.stringify({
-      timestamp: new Date().toISOString(),
-      event,
-      ...payload,
-    }),
-  );
-}
-
-function literal(value: string): string {
-  return `'${escapeSoqlLiteral(value)}'`;
-}
-
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function tryParseJson(text: string): unknown {
-  if (text.trim().length === 0) return null;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
-  }
-}
-
-function detectLockSignals(value: string): {
-  detectedLockError: boolean;
-  detectedDmlException: boolean;
-} {
-  const normalized = value.toUpperCase();
-  return {
-    detectedLockError: normalized.includes('UNABLE_TO_LOCK_ROW'),
-    detectedDmlException: normalized.includes('DMLEXCEPTION'),
-  };
-}
-
-async function loadOrgAccess(
-  sfCommand: string,
-  orgAlias: string,
-): Promise<z.infer<typeof sfOrgDisplaySchema>> {
-  const isBatchWrapper = /\.(?:cmd|bat)$/i.test(sfCommand);
-  const execution = isBatchWrapper
-    ? exec(
-        `"${sfCommand}" org display --target-org "${orgAlias}" --json`,
-        {
-          windowsHide: true,
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      )
-    : execFile(
-        sfCommand,
-        ['org', 'display', '--target-org', orgAlias, '--json'],
-        {
-          windowsHide: true,
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      );
-  const { stdout } = await execution;
-  return sfOrgDisplaySchema.parse(JSON.parse(stdout) as unknown);
-}
-
-function createStaticAccessProvider(
-  access: SalesforceAccess,
-): SalesforceOAuthAccessProvider {
-  return {
-    getAccess: async () => access,
-    invalidateToken: () => {
-      // Salesforce CLI fornece o token pronto; o script não o reemite.
-    },
-  };
-}
 
 function createFixtureInput(options: ReturnType<typeof parseCliArguments>) {
   const baseFixture = renderScenarioFixture({
@@ -236,96 +45,6 @@ function createFixtureInput(options: ReturnType<typeof parseCliArguments>) {
       scenarioKey: SCRIPT_SCENARIO_KEY,
     },
   } as const;
-}
-
-async function dispatchConcurrentRequest(
-  access: SalesforceAccess,
-  planEntry: ConcurrentDispatchPlanEntry,
-  timeoutMs: number,
-): Promise<RequestResult> {
-  const event = planEntry.envelope[0];
-  const startedAt = new Date();
-
-  try {
-    const response = await fetch(
-      new URL('/services/apexrest/Cliente', access.instanceUrl),
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${access.accessToken}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(planEntry.envelope),
-        signal: AbortSignal.timeout(timeoutMs),
-      },
-    );
-    const responseText = await response.text();
-    const finishedAt = new Date();
-    const detection = detectLockSignals(responseText);
-
-    return {
-      index: planEntry.index,
-      eventId: event.id,
-      eventType: event.eventType,
-      eventLabel: planEntry.eventLabel,
-      variantKey: planEntry.variantKey,
-      eventTime: event.eventTime,
-      dataalteracao: planEntry.payloadSummary.dataalteracao,
-      payloadSummary: planEntry.payloadSummary,
-      httpStatus: response.status,
-      statusText: response.statusText || String(response.status),
-      durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
-      ok: response.ok,
-      responseBody: tryParseJson(responseText),
-      responseText,
-      ...detection,
-      startedAt: startedAt.toISOString(),
-      finishedAt: finishedAt.toISOString(),
-    };
-  } catch (error) {
-    const finishedAt = new Date();
-    const message = error instanceof Error ? error.message : 'Unknown fetch error';
-    const detection = detectLockSignals(message);
-    return {
-      index: planEntry.index,
-      eventId: event.id,
-      eventType: event.eventType,
-      eventLabel: planEntry.eventLabel,
-      variantKey: planEntry.variantKey,
-      eventTime: event.eventTime,
-      dataalteracao: planEntry.payloadSummary.dataalteracao,
-      payloadSummary: planEntry.payloadSummary,
-      httpStatus: null,
-      statusText: 'FETCH_ERROR',
-      durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
-      ok: false,
-      responseBody: message,
-      responseText: message,
-      ...detection,
-      startedAt: startedAt.toISOString(),
-      finishedAt: finishedAt.toISOString(),
-      transportError: message,
-    };
-  }
-}
-
-function createAccountStateQuery(idCliente: string): string {
-  return (
-    `SELECT Id, Id__c, IdProspectSalesforce__c, CPF__pc, LastName, ` +
-    `PersonEmail, PersonMobilePhone, Celular__c, BillingStreet, ` +
-    `DataAlteracaoEvento__c, DataAlteracaoEventoContatoEmail__c, ` +
-    `DataAlteracaoEventoContatoCelular__c, DataAlteracaoEventoEndereco__c, ` +
-    `CreatedDate, LastModifiedDate FROM Account WHERE Id__c = ${literal(idCliente)}`
-  );
-}
-
-function createLeadStateQuery(idProspect: string, cpf: string): string {
-  return (
-    `SELECT Id, Id__c, CPF__c, LastName, Email, MobilePhone, ` +
-    `CreatedDate, LastModifiedDate FROM Lead WHERE Id__c = ${literal(
-      idProspect,
-    )} OR CPF__c = ${literal(cpf)}`
-  );
 }
 
 async function main(): Promise<void> {
