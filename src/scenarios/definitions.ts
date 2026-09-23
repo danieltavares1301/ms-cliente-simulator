@@ -134,11 +134,13 @@ function contatoPayload(
   options: {
     dataAlteracao?: ReturnType<typeof generated>;
     eventTime?: ReturnType<typeof generated>;
+    eventType?: 'contato-insert' | 'contato-update';
   } = {},
 ) {
   const {
     dataAlteracao = generated('EVENT_TIME'),
     eventTime = generated('EVENT_TIME'),
+    eventType = 'contato-insert',
   } = options;
   return {
     kind: 'DECLARATIVE',
@@ -146,7 +148,7 @@ function contatoPayload(
     value: {
       id: generated('EVENT_ID'),
       subject: 'MS_Clientes',
-      eventType: 'contato-insert',
+      eventType,
       eventTime,
       dataVersion: '1.0',
       metadataVersion: '1',
@@ -3617,5 +3619,389 @@ export const basicScenarioDefinitions = [
     ],
     asyncPolicy: graphqlCallbackAsyncPolicy,
     cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'pac-aprovada-sobrescreve-contato-anterior',
+    version: 1,
+    name: 'PAC aprovada sobrescreve contato anterior do MS Cliente',
+    description:
+      'Perfil O04: contatos reais chegam via /Cliente com C0/D0; a PAC aprovada chega depois com Proponente principal carregando C/D e dataAlteracao mais antiga que os contatos que a antecederam. A Account converge para C/D, confirmando sincronizacao incondicional: NotificacaoPAC.cls nunca compara contra DataAlteracaoEventoContatoEmail__c/Celular__c (campos exclusivos de NotificacaoCliente.cls).',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-8', 'o04', 'pac-mutavel', 'cross-endpoint'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-insert-email-anterior',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL_X'),
+          false,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-insert-celular-anterior',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 2_000,
+        payloadTemplate: contatoPayload(
+          'Celular',
+          generated('CLEAN_CELULAR_X'),
+          false,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-insert-aprovada-sobrescreve',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 5_000,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload({
+          dataAlteracao: generated('EARLIER_TIME'),
+          proponenteDataAlteracao: generated('EARLIER_TIME'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A Account deve convergir para os contatos da PAC aprovada (C/D), mesmo com a dataAlteracao da PAC sendo cronologicamente mais antiga que os eventos de contato do MS Cliente publicados antes dela.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'pac-aprovada-evento-tardio-anterior-rejeitado',
+    version: 1,
+    name: 'PAC aprovada rejeita contato tardio com dataalteracao anterior',
+    description:
+      'Perfil O13, variante 1: apos uma PAC aprovada sincronizar a Account com os contatos do Proponente principal, um contato-update tardio do MS Cliente chega com uma dataalteracao logicamente anterior ao ultimo contato-insert conhecido pela Account. O /Cliente rejeita esse evento tardio (regra existente de obsolescencia por dataalteracao em NotificacaoCliente.cls), preservando os contatos aprovados pela PAC.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-8', 'o13', 'evento-tardio', 'cross-endpoint'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-insert-email-inicial',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL_X'),
+          false,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-insert-aprovada',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 5_000,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload(),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-update-tardio-anterior',
+        target: 'CLIENTE',
+        eventType: 'contato-update',
+        delayMs: 10_000,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL_X'),
+          false,
+          generated('CLIENT_ID'),
+          { eventType: 'contato-update', dataAlteracao: generated('EARLIER_TIME') },
+        ),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'O contato-update tardio com dataalteracao anterior deve ser descartado; a Account permanece com o e-mail sincronizado pela PAC aprovada.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'pac-aprovada-evento-tardio-posterior-regride-contato',
+    version: 1,
+    name: 'Contato tardio posterior a PAC aprovada regride o contato da Account',
+    description:
+      'Perfil O13, variante 2: apos a PAC aprovada sincronizar a Account, um contato-update tardio chega com dataalteracao genuinamente posterior ao ultimo contato-insert conhecido (nao a PAC, que nao atualiza esse carimbo). NotificacaoCliente.cls so compara contra seu proprio historico, sem conhecimento da PAC; o evento tardio e aceito e REGRIDE o email da Account. Achado real: mesma classe de risco do catalogo (evento tardio reverte estado aprovado), mecanismo diferente do hipotetico original.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-8', 'o13', 'evento-tardio', 'cross-endpoint'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'contato-insert-email-inicial',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 0,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL_X'),
+          false,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-insert-aprovada',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 5_000,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload(),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-update-tardio-posterior',
+        target: 'CLIENTE',
+        eventType: 'contato-update',
+        delayMs: 10_000,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL_X'),
+          false,
+          generated('CLIENT_ID'),
+          { eventType: 'contato-update' },
+        ),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'O contato-update tardio, porem genuinamente mais novo que o ultimo contato-insert conhecido pela Account, e aceito e regride o e-mail da Account para o valor antigo do MS Cliente, desfazendo a sincronizacao previamente feita pela PAC aprovada.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL_X'),
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
+  {
+    key: 'e2e-evento-atual-reentregue-com-idcliente-preenchido',
+    version: 1,
+    name: 'Cross-endpoint reentrega com idCliente preenchido após carimbo',
+    description:
+      'Variante do perfil O11: complementa a reentrega identica ja coberta em e2e-evento-atual-reentregue-apos-cliente-insert enviando a MESMA reentrega de jornadausuario-insert (mesmo envelopeId), mas agora com Cliente.idCliente explicitamente preenchido (IDCLI-Y), no mesmo prospect, em vez de manter idCliente nulo e depender apenas do match por prospect.',
+    scope: 'EXTENDED',
+    tags: [
+      'regression',
+      'fase-8',
+      'o11',
+      'cross-endpoint',
+      'maquina-estado',
+      'reentrega',
+    ],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'ENSURE_ACCOUNT_ABSENT',
+        keys: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+      {
+        operation: 'ENSURE_LEAD_ABSENT',
+        keys: {
+          idExterno: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'maquina-estado-insert-sem-cliente',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 0,
+        expectedHttpStatus: 400,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          envelopeId: generated('REDELIVERY_EVENT_ID'),
+          idCliente: null,
+          idProspectSalesforce: generated('PROSPECT_ID'),
+          estado: 'SIMULACAO',
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-insert-cria-account',
+        target: 'CLIENTE',
+        eventType: 'cliente-insert',
+        delayMs: 2_000,
+        payloadTemplate: clientPayload('cliente-insert', true),
+        deliveryPolicy,
+      },
+      {
+        key: 'cliente-update-carimba-prospect',
+        target: 'CLIENTE',
+        eventType: 'cliente-update',
+        delayMs: 4_000,
+        payloadTemplate: clientPayload('cliente-update', true),
+        deliveryPolicy,
+      },
+      {
+        key: 'maquina-estado-insert-reentregue-com-idcliente',
+        target: 'MAQUINA_ESTADO',
+        eventType: 'jornadausuario-insert',
+        delayMs: 6_000,
+        payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
+          envelopeId: generated('REDELIVERY_EVENT_ID'),
+          idCliente: generated('CLIENT_ID'),
+          idProspectSalesforce: generated('PROSPECT_ID'),
+          estado: 'SIMULACAO',
+          dataAlteracao: generated('PINNED_EVENT_TIME'),
+          eventTime: generated('PINNED_EVENT_TIME'),
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
+        description:
+          'Complementa o perfil O11: a reentrega com idCliente explicitamente preenchido casa a Account diretamente por Id__c (nao apenas por prospect) e cria a Opportunity com sucesso.',
+        checks: [
+          'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
+          'ACCOUNT_IS_PERSON_ACCOUNT',
+          {
+            check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED',
+            value: generated('PROSPECT_ID'),
+          },
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Simulação',
+          },
+          {
+            check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
+            value: 1,
+          },
+        ],
+      },
+    ],
+    asyncPolicy,
+    cleanup: cleanupWithOpportunity,
   },
 ] as const satisfies readonly ScenarioDefinition[];

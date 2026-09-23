@@ -417,6 +417,7 @@ roda automaticamente no build/deploy.
 
 - [Auditoria de minimização de logs](docs/phase-8/log-minimization-audit.md)
 - [Auditoria de higiene do plano e do lint](docs/phase-8/plan-and-lint-hygiene-audit.md)
+- [Tarefa 8.4 — O04, O11 e O13 implementados e validados ao vivo](docs/phase-8/tarefa-8-4-o04-o11-o13.md)
 
 ### Segurança, decisões e escopo
 

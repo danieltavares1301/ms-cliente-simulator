@@ -503,30 +503,36 @@ este repositório, para responder objetivamente: **as ordens deste catálogo
 foram mapeadas durante o desenvolvimento? É possível executar todas elas com o
 simulador hoje?**
 
-**Resposta curta: não, nem todas.** As 4 ordens mais citadas no runbook antigo
-(O01–O03, O08) e a reentrega genérica (O14) estão solidamente implementadas e
-validadas ao vivo contra `mrv-devDan`. O10 existe como ferramenta de stress
-separada. O04, O05, O11 e O13 têm cobertura parcial — o simulador testa a
-regra de negócio adjacente, mas não a cronologia exata do perfil. O06, O07,
-O09, O12 e O15 não têm nenhum cenário ou mecanismo correspondente hoje.
+**Atualização (2026-09-23, Tarefa 8.4):** `O04`, `O11` e `O13` foram
+implementados e validados ao vivo contra `mrv-devDan` — ver
+[`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md).
+
+**Resposta curta: não, nem todas — mas a maioria já está.** Sete ordens
+(O01–O04, O08, O11, O14) estão solidamente implementadas e validadas ao vivo
+contra `mrv-devDan`. O10 existe como ferramenta de stress separada. O13 foi
+implementada e validada ao vivo, mas via um mecanismo real diferente do
+hipotetizado originalmente (ver seção da própria ordem). O05 tem cobertura
+parcial — o simulador testa a regra de negócio adjacente, mas não a
+cronologia exata do perfil. O06, O07, O09, O12 e O15 não têm nenhum cenário
+ou mecanismo correspondente hoje.
 
 | ID | Estado no simulador | Evidência |
 |---|---|---|
 | O01 — Parciais antes | ✅ Implementado | `cpf-divergente-contato-primeiro` (tag `o01`); ver [`docs/phase-6/o01-cpf-divergente-contato-primeiro.md`](phase-6/o01-cpf-divergente-contato-primeiro.md) |
 | O02 — Cliente antes | ✅ Implementado | `contato-antes-cliente-colisao` (tag `o02`); ver [`docs/phase-6/contato-antes-cliente-colisao.md`](phase-6/contato-antes-cliente-colisao.md) |
 | O03 — Mesmo `eventTime` | ✅ Implementado, 3 permutações físicas | `ordem-mesmo-eventtime-cliente-primeiro`, `-contato-primeiro`, `-endereco-primeiro` (tag `o03`); ver [`docs/phase-6/o03-mesmo-eventtime.md`](phase-6/o03-mesmo-eventtime.md) |
-| O04 — PAC mutável | 🟡 Parcial | `pac-update-reenviando-proponentes` testa um `pac-update` sobrescrevendo contatos de um `pac-insert` anterior (precedência PAC-sobre-PAC), mas não modela a perna `contato-*` do MS Cliente com `C0/D0` chegando antes da PAC aprovada — a variação central do perfil original (PAC prevalecendo sobre o MS Cliente, não sobre si mesma) não está coberta. |
+| O04 — PAC mutável | ✅ Implementado e validado ao vivo (2026-09-23) | `pac-aprovada-sobrescreve-contato-anterior`. Achado real: a sincronização PAC → Account é incondicional — não há comparação de data cross-objeto contra o histórico de contato do MS Cliente. Ver [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md). |
 | O05 — PAC aprovada reentregue | 🟡 Parcial / cronologia diferente | Não existe cenário com a cadeia exata (`EM_ANALISE_CREDITO` sem `idCliente` → aprovada → gap → `cliente-insert` sem contatos → contato divergente → PAC reentregue → `cliente-update` → PAC aprovada reentregue). O que existe é reentrega genérica de um único evento (`O14`) e reentrega cross-endpoint de `jornadausuario-*` (`e2e-evento-atual-reentregue-apos-cliente-insert`), que resolve um problema adjacente mas não esta cronologia. |
 | O06 — Intervenção manual Pós-PAC | ❌ Não implementado | Não existe API/hook administrativo para pausar um run em execução e permitir duas ações humanas (criar Account com prospect provisório, depois limpar o campo) dentro do ciclo do run. |
 | O07 — Corrida Queueable vs PAC | ❌ Não implementado | O modelo de dispatch do catálogo de cenários é sequencial com `delayMs`; não há dois steps disparados de fato em paralelo (variantes `CQ-X`/`CQ-Y`). O único mecanismo de concorrência real do repositório é o script de stress do O10, que testa contenção de lock, não a corrida de identidade descrita aqui. |
 | O08 — Parciais identidade antiga | ✅ Implementado, com reteste PAC | `cpf-divergente-identidade-antiga` (tag `o08`); reteste com PAC aprovada em `cpf-divergente-identidade-antiga-pac-aprovada` e no cross-endpoint `e2e-opportunity-permanece-conta-aprovada`. Ver [`docs/phase-6/o08-cpf-divergente-identidade-antiga.md`](phase-6/o08-cpf-divergente-identidade-antiga.md) e [`docs/phase-7/o08-retest-pac-aprovada.md`](phase-7/o08-retest-pac-aprovada.md). |
-| O09 — Ordem composta Clarice | ❌ Não implementado | Nenhuma combinação reproduz a cadeia inteira; o próprio catálogo original já não esperava isso de nenhum perfil formal isolado. |
+| O09 — Ordem composta Clarice | ❌ Não implementado | Nenhuma combinação reproduz a cadeia inteira; o próprio catálogo original já não esperava isso de nenhum perfil formal isolado. Depende de O06 + O07. |
 | O10 — Rajada concorrente | ✅ Implementado, fora da API de cenários | `scripts/stress-o10-concurrent-events.ts` (standalone, Node/TS), não é um cenário do catálogo `/scenarios`. Ver [`docs/phase-6/o10-stress-concorrencia.md`](phase-6/o10-stress-concorrencia.md). |
-| O11 — Jornada sem `idCliente` antes do carimbo | 🟡 Parcial / mecanismo diferente | `maquina-estado-insert-sem-cliente-falha` e o cross-endpoint `e2e-evento-atual-reentregue-apos-cliente-insert` cobrem "reentrega de `jornadausuario-insert` com sucesso depois que o `/Cliente` cria a Account", mas a reentrega bem-sucedida usa `idCliente` permanecendo `null` (resolução por prospect), não a transição explícita `idCliente=null → IDCLI-Y` descrita no perfil original. Ver [`docs/phase-7/maquina-estado-sem-cliente.md`](phase-7/maquina-estado-sem-cliente.md) e [`docs/phase-7/tarefa-7-3-corridas-e2e.md`](phase-7/tarefa-7-3-corridas-e2e.md). |
+| O11 — Jornada sem `idCliente` antes do carimbo | ✅ Implementado e validado ao vivo (2026-09-23) | `e2e-evento-atual-reentregue-com-idcliente-preenchido`, complementando a reentrega já coberta. Achado real: não há lógica de "transição" especial no Apex; o match por `Id__c` funciona porque a query já usa `OR` entre `Id__c`/`IdProspectSalesforce__c`. Ver [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md). |
 | O12 — Contenção da Account Y | ❌ Não implementado | Nenhum mecanismo de lock real sobre a Account durante a execução do Queueable; o catálogo original já apontava isso como pendente mesmo no executor antigo. |
-| O13 — Evento tardio pós-PAC aprovada | 🟡 Parcial | `pac-update-obsoleto-nivel-pac` e `pac-update-obsoleto-nivel-proponente` cobrem a regra de obsolescência por `dataalteracao` dentro do próprio `/PAC`, mas não existe o cenário cross-endpoint específico (um `contato-update`/`cliente-update` tardio do MS Cliente chegando depois de uma PAC já aprovada). |
+| O13 — Evento tardio pós-PAC aprovada | ✅ Implementado e validado ao vivo (2026-09-23) | `pac-aprovada-evento-tardio-anterior-rejeitado` e `pac-aprovada-evento-tardio-posterior-regride-contato`. Achado real: o mecanismo é diferente do hipotetizado (obsolescência avaliada inteiramente dentro do `/Cliente`, sem qualquer conhecimento da PAC), mas a mesma classe de risco foi reproduzida — um evento tardio genuinamente mais novo regride um contato já aprovado pela PAC. Ver [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md). |
 | O14 — Reentrega genérica | ✅ Implementado | `evento-duplicado` (tag `o14`), `maquina-estado-update-reentrega-mesmo-evento` e o cross-endpoint `e2e-evento-atual-reentregue-apos-cliente-insert`. Ver [`docs/phase-6/o14-evento-duplicado-e-obsoleto.md`](phase-6/o14-evento-duplicado-e-obsoleto.md). |
-| O15 — Ordem temporal invertida por fuso | ❌ Não implementado | Nenhuma lógica de teste de offset BRT-sem-`Z` vs. UTC-com-`Z` encontrada no catálogo de cenários nem no schema. |
+| O15 — Ordem temporal invertida por fuso | ❌ Bloqueado por contrato compartilhado | `apexCompatibleUtcDateTimeSchema` (`src/contracts/event-grid.ts`) exige que o timestamp termine em `Z`, impedindo o envio do payload "BRT sem offset" necessário — mesmo já confirmado, lendo `EventGrid.parseDateTime`/`TV_Utils.parseToDateMillis`, que o Apex real aceitaria e interpretaria esse payload incorretamente como GMT. Requer decisão: afrouxar o schema compartilhado (risco: afeta os 44 cenários do catálogo) ou criar um modo de payload literal/raw dedicado a este teste. |
 
 ### Notas sobre a lacuna de concorrência real (O07, O09, O12)
 

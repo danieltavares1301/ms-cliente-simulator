@@ -2646,9 +2646,12 @@ independentemente de quem vence.
 
 **Criterios de aceite (um por ordem pendente):**
 
-- [ ] `O04` (PAC mutavel): cenario cross-endpoint prova que a PAC aprovada
+- [x] `O04` (PAC mutavel): cenario cross-endpoint prova que a PAC aprovada
   mais recente prevalece sobre contatos que o MS Cliente ja tinha publicado
-  antes dela, nao apenas sobre uma PAC anterior.
+  antes dela, nao apenas sobre uma PAC anterior. **Concluido e validado ao
+  vivo**: `pac-aprovada-sobrescreve-contato-anterior` — ver
+  `docs/phase-8/tarefa-8-4-o04-o11-o13.md`. Achado real: a sincronizacao
+  PAC -> Account e incondicional (nao ha comparacao de data cross-objeto).
 - [ ] `O05` (PAC aprovada reentregue): cenario cross-endpoint reproduz a
   cronologia exata do catalogo (`EM_ANALISE_CREDITO` sem `idCliente` ->
   aprovada -> `cliente-insert` sem contatos -> contato divergente -> PAC
@@ -2670,22 +2673,35 @@ independentemente de quem vence.
   ponta; o estado final (Account e Lead convergindo para os contatos
   aprovados) e validado, mesmo que o estado intermediario exato do catalogo
   nao ocorra em toda execucao.
-- [ ] `O11` (Jornada sem `idCliente`): alem da reentrega identica ja coberta,
+- [x] `O11` (Jornada sem `idCliente`): alem da reentrega identica ja coberta,
   existe uma variante que envia a transicao explicita
   `idCliente=null -> IDCLI-Y` no mesmo `PROS`, como o catalogo descreve.
+  **Concluido e validado ao vivo**:
+  `e2e-evento-atual-reentregue-com-idcliente-preenchido` — ver
+  `docs/phase-8/tarefa-8-4-o04-o11-o13.md`.
 - [ ] `O12` (Contencao da Account Y): a ferramenta de stress e estendida para
   gerar carga concorrente real logo apos um `cliente-insert` que dispara o
   Queueable de criacao de Lead, documentando se `UNABLE_TO_LOCK_ROW` aparece
   sob a carga testada; se nao aparecer apos escalonar a concorrencia, isso
   fica registrado como limite arquitetural conhecido, sem alterar Apex sem
   aprovacao explicita.
-- [ ] `O13` (Evento tardio pos-PAC aprovada): cenario cross-endpoint com as
+- [x] `O13` (Evento tardio pos-PAC aprovada): cenario cross-endpoint com as
   duas variantes do catalogo (evento tardio com `dataalteracao` anterior a
   PAC, que deve ser rejeitado; e evento tardio com `dataalteracao` realmente
-  posterior, que deve prevalecer).
+  posterior, que deve prevalecer). **Concluido e validado ao vivo**:
+  `pac-aprovada-evento-tardio-anterior-rejeitado` e
+  `pac-aprovada-evento-tardio-posterior-regride-contato` — ver
+  `docs/phase-8/tarefa-8-4-o04-o11-o13.md`. Achado real: o mecanismo e
+  diferente do hipotetizado (obsolescencia dentro do proprio `/Cliente`, sem
+  qualquer conhecimento da PAC), mas a mesma classe de risco foi reproduzida:
+  um evento tardio genuinamente mais novo regride um contato aprovado.
 - [ ] `O15` (Fuso horario invertido): par de fixtures com o mesmo instante
   real expresso como UTC com sufixo `Z` e como BRT sem offset, documentando
   como o parser Apex resolve a precedencia entre as duas fontes.
+  **Bloqueio real identificado**: `apexCompatibleUtcDateTimeSchema`
+  (`src/contracts/event-grid.ts`) exige terminar em `Z`, impedindo o
+  simulador de enviar o payload necessario. Requer decisao: afrouxar o
+  schema compartilhado ou criar um modo de payload literal/raw dedicado.
 - [ ] A secao 16 do catalogo copiado é atualizada apos cada ordem, trocando
   o estado de `Nao implementado`/`Parcial` para o resultado real observado.
 

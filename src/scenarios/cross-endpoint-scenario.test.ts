@@ -229,4 +229,53 @@ describe('cross-endpoint scenario definitions', () => {
       Date.parse(fixture.steps[2]!.scheduledAt),
     );
   });
+
+  it('publishes a READY O11 variant scenario that redelivers jornadausuario-insert with idCliente explicitly filled', () => {
+    const scenario = scenarioCatalog.get(
+      'e2e-evento-atual-reentregue-com-idcliente-preenchido',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'e2e-evento-atual-reentregue-com-idcliente-preenchido',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining(['o11', 'cross-endpoint', 'reentrega']),
+    });
+    expect(scenario?.steps.map((step) => step.key)).toStrictEqual([
+      'maquina-estado-insert-sem-cliente',
+      'cliente-insert-cria-account',
+      'cliente-update-carimba-prospect',
+      'maquina-estado-insert-reentregue-com-idcliente',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      result: 'OPPORTUNITY_CREATED_AND_LINKED',
+    });
+  });
+
+  it('renders the O11 variant fixture with idCliente null in the first attempt and filled in the redelivery, same envelopeId', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'e2e-evento-atual-reentregue-com-idcliente-preenchido',
+      version: 1,
+      seed: 'phase-eight-seed',
+      runId: 'run_phase_eight_cross_a',
+      eventStartAt: '2026-09-23T10:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    expect(fixture.steps).toHaveLength(4);
+    const firstAttempt = fixture.steps[0]!.envelope[0]!.data as {
+      cliente: { idCliente: string | null };
+    };
+    const redelivery = fixture.steps[3]!.envelope[0]!.data as {
+      cliente: { idCliente: string | null };
+    };
+    expect(firstAttempt.cliente.idCliente).toBeNull();
+    expect(redelivery.cliente.idCliente).toBe(
+      fixture.identifiers.accountIdCliente,
+    );
+    expect(fixture.steps[0]!.envelope[0]!.id).toBe(
+      fixture.steps[3]!.envelope[0]!.id,
+    );
+  });
 });

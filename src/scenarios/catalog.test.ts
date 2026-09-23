@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(40);
+    expect(scenarioCatalog.listActive()).toHaveLength(44);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -218,6 +218,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'e2e-evento-atual-reentregue-apos-cliente-insert',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'e2e-evento-atual-reentregue-com-idcliente-preenchido',
         version: 1,
         availability: 'READY',
       },
@@ -342,7 +347,22 @@ describe('versioned scenario catalog', () => {
         availability: 'READY',
       },
       {
+        key: 'pac-aprovada-evento-tardio-anterior-rejeitado',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'pac-aprovada-evento-tardio-posterior-regride-contato',
+        version: 1,
+        availability: 'READY',
+      },
+      {
         key: 'pac-aprovada-sincroniza-contatos',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'pac-aprovada-sobrescreve-contato-anterior',
         version: 1,
         availability: 'READY',
       },

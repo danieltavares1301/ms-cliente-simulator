@@ -901,4 +901,133 @@ describe('PAC smoke scenario definition', () => {
       ]),
     );
   });
+
+  it('publishes a READY O04 scenario where the approved PAC overwrites contacts published earlier via /Cliente', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-aprovada-sobrescreve-contato-anterior',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-aprovada-sobrescreve-contato-anterior',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining(['o04', 'pac-mutavel', 'cross-endpoint']),
+    });
+    expect(scenario?.steps.map((step) => step.eventType)).toStrictEqual([
+      'contato-insert',
+      'contato-insert',
+      'pac-insert',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+        },
+        {
+          check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'CLEAN_CELULAR' },
+        },
+      ]),
+    });
+  });
+
+  it('renders the O04 fixture with the PAC dataalteracao logically older than the preceding contato-insert events', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-aprovada-sobrescreve-contato-anterior',
+      version: 1,
+      seed: 'phase-eight-seed',
+      runId: 'run_phase_eight_o04',
+      eventStartAt: '2026-09-23T10:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    const contatoEmailData = fixture.steps[0]!.envelope[0]!.data as {
+      dataalteracao: string;
+    };
+    const pacData = fixture.steps[2]!.envelope[0]!.data as {
+      proponentes: Array<{ dataAlteracao: string; email: string }>;
+    };
+    expect(Date.parse(pacData.proponentes[0]!.dataAlteracao)).toBeLessThan(
+      Date.parse(contatoEmailData.dataalteracao),
+    );
+  });
+
+  it('publishes the two READY O13 late-event variants over an approved PAC', () => {
+    const rejected = scenarioCatalog.get(
+      'pac-aprovada-evento-tardio-anterior-rejeitado',
+      1,
+    );
+    const regressed = scenarioCatalog.get(
+      'pac-aprovada-evento-tardio-posterior-regride-contato',
+      1,
+    );
+
+    expect(rejected).toMatchObject({ availability: 'READY' });
+    expect(regressed).toMatchObject({ availability: 'READY' });
+    expect(rejected?.steps.map((step) => step.eventType)).toStrictEqual([
+      'contato-insert',
+      'pac-insert',
+      'contato-update',
+    ]);
+    expect(rejected?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+        },
+      ]),
+    });
+    expect(regressed?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL_X' },
+        },
+      ]),
+    });
+  });
+
+  it('renders the O13 variants with the late contato-update dataalteracao on the correct side of the watermark', () => {
+    const rejectedFixture = renderScenarioFixture({
+      scenarioKey: 'pac-aprovada-evento-tardio-anterior-rejeitado',
+      version: 1,
+      seed: 'phase-eight-seed',
+      runId: 'run_phase_eight_o13_a',
+      eventStartAt: '2026-09-23T10:00:00.000Z',
+    });
+    const regressedFixture = renderScenarioFixture({
+      scenarioKey: 'pac-aprovada-evento-tardio-posterior-regride-contato',
+      version: 1,
+      seed: 'phase-eight-seed',
+      runId: 'run_phase_eight_o13_b',
+      eventStartAt: '2026-09-23T10:00:00.000Z',
+    });
+
+    expect(() =>
+      renderedScenarioFixtureSchema.parse(rejectedFixture),
+    ).not.toThrow();
+    expect(() =>
+      renderedScenarioFixtureSchema.parse(regressedFixture),
+    ).not.toThrow();
+
+    const rejectedWatermark = rejectedFixture.steps[0]!.envelope[0]!.data as {
+      dataalteracao: string;
+    };
+    const rejectedLateEvent = rejectedFixture.steps[2]!.envelope[0]!.data as {
+      dataalteracao: string;
+    };
+    expect(Date.parse(rejectedLateEvent.dataalteracao)).toBeLessThan(
+      Date.parse(rejectedWatermark.dataalteracao),
+    );
+
+    const regressedWatermark = regressedFixture.steps[0]!.envelope[0]!
+      .data as { dataalteracao: string };
+    const regressedLateEvent = regressedFixture.steps[2]!.envelope[0]!
+      .data as { dataalteracao: string };
+    expect(Date.parse(regressedLateEvent.dataalteracao)).toBeGreaterThan(
+      Date.parse(regressedWatermark.dataalteracao),
+    );
+  });
 });
