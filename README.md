@@ -420,6 +420,7 @@ roda automaticamente no build/deploy.
 - [Tarefa 8.4 — O04, O11 e O13 implementados e validados ao vivo](docs/phase-8/tarefa-8-4-o04-o11-o13.md)
 - [Tarefa 8.4 — O05 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o05.md)
 - [Tarefa 8.4 — O12 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o12.md)
+- [Tarefa 8.4 — O06 implementado e validado ao vivo](docs/phase-8/tarefa-8-4-o06.md)
 
 ### Segurança, decisões e escopo
 

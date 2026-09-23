@@ -715,13 +715,14 @@ export async function dispatchConcurrentRequest(
   access: SalesforceAccess,
   planEntry: ConcurrentDispatchPlanEntry,
   timeoutMs: number,
+  target: 'Cliente' | 'PAC' | 'MaquinaEstado' = 'Cliente',
 ): Promise<RequestResult> {
   const event = planEntry.envelope[0];
   const startedAt = new Date();
 
   try {
     const response = await fetch(
-      new URL('/services/apexrest/Cliente', access.instanceUrl),
+      new URL(`/services/apexrest/${target}`, access.instanceUrl),
       {
         method: 'POST',
         headers: {

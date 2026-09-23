@@ -25,7 +25,8 @@
     "sanitize:export": "node scripts/sanitize-export.ts",
     "validate:fixtures": "node scripts/validate-fixtures.ts",
     "stress:o10": "node scripts/run-stress-o10-concurrent-events.cjs",
-    "stress:o12": "tsx scripts/stress-o12-contencao-account-y.ts"
+    "stress:o12": "tsx scripts/stress-o12-contencao-account-y.ts",
+    "manual-intervention:o06": "tsx scripts/manual-intervention-o06.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

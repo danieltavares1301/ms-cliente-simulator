@@ -2667,10 +2667,18 @@ independentemente de quem vence.
   at-least-once) provando que a reentrega da PAC aprovada cura uma
   regressao de contato causada por um `contato-insert` independente do
   MS Cliente.
-- [ ] `O06` (Intervencao manual pos-PAC): o motor de dispatch aceita pausar
+- [x] `O06` (Intervencao manual pos-PAC): o motor de dispatch aceita pausar
   um run em um checkpoint declarado e retomar apos uma acao administrativa
   allowlisted (criar Account com prospect provisorio; limpar o campo depois),
   sem precisar preparar as duas acoes so como fixture antecipada.
+  **Concluido e validado ao vivo, via script standalone aprovado
+  explicitamente (Opcao B, nao a Opcao A/checkpoint no motor)**:
+  `scripts/manual-intervention-o06.ts` — ver `docs/phase-8/tarefa-8-4-o06.md`.
+  Achado real: apos limpar manualmente o prospect provisorio de uma Account
+  e enviar um `cliente-update` comum em seguida, o Apex atribui um novo GUID
+  de prospect automaticamente (auto-cura de identidade), sem erro nem estado
+  orfao. A Account X (referenciada pela PAC) permaneceu integra durante toda
+  a sequencia.
 - [ ] `O07` (Corrida Queueable vs PAC): a ferramenta de stress dispara
   `cliente-update` e `pac-update` verdadeiramente concorrentes (contextos de
   autenticacao independentes, nao um unico bearer token reaproveitado) sobre
