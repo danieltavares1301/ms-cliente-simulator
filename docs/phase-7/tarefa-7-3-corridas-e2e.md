@@ -280,6 +280,16 @@ Corpo real do erro no passo 1 **e** no passo 3:
 
 ### Investigação adicional de timing (polling real antes da reentrega)
 
+**Nota de rastreabilidade**: esta investigação foi feita numa **segunda
+execução independente** do cenário (novo `runId`, nova identidade sintética
+`CLI-SIM-dbba0baded-6f705ae03f` / `Account.Id = 001HZ000011Rm01YAC` /
+`OPP-SIM-dbba0baded-6f705ae03f`, distintos dos identificadores da primeira
+execução documentada acima na seção "Identidade sintética"
+`CLI-SIM-ff10caedd1-c690c2b69a`/`001HZ000011Rh80YAC`). Isso foi necessário
+porque o polling exige reexecutar o cenário do zero para observar a Account
+recém-criada ao longo do tempo, antes de disparar a reentrega. Ambas as
+execuções, com identidades diferentes, confirmaram o MESMO resultado real.
+
 Hipótese investigada: o campo `IdProspectSalesforce__c` poderia estar sendo
 carimbado de forma **assíncrona** pelo `Queueable` `insertLeadQueueable`, e o
 teste original talvez estivesse reentregando cedo demais.
