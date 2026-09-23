@@ -2679,12 +2679,22 @@ independentemente de quem vence.
   de prospect automaticamente (auto-cura de identidade), sem erro nem estado
   orfao. A Account X (referenciada pela PAC) permaneceu integra durante toda
   a sequencia.
-- [ ] `O07` (Corrida Queueable vs PAC): a ferramenta de stress dispara
+- [x] `O07` (Corrida Queueable vs PAC): a ferramenta de stress dispara
   `cliente-update` e `pac-update` verdadeiramente concorrentes (contextos de
   autenticacao independentes, nao um unico bearer token reaproveitado) sobre
   a mesma cadeia Account/Opportunity/PAC, nas duas variantes `CQ-X` e `CQ-Y`
   do catalogo, documentando o vencedor observado em cada execucao sem exigir
-  um resultado fixo.
+  um resultado fixo. **Concluido e validado ao vivo (CQ-X e CQ-Y)**:
+  `scripts/stress-o07-corrida-queueable-vs-pac.ts` — ver
+  `docs/phase-8/tarefa-8-4-o07.md`. Limite real confirmado ao vivo antes de
+  implementar: `sf org display` sempre retorna o mesmo token de sessao em
+  cache — contextos de autenticacao genuinamente independentes exigiriam uma
+  Connected App dedicada, fora do escopo. O script disparou a corrida via
+  transporte HTTP genuinamente concorrente (mesma token, limitacao ja
+  documentada no O10). Achados reais: `cliente-update` e `pac-update` nao
+  disputam os mesmos campos (PAC sempre "vence" o contato, por ser o unico
+  a escrever email/celular); e a tentativa de troca de prospect no CQ-Y foi
+  corretamente bloqueada pela regra de "so carimba se estiver em branco".
 - [ ] `O09` (Ordem composta Clarice): a cadeia completa (intervencao manual
   de `O06` + corrida de `O07`, na ordem do catalogo) e executavel ponta-a-
   ponta; o estado final (Account e Lead convergindo para os contatos

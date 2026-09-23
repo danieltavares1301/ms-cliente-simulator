@@ -26,7 +26,8 @@
     "validate:fixtures": "node scripts/validate-fixtures.ts",
     "stress:o10": "node scripts/run-stress-o10-concurrent-events.cjs",
     "stress:o12": "tsx scripts/stress-o12-contencao-account-y.ts",
-    "manual-intervention:o06": "tsx scripts/manual-intervention-o06.ts"
+    "manual-intervention:o06": "tsx scripts/manual-intervention-o06.ts",
+    "stress:o07": "tsx scripts/stress-o07-corrida-queueable-vs-pac.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
