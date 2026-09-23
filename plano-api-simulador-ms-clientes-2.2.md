@@ -2652,12 +2652,21 @@ independentemente de quem vence.
   vivo**: `pac-aprovada-sobrescreve-contato-anterior` — ver
   `docs/phase-8/tarefa-8-4-o04-o11-o13.md`. Achado real: a sincronizacao
   PAC -> Account e incondicional (nao ha comparacao de data cross-objeto).
-- [ ] `O05` (PAC aprovada reentregue): cenario cross-endpoint reproduz a
+- [x] `O05` (PAC aprovada reentregue): cenario cross-endpoint reproduz a
   cronologia exata do catalogo (`EM_ANALISE_CREDITO` sem `idCliente` ->
   aprovada -> `cliente-insert` sem contatos -> contato divergente -> PAC
   reentregue -> `cliente-update` -> PAC aprovada reentregue), usando gap
   logico via `dataAlteracao`/`eventTime`, sem depender de espera fisica de
-  30 minutos ou 3 horas.
+  30 minutos ou 3 horas. **Concluido e validado ao vivo, com cronologia
+  redesenhada**: `pac-aprovada-reentregue-restaura-contato-regredido` — ver
+  `docs/phase-8/tarefa-8-4-o05.md`. Achado real que forcou o redesenho:
+  testado ao vivo, `/PAC` rejeita com HTTP 400 (`Oportunidade não
+  encontrada`) quando a Opportunity/Account referenciada nao existe ainda —
+  a premissa do catalogo ("PAC antes de Cliente") e fisicamente impossivel
+  no Apex atual. O cenario redesenhado preserva a intencao (semantica
+  at-least-once) provando que a reentrega da PAC aprovada cura uma
+  regressao de contato causada por um `contato-insert` independente do
+  MS Cliente.
 - [ ] `O06` (Intervencao manual pos-PAC): o motor de dispatch aceita pausar
   um run em um checkpoint declarado e retomar apos uma acao administrativa
   allowlisted (criar Account com prospect provisorio; limpar o campo depois),

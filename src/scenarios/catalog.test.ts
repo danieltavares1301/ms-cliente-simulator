@@ -178,7 +178,7 @@ describe('scenarioDefinitionSchema', () => {
 
 describe('versioned scenario catalog', () => {
   it('loads the ready scenarios with deterministic ordering', () => {
-    expect(scenarioCatalog.listActive()).toHaveLength(44);
+    expect(scenarioCatalog.listActive()).toHaveLength(45);
     expect(
       scenarioCatalog.listActive().map(({ key, version, availability }) => ({
         key,
@@ -353,6 +353,11 @@ describe('versioned scenario catalog', () => {
       },
       {
         key: 'pac-aprovada-evento-tardio-posterior-regride-contato',
+        version: 1,
+        availability: 'READY',
+      },
+      {
+        key: 'pac-aprovada-reentregue-restaura-contato-regredido',
         version: 1,
         availability: 'READY',
       },

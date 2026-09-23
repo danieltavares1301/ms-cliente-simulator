@@ -507,14 +507,12 @@ simulador hoje?**
 implementados e validados ao vivo contra `mrv-devDan` — ver
 [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md).
 
-**Resposta curta: não, nem todas — mas a maioria já está.** Sete ordens
-(O01–O04, O08, O11, O14) estão solidamente implementadas e validadas ao vivo
+**Resposta curta: não, nem todas — mas a maioria já está.** Oito ordens
+(O01–O05, O08, O11, O14) estão solidamente implementadas e validadas ao vivo
 contra `mrv-devDan`. O10 existe como ferramenta de stress separada. O13 foi
 implementada e validada ao vivo, mas via um mecanismo real diferente do
-hipotetizado originalmente (ver seção da própria ordem). O05 tem cobertura
-parcial — o simulador testa a regra de negócio adjacente, mas não a
-cronologia exata do perfil. O06, O07, O09, O12 e O15 não têm nenhum cenário
-ou mecanismo correspondente hoje.
+hipotetizado originalmente (ver seção da própria ordem). O06, O07, O09, O12
+e O15 não têm nenhum cenário ou mecanismo correspondente hoje.
 
 | ID | Estado no simulador | Evidência |
 |---|---|---|
@@ -522,7 +520,7 @@ ou mecanismo correspondente hoje.
 | O02 — Cliente antes | ✅ Implementado | `contato-antes-cliente-colisao` (tag `o02`); ver [`docs/phase-6/contato-antes-cliente-colisao.md`](phase-6/contato-antes-cliente-colisao.md) |
 | O03 — Mesmo `eventTime` | ✅ Implementado, 3 permutações físicas | `ordem-mesmo-eventtime-cliente-primeiro`, `-contato-primeiro`, `-endereco-primeiro` (tag `o03`); ver [`docs/phase-6/o03-mesmo-eventtime.md`](phase-6/o03-mesmo-eventtime.md) |
 | O04 — PAC mutável | ✅ Implementado e validado ao vivo (2026-09-23) | `pac-aprovada-sobrescreve-contato-anterior`. Achado real: a sincronização PAC → Account é incondicional — não há comparação de data cross-objeto contra o histórico de contato do MS Cliente. Ver [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md). |
-| O05 — PAC aprovada reentregue | 🟡 Parcial / cronologia diferente | Não existe cenário com a cadeia exata (`EM_ANALISE_CREDITO` sem `idCliente` → aprovada → gap → `cliente-insert` sem contatos → contato divergente → PAC reentregue → `cliente-update` → PAC aprovada reentregue). O que existe é reentrega genérica de um único evento (`O14`) e reentrega cross-endpoint de `jornadausuario-*` (`e2e-evento-atual-reentregue-apos-cliente-insert`), que resolve um problema adjacente mas não esta cronologia. |
+| O05 — PAC aprovada reentregue | ✅ Implementado e validado ao vivo (2026-09-23), cronologia redesenhada | `pac-aprovada-reentregue-restaura-contato-regredido`. Achado real: a premissa original do catálogo ("PAC antes de Cliente") é fisicamente impossível — `/PAC` rejeita com HTTP 400 quando a Opportunity referenciada não existe. Redesenhado para provar que a reentrega da PAC aprovada cura uma regressão de contato causada por um `contato-insert` independente do MS Cliente. Ver [`docs/phase-8/tarefa-8-4-o05.md`](phase-8/tarefa-8-4-o05.md). |
 | O06 — Intervenção manual Pós-PAC | ❌ Não implementado | Não existe API/hook administrativo para pausar um run em execução e permitir duas ações humanas (criar Account com prospect provisório, depois limpar o campo) dentro do ciclo do run. |
 | O07 — Corrida Queueable vs PAC | ❌ Não implementado | O modelo de dispatch do catálogo de cenários é sequencial com `delayMs`; não há dois steps disparados de fato em paralelo (variantes `CQ-X`/`CQ-Y`). O único mecanismo de concorrência real do repositório é o script de stress do O10, que testa contenção de lock, não a corrida de identidade descrita aqui. |
 | O08 — Parciais identidade antiga | ✅ Implementado, com reteste PAC | `cpf-divergente-identidade-antiga` (tag `o08`); reteste com PAC aprovada em `cpf-divergente-identidade-antiga-pac-aprovada` e no cross-endpoint `e2e-opportunity-permanece-conta-aprovada`. Ver [`docs/phase-6/o08-cpf-divergente-identidade-antiga.md`](phase-6/o08-cpf-divergente-identidade-antiga.md) e [`docs/phase-7/o08-retest-pac-aprovada.md`](phase-7/o08-retest-pac-aprovada.md). |

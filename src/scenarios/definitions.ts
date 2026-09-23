@@ -4004,4 +4004,93 @@ export const basicScenarioDefinitions = [
     asyncPolicy,
     cleanup: cleanupWithOpportunity,
   },
+  {
+    key: 'pac-aprovada-reentregue-restaura-contato-regredido',
+    version: 1,
+    name: 'PAC aprovada reentregue restaura contato regredido por evento tardio',
+    description:
+      'Perfil O05 (adaptado): apos uma PAC aprovada sincronizar a Account com C/D, um contato-insert do MS Cliente regride o e-mail para C0 (mesmo mecanismo do O13 variante 2). A PAC aprovada e reentregue com uma dataAlteracao logicamente mais nova, restaurando C/D. Confirma que a reentrega cura a divergencia introduzida pelo /Cliente.',
+    scope: 'EXTENDED',
+    tags: ['regression', 'fase-8', 'o05', 'pac-reentregue', 'cross-endpoint'],
+    availability: 'READY',
+    variablesSchema,
+    setup: [
+      {
+        operation: 'CREATE_SYNTHETIC_ACCOUNT',
+        role: 'PRIMARY',
+        matchBy: 'ID_CLIENTE',
+        account: {
+          idCliente: generated('CLIENT_ID'),
+          idProspect: generated('PROSPECT_ID'),
+          cpf: generated('CPF'),
+          name: generated('BASE_PERSON_NAME'),
+          dataAlteracao: generated('BASELINE_TIME'),
+        },
+      },
+      {
+        operation: 'CREATE_SYNTHETIC_OPPORTUNITY',
+        opportunity: {
+          idExterno: generated('OPPORTUNITY_EXTERNAL_ID'),
+          accountId: generated('CLIENT_ID'),
+          name: 'Opportunity Sintética PAC',
+          stageName: 'Simulação',
+          closeDate: '2027-12-31',
+        },
+      },
+    ],
+    steps: [
+      {
+        key: 'pac-insert-aprovada',
+        target: 'PAC',
+        eventType: 'pac-insert',
+        delayMs: 0,
+        payloadTemplate: approvedPacWithPrincipalProponentePayload(),
+        deliveryPolicy,
+      },
+      {
+        key: 'contato-insert-email-regressao',
+        target: 'CLIENTE',
+        eventType: 'contato-insert',
+        delayMs: 5_000,
+        payloadTemplate: contatoPayload(
+          'Email',
+          generated('SYNTHETIC_EMAIL_X'),
+          false,
+        ),
+        deliveryPolicy,
+      },
+      {
+        key: 'pac-update-aprovada-reentregue',
+        target: 'PAC',
+        eventType: 'pac-update',
+        delayMs: 10_000,
+        payloadTemplate: pacWithPrincipalProponentePayload('pac-update', {
+          status: 'CREDITO_APROVADO_CONDICIONADO',
+        }),
+        deliveryPolicy,
+      },
+    ],
+    expectedOutcomes: [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'PAC_CREATED_AND_LINKED',
+        description:
+          'A reentrega da PAC aprovada deve restaurar o e-mail da Account para o valor aprovado, desfazendo a regressao causada pelo contato-insert tardio do MS Cliente.',
+        checks: [
+          'PROPOSTA_ANALISE_CREDITO_LINKED_TO_OPPORTUNITY',
+          {
+            check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+            value: generated('SYNTHETIC_EMAIL'),
+          },
+          {
+            check: 'ACCOUNT_MOBILE_EQUALS_EXPECTED',
+            value: generated('CLEAN_CELULAR'),
+          },
+          'PROPONENTE_PRINCIPAL_LINKED_TO_ACCOUNT_AND_PAC',
+        ],
+      },
+    ],
+    asyncPolicy: graphqlCallbackAsyncPolicy,
+    cleanup: cleanupWithProponenteAndOpportunity,
+  },
 ] as const satisfies readonly ScenarioDefinition[];

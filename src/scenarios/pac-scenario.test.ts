@@ -1030,4 +1030,63 @@ describe('PAC smoke scenario definition', () => {
       Date.parse(regressedWatermark.dataalteracao),
     );
   });
+
+  it('publishes a READY O05 scenario where the PAC redelivery restores a contact regressed by /Cliente', () => {
+    const scenario = scenarioCatalog.get(
+      'pac-aprovada-reentregue-restaura-contato-regredido',
+      1,
+    );
+
+    expect(scenario).toMatchObject({
+      key: 'pac-aprovada-reentregue-restaura-contato-regredido',
+      scope: 'EXTENDED',
+      availability: 'READY',
+      tags: expect.arrayContaining(['o05', 'pac-reentregue', 'cross-endpoint']),
+    });
+    expect(scenario?.steps.map((step) => step.eventType)).toStrictEqual([
+      'pac-insert',
+      'contato-insert',
+      'pac-update',
+    ]);
+    expect(scenario?.expectedOutcomes[0]).toMatchObject({
+      checks: expect.arrayContaining([
+        {
+          check: 'ACCOUNT_EMAIL_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'SYNTHETIC_EMAIL' },
+        },
+      ]),
+    });
+  });
+
+  it('renders the O05 fixture with the same PAC/proponente external ids across the initial approval and the redelivery', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'pac-aprovada-reentregue-restaura-contato-regredido',
+      version: 1,
+      seed: 'phase-eight-seed',
+      runId: 'run_phase_eight_o05',
+      eventStartAt: '2026-09-23T10:00:00.000Z',
+    });
+
+    expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
+    const initialApproval = fixture.steps[0]!.envelope[0]!.data as {
+      id: string;
+      proponentes: Array<{ id: string }>;
+    };
+    const redelivery = fixture.steps[2]!.envelope[0]!.data as {
+      id: string;
+      dataalteracao: string;
+      proponentes: Array<{ id: string }>;
+    };
+    const regressao = fixture.steps[1]!.envelope[0]!.data as {
+      dataalteracao: string;
+    };
+
+    expect(redelivery.id).toBe(initialApproval.id);
+    expect(redelivery.proponentes[0]!.id).toBe(
+      initialApproval.proponentes[0]!.id,
+    );
+    expect(Date.parse(redelivery.dataalteracao)).toBeGreaterThan(
+      Date.parse(regressao.dataalteracao),
+    );
+  });
 });

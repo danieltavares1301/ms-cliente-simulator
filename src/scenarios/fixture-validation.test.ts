@@ -6,7 +6,7 @@ describe('fixture build validation', () => {
   it('renders and validates all active READY fixtures', () => {
     const result = validateRenderedFixtures();
 
-    expect(result.checked).toBe(44);
+    expect(result.checked).toBe(45);
     expect(result.findings).toEqual([]);
   });
 });
