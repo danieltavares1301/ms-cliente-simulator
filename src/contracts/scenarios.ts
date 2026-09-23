@@ -285,6 +285,7 @@ const bareExpectedOutcomeCheckSchema = z.enum([
   'ACCOUNT_EMAIL_EQUALS_EXPECTED',
   'ACCOUNT_MOBILE_EQUALS_EXPECTED',
   'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED',
+  'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED',
   'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
   'CONTROL_ACCOUNT_UNCHANGED',
   'NO_OTHER_ACCOUNT_UPDATED',
@@ -369,6 +370,12 @@ const renderedAccountExpectedValueCheckSchema = z.discriminatedUnion('check', [
     .object({
       check: z.literal('ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'),
       value: z.string().trim().min(1).max(255),
+    })
+    .strict(),
+  z
+    .object({
+      check: z.literal('ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED'),
+      value: z.string().trim().min(1).max(80),
     })
     .strict(),
 ]);
@@ -504,6 +511,12 @@ export const expectedOutcomeCheckSchema = z.union([
     z
       .object({
         check: z.literal('ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'),
+        value: definitionExpectedValueSchema,
+      })
+      .strict(),
+    z
+      .object({
+        check: z.literal('ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED'),
         value: definitionExpectedValueSchema,
       })
       .strict(),

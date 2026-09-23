@@ -485,6 +485,7 @@ export type SalesforceTestDataVerificationCheck = {
     | 'ACCOUNT_EMAIL_EQUALS_EXPECTED'
     | 'ACCOUNT_MOBILE_EQUALS_EXPECTED'
     | 'ACCOUNT_BILLING_STREET_EQUALS_EXPECTED'
+    | 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED'
     | 'ACCOUNT_PROSPECT_ID_NOT_STAMPED'
     | 'CONTROL_ACCOUNT_EMAIL_EQUALS_EXPECTED'
     | 'CONTROL_ACCOUNT_MOBILE_EQUALS_EXPECTED'
@@ -2156,6 +2157,17 @@ export function createSalesforceTestDataAdapter(
               passed:
                 accountTarget !== undefined &&
                 accountTarget.BillingStreet === expectedValue,
+            });
+            break;
+          case 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED':
+            if (typeof expectedValue !== 'string') {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            checks.push({
+              check: checkName,
+              passed:
+                accountTarget !== undefined &&
+                accountTarget.IdProspectSalesforce__c === expectedValue,
             });
             break;
           case 'ACCOUNT_PROSPECT_ID_NOT_STAMPED':

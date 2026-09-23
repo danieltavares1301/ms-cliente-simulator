@@ -150,7 +150,7 @@ describe('cross-endpoint scenario definitions', () => {
     );
   });
 
-  it('publishes a READY scenario that replays the exact same MaquinaEstado envelope after cliente-insert', () => {
+  it('publishes a READY scenario that succeeds after cliente-insert plus cliente-update carimba o prospect', () => {
     const scenario = scenarioCatalog.get(
       'e2e-evento-atual-reentregue-apos-cliente-insert',
       1,
@@ -169,30 +169,39 @@ describe('cross-endpoint scenario definitions', () => {
     expect(scenario?.steps.map((step) => step.key)).toStrictEqual([
       'maquina-estado-insert-sem-cliente',
       'cliente-insert-cria-account',
+      'cliente-update-carimba-prospect',
       'maquina-estado-insert-reentregue',
     ]);
     expect(scenario?.steps[0]).toMatchObject({
       expectedHttpStatus: 400,
     });
     expect(scenario?.steps[2]).toMatchObject({
-      expectedHttpStatus: 400,
+      target: 'CLIENTE',
+      eventType: 'cliente-update',
     });
     expect(scenario?.expectedOutcomes[0]).toMatchObject({
-      result: 'EVENT_REJECTED_WITHOUT_DML',
+      result: 'OPPORTUNITY_CREATED_AND_LINKED',
       checks: expect.arrayContaining([
         'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
         'ACCOUNT_IS_PERSON_ACCOUNT',
-        'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
-        'OPPORTUNITY_NOT_CREATED',
+        {
+          check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED',
+          value: { source: 'GENERATED', value: 'PROSPECT_ID' },
+        },
+        'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+        {
+          check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+          value: 'Simulação',
+        },
         {
           check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
-          value: 0,
+          value: 1,
         },
       ]),
     });
   });
 
-  it('renders the replay-after-client fixture with identical original and replayed MaquinaEstado envelopes', () => {
+  it('renders the replay-after-client fixture with an intermediate cliente-update and identical original/replayed MaquinaEstado envelopes', () => {
     const fixture = renderScenarioFixture({
       scenarioKey: 'e2e-evento-atual-reentregue-apos-cliente-insert',
       version: 1,
@@ -202,20 +211,22 @@ describe('cross-endpoint scenario definitions', () => {
     });
 
     expect(() => renderedScenarioFixtureSchema.parse(fixture)).not.toThrow();
-    expect(fixture.steps).toHaveLength(3);
+    expect(fixture.steps).toHaveLength(4);
     expect(fixture.steps[0]).toMatchObject({
       expectedHttpStatus: 400,
     });
-    expect(fixture.steps[2]).toMatchObject({
-      expectedHttpStatus: 400,
+    expect(fixture.steps[2]!.envelope[0]!.eventType).toBe('cliente-update');
+    expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
+      idcliente: fixture.identifiers.accountIdCliente,
+      idprospectsalesforce: fixture.identifiers.accountIdProspect,
     });
-    expect(fixture.steps[0]!.envelope).toStrictEqual(fixture.steps[2]!.envelope);
+    expect(fixture.steps[0]!.envelope).toStrictEqual(fixture.steps[3]!.envelope);
     expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
       idcliente: fixture.identifiers.accountIdCliente,
       idprospectsalesforce: fixture.identifiers.accountIdProspect,
     });
-    expect(Date.parse(fixture.steps[2]!.scheduledAt)).toBeGreaterThan(
-      Date.parse(fixture.steps[1]!.scheduledAt),
+    expect(Date.parse(fixture.steps[3]!.scheduledAt)).toBeGreaterThan(
+      Date.parse(fixture.steps[2]!.scheduledAt),
     );
   });
 });

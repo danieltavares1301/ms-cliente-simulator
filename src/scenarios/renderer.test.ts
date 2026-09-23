@@ -50,7 +50,7 @@ const expectedStepCountByScenario = {
   'cpf-divergente-contato-primeiro': 3,
   'cpf-divergente-identidade-antiga': 3,
   'cliente-insert-prospect-divergente': 1,
-  'e2e-evento-atual-reentregue-apos-cliente-insert': 3,
+  'e2e-evento-atual-reentregue-apos-cliente-insert': 4,
   'e2e-evento-obsoleto-sem-cliente-ignorado': 3,
   'e2e-opportunity-permanece-conta-aprovada': 4,
   'evento-duplicado': 1,
@@ -1193,11 +1193,12 @@ describe('renderScenarioFixture', () => {
                   ? [
                       '2026-08-22T15:00:00.000Z',
                       '2026-08-22T15:00:02.000Z',
-                      '2026-08-22T15:00:00.000Z',
-                    ][fixture.steps.indexOf(step)]
-              : isPinnedLogicalEventTime
-                ? input.eventStartAt
-                : expectedTime;
+                        '2026-08-22T15:00:04.000Z',
+                        '2026-08-22T15:00:00.000Z',
+                      ][fixture.steps.indexOf(step)]
+                : isPinnedLogicalEventTime
+                  ? input.eventStartAt
+                  : expectedTime;
         const expectedEventTime =
           scenarioKey === 'maquina-estado-update-evento-obsoleto'
             ? [
@@ -1216,6 +1217,7 @@ describe('renderScenarioFixture', () => {
                 ? [
                     '2026-08-22T15:00:00.000Z',
                     '2026-08-22T15:00:02.000Z',
+                    '2026-08-22T15:00:04.000Z',
                     '2026-08-22T15:00:00.000Z',
                   ][fixture.steps.indexOf(step)]
             : isPinnedLogicalEventTime

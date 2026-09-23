@@ -1717,6 +1717,84 @@ describe('Salesforce test data adapter verify', () => {
     );
   });
 
+  it('passes ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED when the Account persists the expected prospect id', async () => {
+    const rendered = idProspectIgualIdClienteFixture();
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'CLIENT_ID_STAMPED_WITHOUT_DUPLICATE',
+        description: 'Prospect esperado precisa ficar gravado na Account.',
+        checks: [
+          {
+            check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED',
+            value: rendered.identifiers.accountIdProspect,
+          },
+        ],
+      },
+    ];
+
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          IdProspectSalesforce__c: rendered.identifiers.accountIdProspect,
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(idProspectIgualIdClienteInput(rendered));
+
+    expect(result.passed).toBe(true);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED', passed: true },
+      ]),
+    );
+  });
+
+  it('fails ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED when the Account keeps a different prospect id', async () => {
+    const rendered = idProspectIgualIdClienteFixture();
+    rendered.expectedOutcomes = [
+      {
+        kind: 'BUSINESS_RESULT',
+        result: 'CLIENT_ID_STAMPED_WITHOUT_DUPLICATE',
+        description: 'Prospect esperado precisa ficar gravado na Account.',
+        checks: [
+          {
+            check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED',
+            value: rendered.identifiers.accountIdProspect,
+          },
+        ],
+      },
+    ];
+
+    const client = restClient();
+    client.query.mockResolvedValue({
+      totalSize: 1,
+      done: true,
+      records: [
+        accountFromFixture(rendered, {
+          IdProspectSalesforce__c: 'PRO-SIM-diferente',
+        }),
+      ],
+    });
+
+    const result = await createSalesforceTestDataAdapter({
+      restClient: client,
+    }).verify(idProspectIgualIdClienteInput(rendered));
+
+    expect(result.passed).toBe(false);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        { check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED', passed: false },
+      ]),
+    );
+  });
+
   it('passes the O03 account convergence checks for email, mobile and billing street', async () => {
     const rendered = renderScenarioFixture({
       scenarioKey: 'ordem-mesmo-eventtime-contato-primeiro',

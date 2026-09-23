@@ -1746,7 +1746,7 @@ export const basicScenarioDefinitions = [
     version: 1,
     name: 'Cross-endpoint reentrega evento atual após cliente-insert',
     description:
-      'Reenvia exatamente o mesmo jornadausuario-insert após um /Cliente criar a Account correspondente, registrando o comportamento real observado em mrv-devDan para essa reentrega cross-endpoint.',
+      'Reenvia exatamente o mesmo jornadausuario-insert após um /Cliente criar a Account e um cliente-update subsequente carimbar o prospect, reproduzindo a sequência real necessária para a reentrega ter sucesso.',
     scope: 'EXTENDED',
     tags: ['regression', 'fase-7', 'cross-endpoint', 'maquina-estado', 'reentrega'],
     availability: 'READY',
@@ -1794,11 +1794,18 @@ export const basicScenarioDefinitions = [
         deliveryPolicy,
       },
       {
+        key: 'cliente-update-carimba-prospect',
+        target: 'CLIENTE',
+        eventType: 'cliente-update',
+        delayMs: 4_000,
+        payloadTemplate: clientPayload('cliente-update', true),
+        deliveryPolicy,
+      },
+      {
         key: 'maquina-estado-insert-reentregue',
         target: 'MAQUINA_ESTADO',
         eventType: 'jornadausuario-insert',
-        delayMs: 4_000,
-        expectedHttpStatus: 400,
+        delayMs: 6_000,
         payloadTemplate: maquinaEstadoPayload('jornadausuario-insert', {
           envelopeId: generated('REDELIVERY_EVENT_ID'),
           idCliente: null,
@@ -1813,22 +1820,30 @@ export const basicScenarioDefinitions = [
     expectedOutcomes: [
       {
         kind: 'BUSINESS_RESULT',
-        result: 'EVENT_REJECTED_WITHOUT_DML',
+        result: 'OPPORTUNITY_CREATED_AND_LINKED',
         description:
-          'Divergência real observada em mrv-devDan: o /Cliente cria a Account, mas não carimba `IdProspectSalesforce__c`; por isso a reentrega exata do mesmo jornadausuario-insert continua falhando com `Cliente(Account) não encontrado`, sem criar Opportunity.',
+          'Causa raiz confirmada no Apex real: um cliente-insert de primeira vez não carimba `IdProspectSalesforce__c`; o cliente-update subsequente sobre a mesma Account carimba o prospect e destrava a reentrega exata do jornadausuario-insert, que então cria a Opportunity com sucesso.',
         checks: [
           'ACCOUNT_COUNT_BY_CLIENT_ID_IS_ONE',
           'ACCOUNT_IS_PERSON_ACCOUNT',
-          'ACCOUNT_PROSPECT_ID_NOT_STAMPED',
-          'OPPORTUNITY_NOT_CREATED',
+          {
+            check: 'ACCOUNT_PROSPECT_ID_EQUALS_EXPECTED',
+            value: generated('PROSPECT_ID'),
+          },
+          'OPPORTUNITY_COUNT_BY_ID_EXTERNO_IS_ONE',
+          'OPPORTUNITY_ACCOUNT_LINKED_TO_PRIMARY_ACCOUNT',
+          {
+            check: 'OPPORTUNITY_STAGE_EQUALS_EXPECTED',
+            value: 'Simulação',
+          },
           {
             check: 'OPPORTUNITY_LINE_ITEM_COUNT_EQUALS_EXPECTED',
-            value: 0,
+            value: 1,
           },
         ],
       },
     ],
-    asyncPolicy: graphqlCallbackAsyncPolicy,
+    asyncPolicy,
     cleanup: cleanupWithOpportunity,
   },
   {
