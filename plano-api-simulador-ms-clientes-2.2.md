@@ -2622,6 +2622,140 @@ correta (`cliente-insert` + `cliente-update` antes da reentrega).
 
 **Escopo:** pequeno.
 
+#### Tarefa 8.4: Reproduzir integralmente o catalogo de ordens de eventos (O01-O15)
+
+**Descricao:** o
+[catalogo de ordens de eventos do MS Cliente no Pos-PAC](docs/catalogo-ordens-eventos-ms-cliente-pos-pac.md)
+especifica 15 ordens (`O01`-`O15`). A auditoria registrada na secao 16 desse
+documento confirmou que `O01`, `O02`, `O03`, `O08` e `O14` ja estao
+implementados e validados ao vivo, e que `O10` existe como ferramenta de
+stress separada, mas `O04`, `O05`, `O06`, `O07`, `O09`, `O11`, `O12`, `O13` e
+`O15` ainda nao tem cenario ou mecanismo correspondente no catalogo do
+simulador.
+
+**Principio orientador desta tarefa:** o objetivo nao e reproduzir
+necessariamente o *bug historico* de cada ordem — varios ja foram corrigidos
+no Apex e nao devem mais falhar. O objetivo e o projeto conseguir **executar
+a sequencia de eventos descrita em cada ordem e observar/documentar o
+resultado atual**, ainda que esse resultado seja "correto" hoje. Para as
+ordens que dependem de concorrencia real entre processos assincronos do
+Salesforce (`O07`, `O09`, `O12`), a nocao de "reproduzir" muda de "forcar um
+vencedor especifico" para "disparar a corrida de forma genuina e documentar o
+resultado observado", validando apenas os invariantes que devem valer
+independentemente de quem vence.
+
+**Criterios de aceite (um por ordem pendente):**
+
+- [ ] `O04` (PAC mutavel): cenario cross-endpoint prova que a PAC aprovada
+  mais recente prevalece sobre contatos que o MS Cliente ja tinha publicado
+  antes dela, nao apenas sobre uma PAC anterior.
+- [ ] `O05` (PAC aprovada reentregue): cenario cross-endpoint reproduz a
+  cronologia exata do catalogo (`EM_ANALISE_CREDITO` sem `idCliente` ->
+  aprovada -> `cliente-insert` sem contatos -> contato divergente -> PAC
+  reentregue -> `cliente-update` -> PAC aprovada reentregue), usando gap
+  logico via `dataAlteracao`/`eventTime`, sem depender de espera fisica de
+  30 minutos ou 3 horas.
+- [ ] `O06` (Intervencao manual pos-PAC): o motor de dispatch aceita pausar
+  um run em um checkpoint declarado e retomar apos uma acao administrativa
+  allowlisted (criar Account com prospect provisorio; limpar o campo depois),
+  sem precisar preparar as duas acoes so como fixture antecipada.
+- [ ] `O07` (Corrida Queueable vs PAC): a ferramenta de stress dispara
+  `cliente-update` e `pac-update` verdadeiramente concorrentes (contextos de
+  autenticacao independentes, nao um unico bearer token reaproveitado) sobre
+  a mesma cadeia Account/Opportunity/PAC, nas duas variantes `CQ-X` e `CQ-Y`
+  do catalogo, documentando o vencedor observado em cada execucao sem exigir
+  um resultado fixo.
+- [ ] `O09` (Ordem composta Clarice): a cadeia completa (intervencao manual
+  de `O06` + corrida de `O07`, na ordem do catalogo) e executavel ponta-a-
+  ponta; o estado final (Account e Lead convergindo para os contatos
+  aprovados) e validado, mesmo que o estado intermediario exato do catalogo
+  nao ocorra em toda execucao.
+- [ ] `O11` (Jornada sem `idCliente`): alem da reentrega identica ja coberta,
+  existe uma variante que envia a transicao explicita
+  `idCliente=null -> IDCLI-Y` no mesmo `PROS`, como o catalogo descreve.
+- [ ] `O12` (Contencao da Account Y): a ferramenta de stress e estendida para
+  gerar carga concorrente real logo apos um `cliente-insert` que dispara o
+  Queueable de criacao de Lead, documentando se `UNABLE_TO_LOCK_ROW` aparece
+  sob a carga testada; se nao aparecer apos escalonar a concorrencia, isso
+  fica registrado como limite arquitetural conhecido, sem alterar Apex sem
+  aprovacao explicita.
+- [ ] `O13` (Evento tardio pos-PAC aprovada): cenario cross-endpoint com as
+  duas variantes do catalogo (evento tardio com `dataalteracao` anterior a
+  PAC, que deve ser rejeitado; e evento tardio com `dataalteracao` realmente
+  posterior, que deve prevalecer).
+- [ ] `O15` (Fuso horario invertido): par de fixtures com o mesmo instante
+  real expresso como UTC com sufixo `Z` e como BRT sem offset, documentando
+  como o parser Apex resolve a precedencia entre as duas fontes.
+- [ ] A secao 16 do catalogo copiado é atualizada apos cada ordem, trocando
+  o estado de `Nao implementado`/`Parcial` para o resultado real observado.
+
+**Como reproduzir cada ordem pendente:**
+
+1. **`O04`**: estender `pac-update-reenviando-proponentes` (ou criar uma
+   variante) inserindo, antes do `pac-insert`, um `contato-insert`/
+   `contato-update` real via `/Cliente` com `C0/D0`. Manter o `pac-insert`
+   com `C0/D0` e o `pac-update` aprovado com `C/D`. Assert que a Account
+   converge para os contatos da PAC, nao para os do MS Cliente.
+2. **`O05`**: criar um cenario cross-endpoint novo combinando `/PAC` e
+   `/Cliente` na ordem exata do catalogo. Usar a mesma tecnica ja usada em
+   `ordem-mesmo-eventtime-*` (O03) e em `pac-update-obsoleto-nivel-pac`
+   (O13-like): o "gap real" e modelado via `dataAlteracao`/`eventTime`
+   logico, nao via `delayMs` fisico longo. Reentrega usa o mesmo `id` de
+   evento; nova versao logica usa novo `id` e `dataalteracao` avancado.
+3. **`O06`**: adicionar uma nova operacao allowlisted de setup (por exemplo,
+   `SET_ACCOUNT_PROSPECT_PROVISIONAL` e `CLEAR_ACCOUNT_PROSPECT`, tipadas e
+   restritas a Account, seguindo o mesmo padrao de
+   `CREATE_SYNTHETIC_ACCOUNT`/`ENSURE_ACCOUNT_ABSENT`), e um novo atributo de
+   step (`requiresManualCheckpoint: true`) que pausa o dispatch ate uma
+   chamada administrativa confirmar a acao. Isso evita preparar as duas
+   acoes humanas so como fixture antecipada, como o executor atual faz hoje.
+4. **`O07`**: estender `scripts/stress-o10-concurrent-events.ts` (ja valida
+   disparo HTTP genuinamente concorrente via `Promise.all`) para publicar em
+   paralelo um `cliente-update` e um `pac-update` sobre a mesma cadeia
+   Account/Opportunity/PAC, cada um com seu proprio token OAuth obtido
+   independentemente (nao reaproveitar um unico bearer token de CLI, como o
+   experimento O10 fez). Implementar `CQ-X` e `CQ-Y` como duas execucoes
+   distintas. Nao assertar um vencedor fixo; assertar apenas os invariantes
+   gerais (nenhuma Account/Lead duplicado, PAC/Opportunity vinculadas a uma
+   unica Account) e documentar o resultado observado.
+5. **`O09`**: compor a solucao de `O06` (checkpoints administrativos) com a
+   solucao de `O07` (dispatch concorrente com contexto independente) na
+   ordem exata do catalogo. Assertar o estado final (Account e Lead
+   convergindo para `C/D`), documentando quando o estado intermediario
+   especifico do catalogo ocorrer, sem exigi-lo em toda execucao.
+6. **`O11`**: adicionar uma variante nova a
+   `e2e-evento-atual-reentregue-apos-cliente-insert`, publicando uma segunda
+   reentrega de `jornadausuario-update` com `idCliente` explicitamente
+   preenchido (`IDCLI-Y`), no mesmo `PROS`, complementando a reentrega
+   identica ja coberta.
+7. **`O12`**: estender a ferramenta de stress para gerar carga concorrente
+   real na janela imediatamente apos um `cliente-insert` que dispara o
+   Queueable de criacao de Lead (por exemplo, aumentando a concorrencia
+   escalonadamente: 12, 30, 60 requisicoes). Documentar honestamente se
+   `UNABLE_TO_LOCK_ROW` aparece ou nao; a ausencia do erro apos escalonar a
+   carga e um resultado valido (limite arquitetural conhecido), nao uma
+   falha da tarefa. Nao alterar Apex sem aprovacao explicita.
+8. **`O13`**: criar um cenario cross-endpoint novo: `pac-update` aprovado
+   (Account converge para `C/D`) seguido de um `cliente-update`/
+   `contato-update` tardio, em duas variantes: `dataalteracao` anterior a
+   PAC (deve ser rejeitado) e `dataalteracao` realmente posterior (deve
+   prevalecer). Reusar a mesma logica de obsolescencia por `dataalteracao`
+   ja usada em `pac-update-obsoleto-nivel-pac`, cruzando para o endpoint
+   `/Cliente`.
+9. **`O15`**: criar um par de fixtures com o mesmo instante real, uma com
+   `dataAlteracao` em UTC com sufixo `Z` e outra em BRT sem offset (string
+   ambigua, sem `Z` nem `-03:00`). Validar e documentar como o parser Apex
+   resolve a precedencia entre as duas fontes; isso e uma variacao pura de
+   payload, sem exigir mudanca no motor de dispatch.
+
+**Verificacao:** TDD por ordem (RED/GREEN), validacao ao vivo contra
+`mrv-devDan` antes de marcar qualquer criterio como concluido, seguindo a
+mesma disciplina da secao 1.2 (Regras criticas).
+
+**Dependencias:** checkpoint 7.
+
+**Escopo:** grande.
+
 ## 23. Paralelizacao sugerida
 
 Depois do Checkpoint 1, podem ocorrer em paralelo:
