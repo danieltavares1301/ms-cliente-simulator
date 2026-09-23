@@ -307,6 +307,49 @@ npm run db:migrate:check
 npm run db:migrate
 ```
 
+## Ferramentas diagnósticas standalone (scripts)
+
+O [catálogo de ordens de eventos do MS Cliente no Pós-PAC](docs/catalogo-ordens-eventos-ms-cliente-pos-pac.md)
+distingue dois níveis de acesso para reproduzir uma ordem:
+
+- **Self-service via API**: `O01`, `O02`, `O03`, `O04`, `O05`, `O08`, `O11`,
+  `O13`, `O14` são cenários formais do catálogo (`GET /api/v1/scenarios`) e
+  podem ser executados por qualquer agente com acesso de rede ao simulador
+  implantado, via `POST /api/v1/runs` (ver seção
+  [Runs administrativos](#runs-administrativos)). Não exigem clonar o
+  repositório nem ter a Salesforce CLI instalada — a única barreira é a
+  chave administrativa (`Authorization`).
+- **Requer ambiente local com acesso real à org**: `O06`, `O07`, `O09`,
+  `O10`, `O12` são ferramentas diagnósticas dedicadas (fora do catálogo
+  declarativo, por decisão arquitetural documentada em cada doc abaixo).
+  Elas chamam a Salesforce **diretamente**, não passam pelo simulador
+  implantado, e exigem:
+  - clonar este repositório e rodar `npm install`;
+  - ter a [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli)
+    instalada e **autenticada** contra `mrv-devDan`
+    (`sf org login web --alias mrv-devDan` ou equivalente) — não há como
+    fazer isso via API, exige credenciais reais de acesso à org;
+  - rodar o comando `npm run` correspondente.
+
+| Ordem | Comando | O que faz |
+|---|---|---|
+| `O06` | `npm run manual-intervention:o06` | Intervenção manual pós-PAC: cria uma Account com prospect provisório, publica contatos divergentes, limpa o campo manualmente e reentrega a PAC aprovada. |
+| `O07` | `npm run stress:o07 -- --variant cq-x` (ou `cq-y`) | Corrida genuína `cliente-update`/`pac-update` via `Promise.all`, nas duas variantes formais do catálogo. |
+| `O09` | `npm run composite:o09` | Composição de O06 + O07 na ordem descrita pelo perfil "Ordem composta Clarice". |
+| `O10` | `npm run stress:o10 -- --event-mix mixed\|uniform` | Rajada concorrente de `cliente-update`/`contato-*`/`endereco-*` contra a mesma Account, para stress de lock. |
+| `O12` | `npm run stress:o12 -- --concurrency <n>` | Contenção da Account Y logo após um `cliente-insert` real, com rajada concorrente escalonável. |
+
+Nenhum desses 5 scripts é coberto pela suíte automatizada (`npm test`) —
+são ferramentas de validação ao vivo contra `mrv-devDan`, documentadas
+individualmente em `docs/phase-6/o10-stress-concorrencia.md` e
+`docs/phase-8/tarefa-8-4-o06.md` / `-o07.md` / `-o09.md` / `-o12.md`. Nunca
+execute nenhum deles contra staging/produção; o Safety Guard interno
+bloqueia qualquer host fora de `mrv-devDan`, mas a autenticação em si já
+deve apontar exclusivamente para essa sandbox.
+
+**`O15` permanece bloqueado** — nenhum comando o executa hoje; ver seção 16
+do catálogo copiado para a decisão de arquitetura pendente.
+
 ## Schema e migrations
 
 O schema tipado está em `src/db/schema.ts` e as migrations geradas ficam em
