@@ -273,17 +273,50 @@ Corpo real do erro no passo 1 **e** no passo 3:
 ### Query direta após o passo 2
 
 - `Account` foi criada:
-  - `Id = 001HZ000011Rh80YAC`
-  - `Id__c = CLI-SIM-ff10caedd1-c690c2b69a`
+  - `Id = 001HZ000011Rm01YAC`
+  - `Id__c = CLI-SIM-dbba0baded-6f705ae03f`
 - **Mas** `IdProspectSalesforce__c` permaneceu **em branco**:
   - `IdProspectSalesforce__c = null`
+
+### Investigação adicional de timing (polling real antes da reentrega)
+
+Hipótese investigada: o campo `IdProspectSalesforce__c` poderia estar sendo
+carimbado de forma **assíncrona** pelo `Queueable` `insertLeadQueueable`, e o
+teste original talvez estivesse reentregando cedo demais.
+
+Para validar isso, o cenário foi reexecutado do zero e, após o
+`cliente-insert`, foi feito polling direto na `Account` a cada ~2,5–3,5
+segundos por cerca de **28 segundos** antes de disparar a reentrega:
+
+| Tentativa | Timestamp UTC | Elapsed | `IdProspectSalesforce__c` | `Opportunity` | `Lead` |
+|---|---|---:|---|---:|---:|
+| 1 | `2026-09-23T00:00:39.907Z` | 0.939s | `null` | 0 | 0 |
+| 2 | `2026-09-23T00:00:43.349Z` | 4.362s | `null` | 0 | 0 |
+| 3 | `2026-09-23T00:00:46.769Z` | 7.771s | `null` | 0 | 0 |
+| 4 | `2026-09-23T00:00:50.184Z` | 11.114s | `null` | 0 | 0 |
+| 5 | `2026-09-23T00:00:53.526Z` | 14.464s | `null` | 0 | 0 |
+| 6 | `2026-09-23T00:00:56.880Z` | 17.843s | `null` | 0 | 0 |
+| 7 | `2026-09-23T00:01:00.262Z` | 21.225s | `null` | 0 | 0 |
+| 8 | `2026-09-23T00:01:03.643Z` | 24.642s | `null` | 0 | 0 |
+| 9 | `2026-09-23T00:01:07.061Z` | 27.999s | `null` | 0 | 0 |
+
+Observações reais durante o polling:
+
+- a `Account` já existia desde a primeira tentativa;
+- `IdProspectSalesforce__c` permaneceu `null` em **todas** as tentativas;
+- nenhum `Lead` foi criado nesse intervalo (`leadCount = 0`);
+- nenhuma `Opportunity` apareceu nesse intervalo (`opportunityCount = 0`).
+
+A reentrega só foi enviada depois disso, às `2026-09-23T00:01:10.806Z`, ainda
+assim retornando **HTTP 400** com a mesma mensagem de
+`Cliente(Account) não encontrado`.
 
 ### Query direta após o passo 3
 
 - `Account` continuava existente:
-  - `Id = 001HZ000011Rh80YAC`
+  - `Id = 001HZ000011Rm01YAC`
   - `IdProspectSalesforce__c = null`
-- `Opportunity WHERE Id__c = 'OPP-SIM-ff10caedd1-c690c2b69a'`:
+- `Opportunity WHERE Id__c = 'OPP-SIM-dbba0baded-6f705ae03f'`:
   - `totalSize = 0`
 - `OpportunityLineItem` associado:
   - `totalSize = 0`
@@ -297,6 +330,12 @@ O simulador reproduziu uma divergência real importante:
 - por isso a reentrega exata do mesmo `jornadausuario-insert` com
   `idCliente = null` continuou falhando com **HTTP 400**;
 - **nenhuma `Opportunity` foi criada**.
+
+**Conclusão definitiva da investigação adicional:** a hipótese de **timing**
+foi **refutada**. Mesmo aguardando ~28 segundos com polling direto na org real,
+`IdProspectSalesforce__c` continuou `null`, então o comportamento observado não
+é apenas “o teste esperou pouco”; trata-se de uma divergência real reproduzível
+em `mrv-devDan`.
 
 Ou seja: em `mrv-devDan`, o critério “o mesmo evento atual pode ser
 reentregue após `cliente-insert`” **não se confirmou** no formato mais forte
