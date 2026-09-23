@@ -2688,12 +2688,23 @@ independentemente de quem vence.
   **Concluido e validado ao vivo**:
   `e2e-evento-atual-reentregue-com-idcliente-preenchido` — ver
   `docs/phase-8/tarefa-8-4-o04-o11-o13.md`.
-- [ ] `O12` (Contencao da Account Y): a ferramenta de stress e estendida para
+- [x] `O12` (Contencao da Account Y): a ferramenta de stress e estendida para
   gerar carga concorrente real logo apos um `cliente-insert` que dispara o
   Queueable de criacao de Lead, documentando se `UNABLE_TO_LOCK_ROW` aparece
   sob a carga testada; se nao aparecer apos escalonar a concorrencia, isso
   fica registrado como limite arquitetural conhecido, sem alterar Apex sem
-  aprovacao explicita.
+  aprovacao explicita. **Concluido e validado ao vivo (concorrencia 12 e
+  30)**: `scripts/stress-o12-contencao-account-y.ts` — ver
+  `docs/phase-8/tarefa-8-4-o12.md`. Achados reais: (1) `cliente-insert`
+  isolado nao cria Lead — exige o padrao "prospect divergente" ja usado por
+  O01/O02/O08; (2) `UNABLE_TO_LOCK_ROW` nao apareceu em nenhuma execucao
+  (mesmo limite ja observado no O10), mas o Lead foi sempre criado e
+  vinculado corretamente mesmo sob carga concorrente pesada, satisfazendo o
+  objetivo positivo do perfil; (3) bug real corrigido no caminho: importar
+  funcoes do script principal do O10 disparava uma execucao real completa
+  dele como efeito colateral (main() incondicional no nivel do modulo) —
+  corrigido movendo os utilitarios reutilizaveis para
+  `stress-o10-concurrent-events-lib.ts`.
 - [x] `O13` (Evento tardio pos-PAC aprovada): cenario cross-endpoint com as
   duas variantes do catalogo (evento tardio com `dataalteracao` anterior a
   PAC, que deve ser rejeitado; e evento tardio com `dataalteracao` realmente

@@ -507,12 +507,14 @@ simulador hoje?**
 implementados e validados ao vivo contra `mrv-devDan` — ver
 [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md).
 
-**Resposta curta: não, nem todas — mas a maioria já está.** Oito ordens
-(O01–O05, O08, O11, O14) estão solidamente implementadas e validadas ao vivo
-contra `mrv-devDan`. O10 existe como ferramenta de stress separada. O13 foi
-implementada e validada ao vivo, mas via um mecanismo real diferente do
-hipotetizado originalmente (ver seção da própria ordem). O06, O07, O09, O12
-e O15 não têm nenhum cenário ou mecanismo correspondente hoje.
+**Resposta curta: não, nem todas — mas a maioria já está.** Nove ordens
+(O01–O05, O08, O11, O12, O14) estão solidamente implementadas e validadas ao
+vivo contra `mrv-devDan`. O10 existe como ferramenta de stress separada,
+assim como o próprio O12. O13 foi implementada e validada ao vivo, mas via
+um mecanismo real diferente do hipotetizado originalmente (ver seção da
+própria ordem). O06, O07 e O09 não têm nenhum cenário ou mecanismo
+correspondente hoje. O15 está bloqueado por uma decisão de contrato
+compartilhado (ver tabela abaixo).
 
 | ID | Estado no simulador | Evidência |
 |---|---|---|
@@ -527,7 +529,7 @@ e O15 não têm nenhum cenário ou mecanismo correspondente hoje.
 | O09 — Ordem composta Clarice | ❌ Não implementado | Nenhuma combinação reproduz a cadeia inteira; o próprio catálogo original já não esperava isso de nenhum perfil formal isolado. Depende de O06 + O07. |
 | O10 — Rajada concorrente | ✅ Implementado, fora da API de cenários | `scripts/stress-o10-concurrent-events.ts` (standalone, Node/TS), não é um cenário do catálogo `/scenarios`. Ver [`docs/phase-6/o10-stress-concorrencia.md`](phase-6/o10-stress-concorrencia.md). |
 | O11 — Jornada sem `idCliente` antes do carimbo | ✅ Implementado e validado ao vivo (2026-09-23) | `e2e-evento-atual-reentregue-com-idcliente-preenchido`, complementando a reentrega já coberta. Achado real: não há lógica de "transição" especial no Apex; o match por `Id__c` funciona porque a query já usa `OR` entre `Id__c`/`IdProspectSalesforce__c`. Ver [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md). |
-| O12 — Contenção da Account Y | ❌ Não implementado | Nenhum mecanismo de lock real sobre a Account durante a execução do Queueable; o catálogo original já apontava isso como pendente mesmo no executor antigo. |
+| O12 — Contenção da Account Y | ✅ Implementado e validado ao vivo (2026-09-23), concorrência 12 e 30 | `scripts/stress-o12-contencao-account-y.ts`. Achados reais: (1) `cliente-insert` isolado não cria Lead — exige o padrão "prospect divergente" já usado por O01/O02/O08; (2) `UNABLE_TO_LOCK_ROW` não apareceu em nenhuma execução (mesmo limite já observado no O10), mas o Lead foi sempre criado e vinculado corretamente mesmo sob carga concorrente pesada; (3) bug real corrigido no caminho: importar funções do script principal do O10 disparava uma execução real completa dele como efeito colateral. Ver [`docs/phase-8/tarefa-8-4-o12.md`](phase-8/tarefa-8-4-o12.md). |
 | O13 — Evento tardio pós-PAC aprovada | ✅ Implementado e validado ao vivo (2026-09-23) | `pac-aprovada-evento-tardio-anterior-rejeitado` e `pac-aprovada-evento-tardio-posterior-regride-contato`. Achado real: o mecanismo é diferente do hipotetizado (obsolescência avaliada inteiramente dentro do `/Cliente`, sem qualquer conhecimento da PAC), mas a mesma classe de risco foi reproduzida — um evento tardio genuinamente mais novo regride um contato já aprovado pela PAC. Ver [`docs/phase-8/tarefa-8-4-o04-o11-o13.md`](phase-8/tarefa-8-4-o04-o11-o13.md). |
 | O14 — Reentrega genérica | ✅ Implementado | `evento-duplicado` (tag `o14`), `maquina-estado-update-reentrega-mesmo-evento` e o cross-endpoint `e2e-evento-atual-reentregue-apos-cliente-insert`. Ver [`docs/phase-6/o14-evento-duplicado-e-obsoleto.md`](phase-6/o14-evento-duplicado-e-obsoleto.md). |
 | O15 — Ordem temporal invertida por fuso | ❌ Bloqueado por contrato compartilhado | `apexCompatibleUtcDateTimeSchema` (`src/contracts/event-grid.ts`) exige que o timestamp termine em `Z`, impedindo o envio do payload "BRT sem offset" necessário — mesmo já confirmado, lendo `EventGrid.parseDateTime`/`TV_Utils.parseToDateMillis`, que o Apex real aceitaria e interpretaria esse payload incorretamente como GMT. Requer decisão: afrouxar o schema compartilhado (risco: afeta os 44 cenários do catálogo) ou criar um modo de payload literal/raw dedicado a este teste. |
