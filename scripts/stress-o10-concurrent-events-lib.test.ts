@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { eventGridEnvelopeSchema } from '../src/contracts/event-grid.ts';
 import {
   buildConcurrentDispatchPlan,
+  countLeadsById,
+  findRunCreatedLeadIds,
   parseCliArguments,
   resolveFieldWinners,
 } from './stress-o10-concurrent-events-lib.ts';
@@ -138,5 +140,95 @@ describe('resolveFieldWinners', () => {
     );
     expect(winners.billingStreet.request?.index).toBe(4);
     expect(winners.billingStreet.request?.variantKey).toBe('endereco-insert');
+  });
+});
+
+function createFakeQueryClient(respond: (soql: string) => unknown) {
+  const queries: string[] = [];
+  return {
+    queries,
+    client: {
+      query: async <T>(soql: string): Promise<T> => {
+        queries.push(soql);
+        return respond(soql) as T;
+      },
+    },
+  };
+}
+
+describe('findRunCreatedLeadIds', () => {
+  it('returns only Leads linked to run Accounts and created during the run', async () => {
+    const fake = createFakeQueryClient((soql) =>
+      soql.includes('FROM Account')
+        ? {
+            records: [
+              {
+                IdProspectSalesforce__c: 'PRO-SIM-O06-X-abc',
+                CreatedDate: '2026-09-23T17:50:00.000+0000',
+              },
+              {
+                IdProspectSalesforce__c: '084b6938-9430-b4d7-a53f-aa37b2e60cee',
+                CreatedDate: '2026-09-23T17:51:00.000+0000',
+              },
+            ],
+          }
+        : {
+            records: [
+              { Id: '00QHZ00000bjPq02AE', CreatedDate: '2026-09-23T17:52:31.000+0000' },
+              { Id: '00QHZ00000aaaaaAAA', CreatedDate: '2026-09-01T10:00:00.000+0000' },
+            ],
+          },
+    );
+
+    const leadIds = await findRunCreatedLeadIds(fake.client, [
+      '001HZ00000accXAAAA',
+      '001HZ00000accYAAAA',
+    ]);
+
+    expect(leadIds).toEqual(['00QHZ00000bjPq02AE']);
+    expect(fake.queries[0]).toContain(
+      "WHERE Id IN ('001HZ00000accXAAAA', '001HZ00000accYAAAA')",
+    );
+    expect(fake.queries[1]).toContain(
+      "WHERE Id__c IN ('PRO-SIM-O06-X-abc', '084b6938-9430-b4d7-a53f-aa37b2e60cee')",
+    );
+  });
+
+  it('skips the Lead query when no run Account has a prospect', async () => {
+    const fake = createFakeQueryClient(() => ({
+      records: [
+        { IdProspectSalesforce__c: null, CreatedDate: '2026-09-23T17:50:00.000+0000' },
+      ],
+    }));
+
+    await expect(
+      findRunCreatedLeadIds(fake.client, ['001HZ00000accYAAAA']),
+    ).resolves.toEqual([]);
+    expect(fake.queries).toHaveLength(1);
+  });
+
+  it('does not query when there are no run Accounts', async () => {
+    const fake = createFakeQueryClient(() => {
+      throw new Error('não deveria consultar');
+    });
+
+    await expect(findRunCreatedLeadIds(fake.client, [])).resolves.toEqual([]);
+    await expect(countLeadsById(fake.client, [])).resolves.toBe(0);
+  });
+});
+
+describe('countLeadsById', () => {
+  it('counts the remaining Leads by record id', async () => {
+    const fake = createFakeQueryClient(() => ({
+      totalSize: 1,
+      records: [
+        { Id: '00QHZ00000bjPq02AE', Id__c: null, CPF__c: null, LastName: 'O06 Y' },
+      ],
+    }));
+
+    await expect(
+      countLeadsById(fake.client, ['00QHZ00000bjPq02AE']),
+    ).resolves.toBe(1);
+    expect(fake.queries[0]).toContain("WHERE Id IN ('00QHZ00000bjPq02AE')");
   });
 });

@@ -68,6 +68,22 @@ inequívoca, seguindo a mesma adaptação pragmática já usada em O05/O06/O07.
 - Execução real única, completa, contra `mrv-devDan`, com resíduo zero
   confirmado por consulta direta pós-cleanup em ambas as Accounts.
 
+## Correção (2026-09-26): Lead órfão
+
+- A execução acima **deixou um Lead na org**: `00QHZ00000bjeAV2AY`
+  (`O09 Y 8a646132c5`, `Id__c` `719e2e53-1414-005a-77ed-57822b900e4f`). O
+  "GUID novo" da Account Y era o `Id__c` desse Lead, criado pelo
+  `insertLeadQueueable`; a "auto-cura" citada na tabela acima é essa criação
+  normal de Lead (ver a correção em
+  [`tarefa-8-4-o06.md`](tarefa-8-4-o06.md)). O "resíduo zero" só verificava
+  Accounts. O Lead foi apagado em 2026-09-26, depois de uma consulta SOQL
+  confirmar que nenhuma Account apontava mais para ele.
+- Como o Lead de Y existia, a parte "Lead termina com C/D" do resultado
+  esperado pelo catálogo era observável, mas não foi verificada.
+- O cleanup foi corrigido do mesmo jeito que no O06: descobre o Lead pelas
+  Accounts do run, apaga-o, inclui-o na verificação de resíduo e encerra o
+  script com erro se sobrar qualquer registro.
+
 ## Estado da Tarefa 8.4 após este incremento
 
 8 das 9 ordens pendentes concluídas e validadas ao vivo: O04, O05, O06, O07,

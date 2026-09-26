@@ -88,6 +88,23 @@ mudança no motor compartilhado.
 - Resíduo zero confirmado por consulta direta pós-cleanup
   (`accountXCountAfterCleanup: 0`, `accountYCountAfterCleanup: 0`).
 
+## Correção (2026-09-26): Lead órfão e releitura da "auto-cura"
+
+- A execução acima **deixou um Lead na org**: `00QHZ00000bjPq02AE`
+  (`O06 Y 94d143a656`), cujo `Id__c` é exatamente o "GUID novo" da Account
+  Y (`084b6938-9430-b4d7-a53f-aa37b2e60cee`). O "resíduo zero" só verificava
+  Accounts. O Lead foi apagado em 2026-09-26, depois de uma consulta SOQL
+  confirmar que nenhuma Account apontava mais para ele.
+- A "auto-cura de identidade" não é um mecanismo à parte: é a criação
+  normal de Lead pelo `insertLeadQueueable`, que carimba o `Id__c` do Lead
+  novo em `Account.IdProspectSalesforce__c` — o mesmo caminho que o catálogo
+  descreve no O09 (`cliente-update(PROS-X)` dispara `insertLeadQueueable`).
+- O cleanup do script agora descobre esse Lead antes de apagar as Accounts
+  (`findRunCreatedLeadIds` em `stress-o10-concurrent-events-lib.ts`: segue o
+  `IdProspectSalesforce__c` das Accounts do run e só aceita Leads criados a
+  partir da Account mais antiga do run), apaga-o, inclui-o na verificação de
+  resíduo e encerra o script com erro se sobrar qualquer registro.
+
 ## Reaproveitamento generalizado
 
 `dispatchConcurrentRequest` (em `stress-o10-concurrent-events-lib.ts`) foi
