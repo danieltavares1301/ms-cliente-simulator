@@ -11,9 +11,13 @@ import {
 import { createSalesforceSafetyGuard } from '../src/salesforce/safety-guard.ts';
 import { generateSyntheticCpf } from '../src/synthetic/cpf.ts';
 import {
+  accountQuerySchema,
+  countLeadsById,
+  createAccountStateQuery,
   createStaticAccessProvider,
   detectLockSignals,
   dispatchConcurrentRequest,
+  findRunCreatedLeadIds,
   loadOrgAccess,
   logStructured,
   parseCliArguments,
@@ -434,7 +438,16 @@ async function main(): Promise<void> {
     },
   });
 
-  // cleanup
+  // cleanup — o Lead criado pelo Apex para Y precisa ser descoberto antes de
+  // apagar as Accounts, que são o único vínculo com ele.
+  const runLeadIds = await findRunCreatedLeadIds(restClient, [
+    ...accountPState.records.map((record) => record.Id),
+    ...accountYState.records.map((record) => record.Id),
+  ]);
+  logStructured('cleanup-leads-discovered', { leadIds: runLeadIds });
+  for (const leadId of runLeadIds) {
+    await restClient.deleteRecord('Lead', leadId);
+  }
   const proponentes = (
     await restClient.query<{ totalSize: number; records: Array<{ Id: string }> }>(
       asAllowlistedQuery(`SELECT Id FROM Proponente__c WHERE Id__c = '${prop}'`),
@@ -468,24 +481,29 @@ async function main(): Promise<void> {
     await restClient.deleteRecord('Account', record.Id);
   }
 
-  const accountPAfterCleanup = accountStateSchema.parse(
+  const accountPAfterCleanup = accountQuerySchema.parse(
     await restClient.query<unknown>(
-      asAllowlistedQuery(
-        `SELECT Id, Id__c FROM Account WHERE Id__c = '${idClienteP}'`,
-      ),
+      asAllowlistedQuery(createAccountStateQuery(idClienteP)),
     ),
   );
-  const accountYAfterCleanup = accountStateSchema.parse(
+  const accountYAfterCleanup = accountQuerySchema.parse(
     await restClient.query<unknown>(
-      asAllowlistedQuery(
-        `SELECT Id, Id__c FROM Account WHERE Id__c = '${idClienteY}'`,
-      ),
+      asAllowlistedQuery(createAccountStateQuery(idClienteY)),
     ),
   );
+  const leadCountAfterCleanup = await countLeadsById(restClient, runLeadIds);
   logStructured('cleanup-result', {
     accountPCountAfterCleanup: accountPAfterCleanup.totalSize,
     accountYCountAfterCleanup: accountYAfterCleanup.totalSize,
+    leadCountAfterCleanup,
   });
+  if (
+    accountPAfterCleanup.totalSize > 0 ||
+    accountYAfterCleanup.totalSize > 0 ||
+    leadCountAfterCleanup > 0
+  ) {
+    throw new Error('Cleanup não confirmou remoção completa dos registros de teste.');
+  }
 }
 
 main().catch((error: unknown) => {

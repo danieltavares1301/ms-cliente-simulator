@@ -16,7 +16,11 @@ import type {
   SalesforceAccess,
   SalesforceOAuthAccessProvider,
 } from '../src/salesforce/oauth-client.ts';
-import { escapeSoqlLiteral } from '../src/salesforce/rest-client.ts';
+import {
+  asAllowlistedQuery,
+  escapeSoqlLiteral,
+  type SalesforceRestClient,
+} from '../src/salesforce/rest-client.ts';
 
 const execFile = promisify(execFileCallback);
 const exec = promisify(execCallback);
@@ -800,5 +804,100 @@ export function createLeadStateQuery(idProspect: string, cpf: string): string {
       idProspect,
     )} OR CPF__c = ${literal(cpf)}`
   );
+}
+
+const runAccountLinkSchema = z.object({
+  records: z.array(
+    z
+      .object({
+        IdProspectSalesforce__c: z.string().nullable(),
+        CreatedDate: z.string(),
+      })
+      .passthrough(),
+  ),
+});
+
+const runLeadCandidateSchema = z.object({
+  records: z.array(
+    z.object({ Id: z.string(), CreatedDate: z.string() }).passthrough(),
+  ),
+});
+
+// A API REST devolve datetimes como `2026-09-23T17:52:31.000+0000`; o offset
+// sem `:` não é ISO 8601 estrito, então é normalizado antes do parse.
+function parseSalesforceDateTime(value: string): number {
+  const parsed = Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Datetime Salesforce inválido: ${value}`);
+  }
+  return parsed;
+}
+
+/**
+ * Descobre os Leads que o Apex criou durante o run para as Accounts do
+ * próprio run. O `insertLeadQueueable` carimba o `Id__c` do Lead novo em
+ * `Account.IdProspectSalesforce__c` (achado confirmado ao vivo nos resíduos
+ * do O06/O09); o script não cria esse Lead, então ele não está entre os IDs
+ * criados pelo run e precisa ser descoberto antes de as Accounts serem
+ * apagadas. Só entram Leads criados a partir da Account mais antiga do run,
+ * pelo relógio da própria Salesforce, para nunca apagar um Lead preexistente.
+ */
+export async function findRunCreatedLeadIds(
+  restClient: Pick<SalesforceRestClient, 'query'>,
+  runAccountRecordIds: readonly string[],
+): Promise<string[]> {
+  if (runAccountRecordIds.length === 0) return [];
+
+  const accounts = runAccountLinkSchema.parse(
+    await restClient.query<unknown>(
+      asAllowlistedQuery(
+        `SELECT IdProspectSalesforce__c, CreatedDate FROM Account WHERE Id IN (${runAccountRecordIds
+          .map(literal)
+          .join(', ')})`,
+      ),
+    ),
+  );
+  const prospectIds = [
+    ...new Set(
+      accounts.records.flatMap((record) =>
+        record.IdProspectSalesforce__c ? [record.IdProspectSalesforce__c] : [],
+      ),
+    ),
+  ];
+  if (prospectIds.length === 0) return [];
+
+  const runStartedAt = Math.min(
+    ...accounts.records.map((record) =>
+      parseSalesforceDateTime(record.CreatedDate),
+    ),
+  );
+  const leads = runLeadCandidateSchema.parse(
+    await restClient.query<unknown>(
+      asAllowlistedQuery(
+        `SELECT Id, CreatedDate FROM Lead WHERE Id__c IN (${prospectIds
+          .map(literal)
+          .join(', ')})`,
+      ),
+    ),
+  );
+  return leads.records
+    .filter((lead) => parseSalesforceDateTime(lead.CreatedDate) >= runStartedAt)
+    .map((lead) => lead.Id);
+}
+
+export async function countLeadsById(
+  restClient: Pick<SalesforceRestClient, 'query'>,
+  leadIds: readonly string[],
+): Promise<number> {
+  if (leadIds.length === 0) return 0;
+  return leadQuerySchema.parse(
+    await restClient.query<unknown>(
+      asAllowlistedQuery(
+        `SELECT Id, Id__c, CPF__c, LastName FROM Lead WHERE Id IN (${leadIds
+          .map(literal)
+          .join(', ')})`,
+      ),
+    ),
+  ).totalSize;
 }
 
