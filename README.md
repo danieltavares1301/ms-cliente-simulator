@@ -350,6 +350,16 @@ deve apontar exclusivamente para essa sandbox.
 **`O15` permanece bloqueado** — nenhum comando o executa hoje; ver seção 16
 do catálogo copiado para a decisão de arquitetura pendente.
 
+### Orquestrador de runbook: TC-005
+
+`npm run runbook:tc005 -- --mode same-x|fresh-x [--orders O01,O02,...]`
+roda a massa do **TC-005** ("Account Y existente, Lead Y ausente" — ver
+[runbook](docs/runbook-testes-manuais-unificacao-2.2.md)) contra as 13
+ordens do catálogo já implementadas nesta sessão (`O10`/`O15` ficam de
+fora). Requer o mesmo ambiente local autenticado descrito acima. Detalhes,
+achado de causa-raiz e tabela de convergência esperada por ordem:
+[`docs/tc-005-conta-y-sem-lead.md`](docs/tc-005-conta-y-sem-lead.md).
+
 ## Schema e migrations
 
 O schema tipado está em `src/db/schema.ts` e as migrations geradas ficam em
@@ -377,6 +387,9 @@ roda automaticamente no build/deploy.
 - [Catálogo de ordens de eventos do MS Cliente no Pós-PAC](docs/catalogo-ordens-eventos-ms-cliente-pos-pac.md) —
   contrato funcional original (15 ordens `O01`–`O15`), com adendo mapeando
   cada ordem ao estado real de implementação no catálogo de cenários.
+- [Runbook integrado de testes — Unificações 2.1, 1.3 e 2.2](docs/runbook-testes-manuais-unificacao-2.2.md) —
+  os 70 casos de teste (`TC-001`–`TC-070`) da US 918914, origem do TC-005
+  implementado em [`docs/tc-005-conta-y-sem-lead.md`](docs/tc-005-conta-y-sem-lead.md).
 
 ### Fase 0 — Validação e configuração técnica
 
