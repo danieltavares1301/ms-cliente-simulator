@@ -27,6 +27,13 @@ import {
  * (`com_salesforce_mrv/docs/runbook-testes-manuais-unificacao-2.2.md`,
  * copiado para `docs/runbook-testes-manuais-unificacao-2.2.md` neste repo).
  *
+ * ATENÇÃO (2026-09-27): o "achado real" abaixo e o `expectedLeadCreated`
+ * foram refutados pelo reteste `scripts/tc-005-isolamento-causa-raiz.ts`. O
+ * Lead de Y nasce quando o `cliente-update(Y)` é aplicado (data posterior ao
+ * marcador). Nas ordens "sem Lead" este script manda o `cliente-update(Y)`
+ * com data igual ao marcador do setup, e o Apex descarta o evento. Este
+ * script precisa ser reescrito; ver `docs/tc-005-conta-y-sem-lead.md`.
+ *
  * Massa: Account X já sincronizada (própria jornada, contatos e Lead
  * intactos, sem relação com a PAC deste TC). Account Y já existe com CPF Y
  * e `IDCLI-Y`, mas SEM Lead. A PAC é aprovada referenciando Y (Proponente

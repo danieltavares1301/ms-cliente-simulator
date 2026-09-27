@@ -18,9 +18,14 @@ import type {
 } from '../src/salesforce/oauth-client.ts';
 import {
   asAllowlistedQuery,
+  createSalesforceRestClient,
   escapeSoqlLiteral,
   type SalesforceRestClient,
 } from '../src/salesforce/rest-client.ts';
+import {
+  createSalesforceSafetyGuard,
+  type SalesforceSafetyGuard,
+} from '../src/salesforce/safety-guard.ts';
 
 const execFile = promisify(execFileCallback);
 const exec = promisify(execCallback);
@@ -715,6 +720,57 @@ export function createStaticAccessProvider(
   };
 }
 
+export type TargetOrgConnection = {
+  access: SalesforceAccess;
+  safetyGuard: SalesforceSafetyGuard;
+  restClient: SalesforceRestClient;
+};
+
+/**
+ * Conecta à org alvo com o Safety Guard preso à `mrv-devDan` pelo org ID fixo
+ * (`TARGET_ORG_ID`), e não pelo que o `sf org display` devolve — senão o guard
+ * compara a org com ela mesma e qualquer alias (inclusive via
+ * `SF_TARGET_ORG`) passaria. Valida org e `IsSandbox` antes de devolver a
+ * conexão, ou seja, antes de qualquer escrita.
+ */
+export async function connectToTargetOrg(
+  options: Pick<CliOptions, 'sfCommand' | 'orgAlias'>,
+): Promise<TargetOrgConnection> {
+  const orgAccess = await loadOrgAccess(options.sfCommand, options.orgAlias);
+  const access: SalesforceAccess = {
+    accessToken: orgAccess.accessToken,
+    instanceUrl: orgAccess.instanceUrl,
+  };
+  const oauthClient = createStaticAccessProvider(access);
+  const safetyGuard = createSalesforceSafetyGuard({
+    oauthClient,
+    targetSalesforceBaseUrl: access.instanceUrl,
+    targetSalesforceOrgId: TARGET_ORG_ID,
+  });
+  await safetyGuard.validate();
+  return {
+    access,
+    safetyGuard,
+    restClient: createSalesforceRestClient({ oauthClient, safetyGuard }),
+  };
+}
+
+/** Lê `--nome valor` ou `--nome=valor`; devolve `undefined` se ausente. */
+export function readCliFlag(
+  argv: readonly string[],
+  name: string,
+): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === `--${name}`) {
+      const value = argv[index + 1];
+      return value === undefined || value.startsWith('--') ? undefined : value;
+    }
+    if (token?.startsWith(`--${name}=`)) return token.slice(name.length + 3);
+  }
+  return undefined;
+}
+
 export async function dispatchConcurrentRequest(
   access: SalesforceAccess,
   planEntry: ConcurrentDispatchPlanEntry,
@@ -825,7 +881,7 @@ const runLeadCandidateSchema = z.object({
 
 // A API REST devolve datetimes como `2026-09-23T17:52:31.000+0000`; o offset
 // sem `:` não é ISO 8601 estrito, então é normalizado antes do parse.
-function parseSalesforceDateTime(value: string): number {
+export function parseSalesforceDateTime(value: string): number {
   const parsed = Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
   if (Number.isNaN(parsed)) {
     throw new Error(`Datetime Salesforce inválido: ${value}`);
