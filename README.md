@@ -358,14 +358,31 @@ deve apontar exclusivamente para essa sandbox.
 **`O15` permanece bloqueado** — nenhum comando o executa hoje; ver seção 16
 do catálogo copiado para a decisão de arquitetura pendente.
 
-### Orquestrador de runbook: TC-005
+### Runbook da Unificação 2.2 (recorte 2.2)
 
-`npm run runbook:tc005 -- --mode same-x|fresh-x [--orders O01,O02,...]`
-roda a massa do **TC-005** ("Account Y existente, Lead Y ausente" — ver
-[runbook](docs/runbook-testes-manuais-unificacao-2.2.md)) contra as 13
-ordens do catálogo já implementadas nesta sessão (`O10`/`O15` ficam de
-fora). Requer o mesmo ambiente local autenticado descrito acima. Detalhes,
-achado de causa-raiz e tabela de convergência esperada por ordem:
+`npm run runbook -- --tcs TC-005,TC-006 [--perfis PA,CA,ME] [--saida resultados.jsonl]`
+(ou `--todos`) roda os **44 TCs executáveis** do
+[runbook](docs/runbook-testes-manuais-unificacao-2.2.md) na `mrv-devDan`, cada
+um nos três perfis obrigatórios (`ORDEM-PARCIAIS-ANTES`, `ORDEM-CLIENTE-ANTES`
+e `ORDEM-MESMO-EVENTTIME`), com massa nova por RUN. Os TCs bloqueados e os
+`BLOCKED-FUNCIONAL` ficam de fora. Requer o mesmo ambiente local autenticado
+descrito acima.
+
+- **Massa:** entra como fixture, e a cadeia 2.2 roda inteira (PAC, eventos na
+  ordem do perfil, Queueable/callback, `cliente-update(PROS-Y)`, `pac-update`
+  e máquina). A 2.1 e a 1.3 reais não são chamadas, então cada RUN é um
+  diagnóstico do recorte 2.2 (runbook §4.2).
+- **Cada RUN:** confere o esperado do TC e os critérios comuns (X intacto,
+  vínculo, Proponente, Opportunity, PAC, jobs e logs sem erro). No fim, apaga
+  só o que criou (§6.5).
+- **Retomada:** o JSONL de saída serve também para retomar, porque pares
+  TC×perfil já gravados não rodam de novo.
+- **Relatório:** `npm run runbook:relatorio -- --entrada resultados.jsonl --saida relatorio.md`.
+
+Código em `scripts/runbook/`: `engine.ts` (motor), `verificacoes.ts`,
+`cenarios.ts` (as 44 especificações) e `run.ts`. O script antigo do TC-005
+foi substituído pelo runner. A causa-raiz do Lead de Y, confirmada pelo
+reteste `npm run retest:tc005`, está em
 [`docs/tc-005-conta-y-sem-lead.md`](docs/tc-005-conta-y-sem-lead.md).
 
 ## Schema e migrations
@@ -398,6 +415,11 @@ roda automaticamente no build/deploy.
 - [Runbook integrado de testes — Unificações 2.1, 1.3 e 2.2](docs/runbook-testes-manuais-unificacao-2.2.md) —
   os 70 casos de teste (`TC-001`–`TC-070`) da US 918914, origem do TC-005
   implementado em [`docs/tc-005-conta-y-sem-lead.md`](docs/tc-005-conta-y-sem-lead.md).
+- [Resultado do runbook — recorte 2.2, 2026-09-27](docs/resultado-runbook-recorte-2.2-2026-09-27.md) —
+  132 RUNs dos 44 TCs executáveis na `mrv-devDan`: 121 conformes, com
+  divergência reproduzível no TC-040 (HTTP 400 para contato antes do cliente
+  sem correlação) e nos TCs 045, 046 e 049 (Lead candidato sem CPF não
+  reutilizado quando a Account Y é nova).
 
 ### Fase 0 — Validação e configuração técnica
 

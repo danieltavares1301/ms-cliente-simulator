@@ -15,7 +15,12 @@ Origem: [`docs/runbook-testes-manuais-unificacao-2.2.md`](runbook-testes-manuais
 
 ## Script
 
-`scripts/tc-005-account-y-sem-lead.ts` (`npm run runbook:tc005`) executa
+> **Substituído (2026-09-27).** O TC-005 agora roda pelo runner do runbook
+> (`npm run runbook -- --tcs TC-005`, em `scripts/runbook/`), nos perfis PA,
+> CA e ME do runbook, com os eventos em datas posteriores aos marcadores da
+> massa. O script descrito abaixo foi removido; o texto fica como registro.
+
+`scripts/tc-005-account-y-sem-lead.ts` (`npm run runbook:tc005`) executava
 essa massa contra as 13 ordens de evento já implementadas nesta sessão a
 partir do [catálogo de ordens](catalogo-ordens-eventos-ms-cliente-pos-pac.md)
 (`O01`–`O09`, `O11`–`O14`; `O10`/`O12` entram como as variantes de
