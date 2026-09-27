@@ -358,6 +358,7 @@ describe('protected runs API handlers', () => {
     ['RUN_NOT_FOUND', 404],
     ['RUN_NOT_CANCELLABLE', 409],
     ['NO_ELIGIBLE_STEPS', 409],
+    ['RETRY_NOT_SUPPORTED', 409],
     ['CANCELLATION_FAILED', 503],
   ] as const)('maps administrative error %s to %i', async (code, status) => {
     const action = vi
@@ -374,7 +375,7 @@ describe('protected runs API handlers', () => {
     });
     const runId = '11111111-1111-4111-8111-111111111111';
     const response =
-      code === 'NO_ELIGIBLE_STEPS'
+      code === 'NO_ELIGIBLE_STEPS' || code === 'RETRY_NOT_SUPPORTED'
         ? await handlers.retryRun(
             request(`http://localhost/api/v1/runs/${runId}/retries`, {
               method: 'POST',

@@ -535,6 +535,12 @@ describe('internal QStash dispatch handler', () => {
         findRun: vi.fn().mockResolvedValue({
           dispatchMode: 'FAKE',
           testDataEnabled: true,
+          status: runStatus,
+        }),
+        listSteps: vi.fn().mockResolvedValue({
+          items: [{ stepKind: 'CLEANUP', status: 'PENDING' }],
+          total: 1,
+          hasMore: false,
         }),
         claimDispatch: vi.fn().mockResolvedValue({ outcome: 'CLAIMED' }),
         getDispatchPayload: vi
@@ -563,6 +569,91 @@ describe('internal QStash dispatch handler', () => {
     expect(compensate).toHaveBeenCalledWith(payload.runId);
     },
   );
+
+  describe('redelivery of a test data run that already failed', () => {
+    function terminalRedelivery(input: {
+      cleanupStatus: string;
+      compensation: 'SUCCEEDED' | 'FAILED';
+    }) {
+      const compensate = vi
+        .fn()
+        .mockResolvedValue({ outcome: input.compensation });
+      const afterDispatch = vi
+        .fn()
+        .mockResolvedValue({ outcome: 'COMPLETED', status: 'PARTIAL' });
+      const handler = createDispatchHandler({
+        ...dependencies({
+          findRun: vi.fn().mockResolvedValue({
+            dispatchMode: 'FAKE',
+            testDataEnabled: true,
+            status: 'PARTIAL',
+          }),
+          listSteps: vi.fn().mockResolvedValue({
+            items: [{ stepKind: 'CLEANUP', status: input.cleanupStatus }],
+            total: 1,
+            hasMore: false,
+          }),
+          claimDispatch: vi.fn().mockResolvedValue({ outcome: 'TERMINAL' }),
+        }),
+        environment: {
+          ORCHESTRATION_ENABLED: 'true',
+          SALESFORCE_TEST_DATA_ENABLED: 'true',
+        },
+        testDataAdapter: {
+          setup: vi.fn(),
+          verify: vi.fn(),
+          cleanup: vi.fn(),
+        },
+        lifecycleServiceFactory: () => ({ afterDispatch, compensate }),
+      });
+      return { handler, compensate, afterDispatch };
+    }
+
+    it('retries the failed cleanup instead of answering noop', async () => {
+      const { handler, compensate, afterDispatch } = terminalRedelivery({
+        cleanupStatus: 'FAILED',
+        compensation: 'SUCCEEDED',
+      });
+      const raw = JSON.stringify(payload);
+
+      const response = await handler(request(raw, sign(raw)));
+
+      expect(response.status).toBe(200);
+      expect(compensate).toHaveBeenCalledWith(payload.runId);
+      expect(afterDispatch).toHaveBeenCalledOnce();
+    });
+
+    it('keeps asking QStash for redelivery while the cleanup keeps failing', async () => {
+      const { handler, compensate, afterDispatch } = terminalRedelivery({
+        cleanupStatus: 'FAILED',
+        compensation: 'FAILED',
+      });
+      const raw = JSON.stringify(payload);
+
+      const response = await handler(request(raw, sign(raw)));
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get('Retry-After')).toBe('60');
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'LIFECYCLE_CLEANUP_FAILED' },
+      });
+      expect(compensate).toHaveBeenCalledOnce();
+      expect(afterDispatch).not.toHaveBeenCalled();
+    });
+
+    it('does not clean up again once the cleanup already succeeded', async () => {
+      const { handler, compensate } = terminalRedelivery({
+        cleanupStatus: 'SUCCEEDED',
+        compensation: 'SUCCEEDED',
+      });
+      const raw = JSON.stringify(payload);
+
+      const response = await handler(request(raw, sign(raw)));
+
+      expect(response.status).toBe(200);
+      expect(compensate).not.toHaveBeenCalled();
+    });
+  });
 
   it('reports a persistence failure after a successful target without relabeling or repeating the target', async () => {
     const claimDispatch = vi.fn().mockResolvedValue({ outcome: 'CLAIMED' });

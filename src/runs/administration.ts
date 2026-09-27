@@ -8,6 +8,7 @@ export type RunAdministrationErrorCode =
   | 'RUN_NOT_FOUND'
   | 'RUN_NOT_CANCELLABLE'
   | 'NO_ELIGIBLE_STEPS'
+  | 'RETRY_NOT_SUPPORTED'
   | 'CANCELLATION_FAILED'
   | 'SCHEDULING_FAILED';
 
@@ -173,6 +174,12 @@ export function createRunAdministrationService(dependencies: Dependencies) {
           affectedStepCount: 0,
           replayed: true,
         };
+      }
+      if (reserved.outcome === 'NOT_RETRYABLE') {
+        throw new RunAdministrationError(
+          'RETRY_NOT_SUPPORTED',
+          'Runs with Salesforce test data cannot be retried; create a new run',
+        );
       }
       if (
         reserved.outcome === 'CONFLICT' ||

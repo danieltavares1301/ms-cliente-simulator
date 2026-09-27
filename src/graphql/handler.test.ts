@@ -22,6 +22,11 @@ const validEnvironment = {
     'idempotency-pepper-with-at-least-thirty-two-characters',
 } as const;
 
+const lifecycleEnabledEnvironment = {
+  ...validEnvironment,
+  SALESFORCE_TEST_DATA_ENABLED: 'true',
+} as const;
+
 const graphqlBody =
   'mutation{atualizarCliente(cliente:{id:"ABC123",idProspectSalesforce:"XYZ789",nomeCompleto:"Fulano"}){id}}';
 
@@ -338,7 +343,7 @@ describe('createGraphqlCallbackHandler', () => {
       }),
     } as unknown as RunRepository;
     const handler = createGraphqlCallbackHandler({
-      environment: validEnvironment,
+      environment: lifecycleEnabledEnvironment,
       repositoryFactory: () => repository,
       testDataAdapter: {
         setup: vi.fn(),
@@ -378,7 +383,7 @@ describe('createGraphqlCallbackHandler', () => {
       }),
     } as unknown as RunRepository;
     const handler = createGraphqlCallbackHandler({
-      environment: validEnvironment,
+      environment: lifecycleEnabledEnvironment,
       repositoryFactory: () => repository,
       testDataAdapter: {
         setup: vi.fn(),
@@ -398,4 +403,47 @@ describe('createGraphqlCallbackHandler', () => {
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
+
+  it.each([
+    { testDataEnabled: true, resumes: false },
+    { testDataEnabled: false, resumes: true },
+  ])(
+    'with the test data kill switch off, resumes only a run without test data (testDataEnabled=$testDataEnabled)',
+    async ({ testDataEnabled, resumes }) => {
+      const run = runWithPolicy('SUCCESS_200');
+      const afterDispatch = vi.fn().mockResolvedValue({
+        outcome: 'COMPLETED',
+        status: 'SUCCEEDED',
+      });
+      const repository = {
+        findCorrelatableRun: vi.fn().mockResolvedValue({
+          run,
+          matchedBy: 'both',
+        }),
+        findRun: vi.fn().mockResolvedValue({ ...run, testDataEnabled }),
+        recordGraphqlCallback: vi.fn().mockResolvedValue({
+          callback: {
+            id: 'cb-kill-switch',
+            runId: run.id,
+          } as GraphqlCallbackRecord,
+          runStatus: 'VERIFYING',
+        }),
+      } as unknown as RunRepository;
+      const handler = createGraphqlCallbackHandler({
+        environment: validEnvironment,
+        repositoryFactory: () => repository,
+        testDataAdapter: {
+          setup: vi.fn(),
+          verify: vi.fn(),
+          cleanup: vi.fn(),
+        },
+        lifecycleServiceFactory: () => ({ afterDispatch }),
+      } as Parameters<typeof createGraphqlCallbackHandler>[0]);
+
+      const response = await handler(createRequest());
+
+      expect(response.status).toBe(200);
+      expect(afterDispatch).toHaveBeenCalledTimes(resumes ? 1 : 0);
+    },
+  );
 });

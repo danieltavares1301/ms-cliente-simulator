@@ -237,6 +237,48 @@ export function createDispatchHandler(
           now,
         }).afterDispatch(parsed.data.runId);
       };
+    /**
+     * Compensação de um run com massa de teste que já terminou FAILED/PARTIAL
+     * sem cleanup concluído: cleanup que falhou (a resposta 503 pede a
+     * reentrega justamente para isso) ou crash entre concluir o dispatch e
+     * compensar. Devolve a resposta de erro quando precisa de nova reentrega.
+     */
+    const compensatePendingCleanup = async (): Promise<Response | null> => {
+      if (!run.testDataEnabled) return null;
+      const current = await repository.findRun(parsed.data.runId);
+      if (current?.status !== 'FAILED' && current?.status !== 'PARTIAL') {
+        return null;
+      }
+      const steps = await repository.listSteps(parsed.data.runId, {
+        limit: 100,
+      });
+      const cleanupPending = steps.items.some(
+        ({ stepKind, status }) =>
+          stepKind === 'CLEANUP' &&
+          !['SUCCEEDED', 'SKIPPED', 'CANCELLED'].includes(status),
+      );
+      if (!cleanupPending) return null;
+      if (dependencies.testDataAdapter === undefined) {
+        throw new Error('Salesforce test data adapter is not configured');
+      }
+      const factory =
+        dependencies.lifecycleServiceFactory ??
+        createSalesforceLifecycleService;
+      const compensation = await factory({
+        repository,
+        adapter: dependencies.testDataAdapter,
+        actor: 'qstash-dispatch',
+        now,
+      }).compensate?.(parsed.data.runId);
+      return compensation?.outcome === 'FAILED'
+        ? errorResponse(
+            503,
+            'LIFECYCLE_CLEANUP_FAILED',
+            'Salesforce test data cleanup failed',
+            { 'Retry-After': '60' },
+          )
+        : null;
+    };
     const lifecycleRetryResponse = (
       lifecycle: PostDispatchLifecycleResult | null,
     ): Response | null => {
@@ -280,6 +322,8 @@ export function createDispatchHandler(
 
     if (claim.outcome === 'TERMINAL') {
       try {
+        const pendingCleanup = await compensatePendingCleanup();
+        if (pendingCleanup !== null) return pendingCleanup;
         const retry = lifecycleRetryResponse(await resumeLifecycle());
         if (retry !== null) return retry;
       } catch {
@@ -403,26 +447,8 @@ export function createDispatchHandler(
       (completion.runStatus === 'FAILED' || completion.runStatus === 'PARTIAL')
     ) {
       try {
-        if (dependencies.testDataAdapter === undefined) {
-          throw new Error('Salesforce test data adapter is not configured');
-        }
-        const factory =
-          dependencies.lifecycleServiceFactory ??
-          createSalesforceLifecycleService;
-        const compensation = await factory({
-          repository,
-          adapter: dependencies.testDataAdapter,
-          actor: 'qstash-dispatch',
-          now,
-        }).compensate?.(parsed.data.runId);
-        if (compensation?.outcome === 'FAILED') {
-          return errorResponse(
-            503,
-            'LIFECYCLE_CLEANUP_FAILED',
-            'Salesforce test data cleanup failed',
-            { 'Retry-After': '60' },
-          );
-        }
+        const pendingCleanup = await compensatePendingCleanup();
+        if (pendingCleanup !== null) return pendingCleanup;
       } catch {
         return errorResponse(
           503,

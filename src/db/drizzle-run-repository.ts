@@ -53,6 +53,7 @@ import {
   canTransitionStep,
   deriveDispatchRunStatus,
 } from '../runs/state-machine';
+import { baseStepKey } from '../runs/step-keys';
 
 export class RunRecoveryError extends Error {
   constructor() {
@@ -186,8 +187,11 @@ export class DrizzleRunRepository<
         ? input.steps
         : input.steps.map((step) => {
             if (step.stepKind !== 'DISPATCH') return step;
+            // Reentregas físicas (`-redelivery-N`) usam o envelope do step
+            // base; sem isso o replay comparava o envelope renderizado com o
+            // novo runId e falhava com RunRecoveryError.
             const fixtureStep = persistedFixture.steps.find(
-              ({ key }) => key === step.stepKey,
+              ({ key }) => key === baseStepKey(step.stepKey),
             );
             return fixtureStep === undefined
               ? step
@@ -196,6 +200,7 @@ export class DrizzleRunRepository<
                   eventType: fixtureStep.eventType,
                   eventEnvelope: fixtureStep.envelope,
                   requestRedacted: {
+                    ...step.requestRedacted,
                     eventId: fixtureStep.envelope[0].id,
                     eventType: fixtureStep.eventType,
                   },
@@ -746,13 +751,23 @@ export class DrizzleRunRepository<
   }): Promise<ReserveRetriesResult> {
     const lease = this.schedulingLease();
     const [run] = await this.database
-      .select({ status: scenarioRun.status })
+      .select({
+        status: scenarioRun.status,
+        testDataEnabled: scenarioRun.testDataEnabled,
+      })
       .from(scenarioRun)
       .where(eq(scenarioRun.id, input.runId))
       .limit(1);
     if (run === undefined) return { outcome: 'NOT_FOUND' };
     if (!['FAILED', 'PARTIAL'].includes(run.status)) {
       return { outcome: 'CONFLICT', status: run.status };
+    }
+    // Com massa de teste, a compensação já apagou a massa quando o run
+    // falhou: reenviar só os steps FAILED rodaria contra uma massa que não
+    // existe mais, e o VERIFY acharia registros que nenhum CLEANUP apagaria.
+    // Repetir exige um run novo.
+    if (run.testDataEnabled) {
+      return { outcome: 'NOT_RETRYABLE', status: run.status };
     }
 
     const candidates = await this.database
@@ -1374,10 +1389,14 @@ export class DrizzleRunRepository<
               step.startedAt === null
                 ? isNull(scenarioRunStep.startedAt)
                 : eq(scenarioRunStep.startedAt, step.startedAt),
+              // A tentativa provisória que reserveRetries grava (httpStatus
+              // nulo) não é resultado: sem este filtro, um crash durante o
+              // retry deixava o step RUNNING para sempre.
               sql`not exists (
                 select 1 from ${deliveryAttempt}
                 where ${deliveryAttempt.stepId} = ${input.stepId}
                   and ${deliveryAttempt.attemptNumber} = ${input.attemptNumber}
+                  and ${deliveryAttempt.httpStatus} is not null
               )`,
             ),
           )
@@ -1709,6 +1728,7 @@ export class DrizzleRunRepository<
       .select({
         status: scenarioRun.status,
         expectedCallbackMax: scenarioRun.expectedCallbackMax,
+        testDataEnabled: scenarioRun.testDataEnabled,
       })
       .from(scenarioRun)
       .where(eq(scenarioRun.id, input.runId))
@@ -1722,7 +1742,10 @@ export class DrizzleRunRepository<
     }
 
     const dispatchSteps = await this.database
-      .select({ status: scenarioRunStep.status })
+      .select({
+        status: scenarioRunStep.status,
+        qstashMessageId: scenarioRunStep.qstashMessageId,
+      })
       .from(scenarioRunStep)
       .where(
         and(
@@ -1735,6 +1758,29 @@ export class DrizzleRunRepository<
       dispatchStepStatuses: dispatchSteps.map(({ status }) => status),
       expectedCallbackMax: currentRun.expectedCallbackMax,
     });
+    const settled =
+      currentRun.status === 'FAILED' || currentRun.status === 'PARTIAL';
+    // Com massa de teste, FAILED/PARTIAL já é o resultado do lifecycle (a
+    // compensação pode ter gravado PARTIAL por cleanup falho). Recalcular só
+    // pelos steps de dispatch rebaixava PARTIAL para FAILED na reentrega e
+    // tirava o run do único caminho de recuperação (cancelamento).
+    if (settled && currentRun.testDataEnabled) {
+      return { runStatus: currentRun.status };
+    }
+    // Uma entrega tardia não pode promover para RUNNING um run que falhou ao
+    // publicar algum step: ele sumiria do replay e do retry. O replay (ou o
+    // markRunScheduled de um retry) é que reabre o run.
+    if (
+      settled &&
+      derivedStatus !== 'FAILED' &&
+      derivedStatus !== 'PARTIAL' &&
+      dispatchSteps.some(
+        ({ status, qstashMessageId }) =>
+          status === 'PENDING' && qstashMessageId === null,
+      )
+    ) {
+      return { runStatus: currentRun.status };
+    }
     const nextStatus =
       currentRun.status === 'PROVISIONING' && derivedStatus === 'RUNNING'
         ? 'PROVISIONING'

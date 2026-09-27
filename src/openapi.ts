@@ -517,7 +517,7 @@ export const openApiDocument: OpenApiDocument = {
       post: {
         summary: 'Repetir passos elegíveis',
         description:
-          'Reserva e agenda novas tentativas somente para passos FAILED, sem apagar a trilha original.',
+          'Reserva e agenda novas tentativas somente para passos FAILED, sem apagar a trilha original. Runs com massa de teste Salesforce não aceitam retry (409 RETRY_NOT_SUPPORTED): repetir exige um run novo.',
         operationId: 'retryRun',
         tags: ['Runs'],
         security: bearerSecurity,
