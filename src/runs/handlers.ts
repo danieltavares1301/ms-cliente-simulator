@@ -199,6 +199,13 @@ function administrationError(error: unknown): Response {
     ) {
       return errorResponse(409, error.code, 'Run action conflict');
     }
+    if (error.code === 'RETRY_NOT_SUPPORTED') {
+      return errorResponse(
+        409,
+        error.code,
+        'Runs with Salesforce test data cannot be retried; create a new run',
+      );
+    }
     if (
       error.code === 'CANCELLATION_FAILED' ||
       error.code === 'SCHEDULING_FAILED'

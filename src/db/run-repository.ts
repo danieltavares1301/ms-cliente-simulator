@@ -310,6 +310,7 @@ export type ReserveRetriesResult =
   | { outcome: 'IN_PROGRESS'; status: RunStatus }
   | { outcome: 'NO_ELIGIBLE'; status: RunStatus }
   | { outcome: 'CONFLICT'; status: RunStatus }
+  | { outcome: 'NOT_RETRYABLE'; status: RunStatus }
   | { outcome: 'NOT_FOUND' };
 
 export interface RunRepository {

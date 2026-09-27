@@ -462,6 +462,34 @@ export class SalesforceTestDataAdapterError extends Error {
   }
 }
 
+/**
+ * Falha no meio do setup depois de instruções anteriores terem criado ou
+ * reaproveitado registros. Carrega esses IDs para a compensação removê-los:
+ * sem eles, o cleanup recebia lista vazia e a massa ficava na org. O `code`
+ * é o da falha original.
+ */
+export class SalesforceTestDataPartialSetupError extends Error {
+  readonly code: string;
+
+  constructor(
+    cause: unknown,
+    readonly recordIds: readonly string[],
+  ) {
+    super('Salesforce test data setup failed after creating records', {
+      cause,
+    });
+    this.name = 'SalesforceTestDataPartialSetupError';
+    const causeCode =
+      typeof cause === 'object' && cause !== null && 'code' in cause
+        ? cause.code
+        : undefined;
+    this.code =
+      typeof causeCode === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(causeCode)
+        ? causeCode
+        : 'SALESFORCE_TEST_DATA_OPERATION_FAILED';
+  }
+}
+
 export type SalesforceTestDataSetupResult = {
   status: 'CREATED' | 'REPLAY' | 'READY';
   createdCount: number;
@@ -1456,61 +1484,328 @@ export function createSalesforceTestDataAdapter(
       const opportunityIdsByExternalId = new Map<string, string>();
       const propostaIdsByExternalId = new Map<string, string>();
 
-      for (const instruction of fixture.setup) {
-        if (instruction.operation === 'ENSURE_ACCOUNT_ABSENT') {
-          const { keys } = instruction;
+      try {
+        for (const instruction of fixture.setup) {
+          if (instruction.operation === 'ENSURE_ACCOUNT_ABSENT') {
+            const { keys } = instruction;
+            const records = await queryAccounts(
+              asAllowlistedQuery(
+                `SELECT ${accountFields} FROM Account WHERE Id__c = ${literal(
+                  keys.idCliente,
+                )} OR IdProspectSalesforce__c = ${literal(
+                  keys.idProspect,
+                )} OR CPF__pc = ${literal(keys.cpf)}`,
+              ),
+            );
+            if (records.length > 0) {
+              throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
+            }
+            continue;
+          }
+
+          if (instruction.operation === 'ENSURE_LEAD_ABSENT') {
+            const records = await queryLeads(
+              leadLookupQueryForSetup(fixture, instruction),
+            );
+            if (records.length > 0) {
+              throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
+            }
+            continue;
+          }
+
+          if (instruction.operation === 'CREATE_SYNTHETIC_LEAD') {
+            const { lead } = instruction;
+            const leadExternalId = getLeadExternalId(fixture, instruction);
+            const normalizedCell = normalizePhoneDigits(lead.celular) ?? null;
+            const records = await queryLeads(
+              leadLookupQueryForSetup(fixture, instruction),
+            );
+            const existing = records[0];
+            const matchesFixture =
+              records.length === 1 &&
+              existing.Id__c === leadExternalId &&
+              existing.FirstName === (lead.firstName ?? null) &&
+              existing.LastName === lead.lastName &&
+              existing.CPF__c === lead.cpf &&
+              existing.MobilePhone === (lead.celular ?? null) &&
+              existing.CelularSemFormatacao__c === normalizedCell &&
+              existing.Email === (lead.email ?? null) &&
+              existing.CidadeInteresse__c === (lead.cidadeInteresse ?? null) &&
+              existing.Marca__c === leadDefaultBrand &&
+              existing.ManipularFase__c === true &&
+              existing.Status === (lead.status ?? leadDefaultStatus) &&
+              existing.PermitirCriarLead__c === true &&
+              existing.DescricaoOrigem__c === (lead.descricaoOrigem ?? null);
+
+            if (matchesFixture) {
+              replayedCount += 1;
+              recordIds.push(existing.Id);
+              continue;
+            }
+            if (records.length > 0) {
+              throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+            }
+
+            let recordTypeId: string;
+            try {
+              recordTypeId = await getLeadGestaoVendasRecordTypeId(
+                dependencies.restClient,
+              );
+            } catch {
+              throw new SalesforceTestDataAdapterError(
+                'SALESFORCE_RESPONSE_INVALID',
+              );
+            }
+
+            const request: SalesforceCompositeRequest = {
+              method: 'POST',
+              url: '/services/data/v61.0/sobjects/Lead',
+              referenceId: 'createLead',
+              body: {
+                Id__c: leadExternalId,
+                LastName: lead.lastName,
+                Marca__c: leadDefaultBrand,
+                RecordTypeId: recordTypeId,
+                ManipularFase__c: true,
+                Status: lead.status ?? leadDefaultStatus,
+                PermitirCriarLead__c: true,
+              },
+            };
+            if (lead.firstName !== undefined) {
+              request.body.FirstName = lead.firstName;
+            }
+            if (lead.cpf !== undefined) {
+              request.body.CPF__c = lead.cpf;
+            }
+            if (lead.celular !== undefined) {
+              request.body.MobilePhone = lead.celular;
+            }
+            if (normalizedCell !== null) {
+              request.body.CelularSemFormatacao__c = normalizedCell;
+            }
+            if (lead.email !== undefined) {
+              request.body.Email = lead.email;
+            }
+            if (lead.cidadeInteresse !== undefined) {
+              request.body.CidadeInteresse__c = lead.cidadeInteresse;
+            }
+            if (lead.descricaoOrigem !== undefined) {
+              request.body.DescricaoOrigem__c = lead.descricaoOrigem;
+            }
+
+            const response = compositeResponseSchema.safeParse(
+              await dependencies.restClient.composite([request]),
+            );
+            if (!response.success) {
+              throw new SalesforceTestDataAdapterError(
+                'SALESFORCE_RESPONSE_INVALID',
+              );
+            }
+            createdCount += 1;
+            recordIds.push(response.data.compositeResponse[0]!.body.id);
+            continue;
+          }
+
+          if (instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY') {
+            const { opportunity } = instruction;
+            const expectedAccountId = accountIdsByExternalId.get(
+              opportunity.accountId,
+            );
+            if (expectedAccountId === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            const records = await queryOpportunities(
+              opportunityLookupQueryForSetup(instruction),
+            );
+            const existing = records[0];
+            const matchesFixture =
+              records.length === 1 &&
+              existing.Id__c === opportunity.idExterno &&
+              existing.AccountId === expectedAccountId &&
+              existing.Name === opportunity.name &&
+              existing.StageName === opportunity.stageName &&
+              existing.CloseDate === opportunity.closeDate;
+
+            if (matchesFixture) {
+              replayedCount += 1;
+              recordIds.push(existing.Id);
+              opportunityIdsByExternalId.set(opportunity.idExterno, existing.Id);
+              continue;
+            }
+            if (records.length > 0) {
+              throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+            }
+
+            const response = compositeResponseSchema.safeParse(
+              await dependencies.restClient.composite([
+                {
+                  method: 'POST',
+                  url: '/services/data/v61.0/sobjects/Opportunity',
+                  referenceId: 'createOpportunity',
+                  body: {
+                    Name: opportunity.name,
+                    StageName: opportunity.stageName,
+                    CloseDate: opportunity.closeDate,
+                    Id__c: opportunity.idExterno,
+                    AccountId: expectedAccountId,
+                  },
+                },
+              ]),
+            );
+            if (!response.success) {
+              throw new SalesforceTestDataAdapterError(
+                'SALESFORCE_RESPONSE_INVALID',
+              );
+            }
+            createdCount += 1;
+            const opportunityRecordId = response.data.compositeResponse[0]!.body.id;
+            recordIds.push(opportunityRecordId);
+            opportunityIdsByExternalId.set(opportunity.idExterno, opportunityRecordId);
+            continue;
+          }
+
+          if (
+            instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO'
+          ) {
+            const { propostaAnaliseCredito } = instruction;
+            const expectedOpportunityId = opportunityIdsByExternalId.get(
+              propostaAnaliseCredito.opportunityIdExterno,
+            );
+            if (expectedOpportunityId === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            const records = await queryPropostasAnaliseCredito(
+              propostaAnaliseCreditoLookupQueryForSetup(instruction),
+            );
+            const existing = records[0];
+            const matchesFixture =
+              records.length === 1 &&
+              existing.Id__c === propostaAnaliseCredito.idExterno &&
+              existing.Oportunidade__c === expectedOpportunityId &&
+              existing.Status__c === propostaAnaliseCredito.status;
+
+            if (matchesFixture) {
+              replayedCount += 1;
+              recordIds.push(existing.Id);
+              propostaIdsByExternalId.set(
+                propostaAnaliseCredito.idExterno,
+                existing.Id,
+              );
+              continue;
+            }
+            if (records.length > 0) {
+              throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+            }
+
+            const response = compositeResponseSchema.safeParse(
+              await dependencies.restClient.composite([
+                {
+                  method: 'POST',
+                  url: '/services/data/v61.0/sobjects/PropostaAnaliseCredito__c',
+                  referenceId: 'createPropostaAnaliseCredito',
+                  body: {
+                    Id__c: propostaAnaliseCredito.idExterno,
+                    Oportunidade__c: expectedOpportunityId,
+                    Status__c: propostaAnaliseCredito.status,
+                  },
+                },
+              ]),
+            );
+            if (!response.success) {
+              throw new SalesforceTestDataAdapterError(
+                'SALESFORCE_RESPONSE_INVALID',
+              );
+            }
+            createdCount += 1;
+            const propostaRecordId = response.data.compositeResponse[0]!.body.id;
+            recordIds.push(propostaRecordId);
+            propostaIdsByExternalId.set(
+              propostaAnaliseCredito.idExterno,
+              propostaRecordId,
+            );
+            continue;
+          }
+
+          if (instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO') {
+            const { contestacao } = instruction;
+            const expectedPropostaId = propostaIdsByExternalId.get(
+              contestacao.pacIdExterno,
+            );
+            if (expectedPropostaId === undefined) {
+              throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+            }
+            const records = await queryContestacoes(
+              contestacaoLookupQueryForSetup(instruction),
+            );
+            const existing = records[0];
+            const matchesFixture =
+              records.length === 1 &&
+              existing.Id__c === contestacao.idExterno &&
+              existing.PAC__c === expectedPropostaId &&
+              existing.DataSolucao__c === null;
+
+            if (matchesFixture) {
+              replayedCount += 1;
+              recordIds.push(existing.Id);
+              continue;
+            }
+            if (records.length > 0) {
+              throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
+            }
+
+            const response = compositeResponseSchema.safeParse(
+              await dependencies.restClient.composite([
+                {
+                  method: 'POST',
+                  url: '/services/data/v61.0/sobjects/Contestacao__c',
+                  referenceId: 'createContestacao',
+                  body: {
+                    Id__c: contestacao.idExterno,
+                    PAC__c: expectedPropostaId,
+                  },
+                },
+              ]),
+            );
+            if (!response.success) {
+              throw new SalesforceTestDataAdapterError(
+                'SALESFORCE_RESPONSE_INVALID',
+              );
+            }
+            createdCount += 1;
+            recordIds.push(response.data.compositeResponse[0]!.body.id);
+            continue;
+          }
+
+          if (instruction.operation !== 'CREATE_SYNTHETIC_ACCOUNT') {
+            throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
+          }
+
+          const { account, matchBy } = instruction;
+          const matchQuery =
+            matchBy === 'ID_CLIENTE'
+              ? `Id__c = ${literal(account.idCliente as string)}`
+              : `CPF__pc = ${literal(account.cpf)}`;
           const records = await queryAccounts(
             asAllowlistedQuery(
-              `SELECT ${accountFields} FROM Account WHERE Id__c = ${literal(
-                keys.idCliente,
-              )} OR IdProspectSalesforce__c = ${literal(
-                keys.idProspect,
-              )} OR CPF__pc = ${literal(keys.cpf)}`,
+              `SELECT ${setupAccountFields} FROM Account WHERE ${matchQuery}`,
             ),
-          );
-          if (records.length > 0) {
-            throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
-          }
-          continue;
-        }
-
-        if (instruction.operation === 'ENSURE_LEAD_ABSENT') {
-          const records = await queryLeads(
-            leadLookupQueryForSetup(fixture, instruction),
-          );
-          if (records.length > 0) {
-            throw new SalesforceTestDataAdapterError('PRECONDITION_FAILED');
-          }
-          continue;
-        }
-
-        if (instruction.operation === 'CREATE_SYNTHETIC_LEAD') {
-          const { lead } = instruction;
-          const leadExternalId = getLeadExternalId(fixture, instruction);
-          const normalizedCell = normalizePhoneDigits(lead.celular) ?? null;
-          const records = await queryLeads(
-            leadLookupQueryForSetup(fixture, instruction),
           );
           const existing = records[0];
           const matchesFixture =
             records.length === 1 &&
-            existing.Id__c === leadExternalId &&
-            existing.FirstName === (lead.firstName ?? null) &&
-            existing.LastName === lead.lastName &&
-            existing.CPF__c === lead.cpf &&
-            existing.MobilePhone === (lead.celular ?? null) &&
-            existing.CelularSemFormatacao__c === normalizedCell &&
-            existing.Email === (lead.email ?? null) &&
-            existing.CidadeInteresse__c === (lead.cidadeInteresse ?? null) &&
-            existing.Marca__c === leadDefaultBrand &&
-            existing.ManipularFase__c === true &&
-            existing.Status === (lead.status ?? leadDefaultStatus) &&
-            existing.PermitirCriarLead__c === true &&
-            existing.DescricaoOrigem__c === (lead.descricaoOrigem ?? null);
+            existing.Id__c === account.idCliente &&
+            existing.IdProspectSalesforce__c === account.idProspect &&
+            existing.CPF__pc === account.cpf &&
+            existing.LastName === account.name &&
+            existing.IsPersonAccount &&
+            sameInstant(existing.DataAlteracaoEvento__c, account.dataAlteracao);
 
           if (matchesFixture) {
             replayedCount += 1;
             recordIds.push(existing.Id);
+            if (account.idCliente !== null) {
+              accountIdsByExternalId.set(account.idCliente, existing.Id);
+            }
             continue;
           }
           if (records.length > 0) {
@@ -1519,7 +1814,7 @@ export function createSalesforceTestDataAdapter(
 
           let recordTypeId: string;
           try {
-            recordTypeId = await getLeadGestaoVendasRecordTypeId(
+            recordTypeId = await getPersonAccountRecordTypeId(
               dependencies.restClient,
             );
           } catch {
@@ -1530,38 +1825,18 @@ export function createSalesforceTestDataAdapter(
 
           const request: SalesforceCompositeRequest = {
             method: 'POST',
-            url: '/services/data/v61.0/sobjects/Lead',
-            referenceId: 'createLead',
+            url: '/services/data/v61.0/sobjects/Account',
+            referenceId: 'createAccount',
             body: {
-              Id__c: leadExternalId,
-              LastName: lead.lastName,
-              Marca__c: leadDefaultBrand,
               RecordTypeId: recordTypeId,
-              ManipularFase__c: true,
-              Status: lead.status ?? leadDefaultStatus,
-              PermitirCriarLead__c: true,
+              LastName: account.name,
+              IdProspectSalesforce__c: account.idProspect,
+              CPF__pc: account.cpf,
+              DataAlteracaoEvento__c: account.dataAlteracao,
             },
           };
-          if (lead.firstName !== undefined) {
-            request.body.FirstName = lead.firstName;
-          }
-          if (lead.cpf !== undefined) {
-            request.body.CPF__c = lead.cpf;
-          }
-          if (lead.celular !== undefined) {
-            request.body.MobilePhone = lead.celular;
-          }
-          if (normalizedCell !== null) {
-            request.body.CelularSemFormatacao__c = normalizedCell;
-          }
-          if (lead.email !== undefined) {
-            request.body.Email = lead.email;
-          }
-          if (lead.cidadeInteresse !== undefined) {
-            request.body.CidadeInteresse__c = lead.cidadeInteresse;
-          }
-          if (lead.descricaoOrigem !== undefined) {
-            request.body.DescricaoOrigem__c = lead.descricaoOrigem;
+          if (account.idCliente !== null) {
+            request.body.Id__c = account.idCliente;
           }
 
           const response = compositeResponseSchema.safeParse(
@@ -1573,257 +1848,15 @@ export function createSalesforceTestDataAdapter(
             );
           }
           createdCount += 1;
-          recordIds.push(response.data.compositeResponse[0]!.body.id);
-          continue;
-        }
-
-        if (instruction.operation === 'CREATE_SYNTHETIC_OPPORTUNITY') {
-          const { opportunity } = instruction;
-          const expectedAccountId = accountIdsByExternalId.get(
-            opportunity.accountId,
-          );
-          if (expectedAccountId === undefined) {
-            throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
-          }
-          const records = await queryOpportunities(
-            opportunityLookupQueryForSetup(instruction),
-          );
-          const existing = records[0];
-          const matchesFixture =
-            records.length === 1 &&
-            existing.Id__c === opportunity.idExterno &&
-            existing.AccountId === expectedAccountId &&
-            existing.Name === opportunity.name &&
-            existing.StageName === opportunity.stageName &&
-            existing.CloseDate === opportunity.closeDate;
-
-          if (matchesFixture) {
-            replayedCount += 1;
-            recordIds.push(existing.Id);
-            opportunityIdsByExternalId.set(opportunity.idExterno, existing.Id);
-            continue;
-          }
-          if (records.length > 0) {
-            throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
-          }
-
-          const response = compositeResponseSchema.safeParse(
-            await dependencies.restClient.composite([
-              {
-                method: 'POST',
-                url: '/services/data/v61.0/sobjects/Opportunity',
-                referenceId: 'createOpportunity',
-                body: {
-                  Name: opportunity.name,
-                  StageName: opportunity.stageName,
-                  CloseDate: opportunity.closeDate,
-                  Id__c: opportunity.idExterno,
-                  AccountId: expectedAccountId,
-                },
-              },
-            ]),
-          );
-          if (!response.success) {
-            throw new SalesforceTestDataAdapterError(
-              'SALESFORCE_RESPONSE_INVALID',
-            );
-          }
-          createdCount += 1;
-          const opportunityRecordId = response.data.compositeResponse[0]!.body.id;
-          recordIds.push(opportunityRecordId);
-          opportunityIdsByExternalId.set(opportunity.idExterno, opportunityRecordId);
-          continue;
-        }
-
-        if (
-          instruction.operation === 'CREATE_SYNTHETIC_PROPOSTA_ANALISE_CREDITO'
-        ) {
-          const { propostaAnaliseCredito } = instruction;
-          const expectedOpportunityId = opportunityIdsByExternalId.get(
-            propostaAnaliseCredito.opportunityIdExterno,
-          );
-          if (expectedOpportunityId === undefined) {
-            throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
-          }
-          const records = await queryPropostasAnaliseCredito(
-            propostaAnaliseCreditoLookupQueryForSetup(instruction),
-          );
-          const existing = records[0];
-          const matchesFixture =
-            records.length === 1 &&
-            existing.Id__c === propostaAnaliseCredito.idExterno &&
-            existing.Oportunidade__c === expectedOpportunityId &&
-            existing.Status__c === propostaAnaliseCredito.status;
-
-          if (matchesFixture) {
-            replayedCount += 1;
-            recordIds.push(existing.Id);
-            propostaIdsByExternalId.set(
-              propostaAnaliseCredito.idExterno,
-              existing.Id,
-            );
-            continue;
-          }
-          if (records.length > 0) {
-            throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
-          }
-
-          const response = compositeResponseSchema.safeParse(
-            await dependencies.restClient.composite([
-              {
-                method: 'POST',
-                url: '/services/data/v61.0/sobjects/PropostaAnaliseCredito__c',
-                referenceId: 'createPropostaAnaliseCredito',
-                body: {
-                  Id__c: propostaAnaliseCredito.idExterno,
-                  Oportunidade__c: expectedOpportunityId,
-                  Status__c: propostaAnaliseCredito.status,
-                },
-              },
-            ]),
-          );
-          if (!response.success) {
-            throw new SalesforceTestDataAdapterError(
-              'SALESFORCE_RESPONSE_INVALID',
-            );
-          }
-          createdCount += 1;
-          const propostaRecordId = response.data.compositeResponse[0]!.body.id;
-          recordIds.push(propostaRecordId);
-          propostaIdsByExternalId.set(
-            propostaAnaliseCredito.idExterno,
-            propostaRecordId,
-          );
-          continue;
-        }
-
-        if (instruction.operation === 'CREATE_SYNTHETIC_CONTESTACAO') {
-          const { contestacao } = instruction;
-          const expectedPropostaId = propostaIdsByExternalId.get(
-            contestacao.pacIdExterno,
-          );
-          if (expectedPropostaId === undefined) {
-            throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
-          }
-          const records = await queryContestacoes(
-            contestacaoLookupQueryForSetup(instruction),
-          );
-          const existing = records[0];
-          const matchesFixture =
-            records.length === 1 &&
-            existing.Id__c === contestacao.idExterno &&
-            existing.PAC__c === expectedPropostaId &&
-            existing.DataSolucao__c === null;
-
-          if (matchesFixture) {
-            replayedCount += 1;
-            recordIds.push(existing.Id);
-            continue;
-          }
-          if (records.length > 0) {
-            throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
-          }
-
-          const response = compositeResponseSchema.safeParse(
-            await dependencies.restClient.composite([
-              {
-                method: 'POST',
-                url: '/services/data/v61.0/sobjects/Contestacao__c',
-                referenceId: 'createContestacao',
-                body: {
-                  Id__c: contestacao.idExterno,
-                  PAC__c: expectedPropostaId,
-                },
-              },
-            ]),
-          );
-          if (!response.success) {
-            throw new SalesforceTestDataAdapterError(
-              'SALESFORCE_RESPONSE_INVALID',
-            );
-          }
-          createdCount += 1;
-          recordIds.push(response.data.compositeResponse[0]!.body.id);
-          continue;
-        }
-
-        if (instruction.operation !== 'CREATE_SYNTHETIC_ACCOUNT') {
-          throw new SalesforceTestDataAdapterError('INVALID_FIXTURE');
-        }
-
-        const { account, matchBy } = instruction;
-        const matchQuery =
-          matchBy === 'ID_CLIENTE'
-            ? `Id__c = ${literal(account.idCliente as string)}`
-            : `CPF__pc = ${literal(account.cpf)}`;
-        const records = await queryAccounts(
-          asAllowlistedQuery(
-            `SELECT ${setupAccountFields} FROM Account WHERE ${matchQuery}`,
-          ),
-        );
-        const existing = records[0];
-        const matchesFixture =
-          records.length === 1 &&
-          existing.Id__c === account.idCliente &&
-          existing.IdProspectSalesforce__c === account.idProspect &&
-          existing.CPF__pc === account.cpf &&
-          existing.LastName === account.name &&
-          existing.IsPersonAccount &&
-          sameInstant(existing.DataAlteracaoEvento__c, account.dataAlteracao);
-
-        if (matchesFixture) {
-          replayedCount += 1;
-          recordIds.push(existing.Id);
+          const accountRecordId = response.data.compositeResponse[0]!.body.id;
+          recordIds.push(accountRecordId);
           if (account.idCliente !== null) {
-            accountIdsByExternalId.set(account.idCliente, existing.Id);
+            accountIdsByExternalId.set(account.idCliente, accountRecordId);
           }
-          continue;
         }
-        if (records.length > 0) {
-          throw new SalesforceTestDataAdapterError('SETUP_CONFLICT');
-        }
-
-        let recordTypeId: string;
-        try {
-          recordTypeId = await getPersonAccountRecordTypeId(
-            dependencies.restClient,
-          );
-        } catch {
-          throw new SalesforceTestDataAdapterError(
-            'SALESFORCE_RESPONSE_INVALID',
-          );
-        }
-
-        const request: SalesforceCompositeRequest = {
-          method: 'POST',
-          url: '/services/data/v61.0/sobjects/Account',
-          referenceId: 'createAccount',
-          body: {
-            RecordTypeId: recordTypeId,
-            LastName: account.name,
-            IdProspectSalesforce__c: account.idProspect,
-            CPF__pc: account.cpf,
-            DataAlteracaoEvento__c: account.dataAlteracao,
-          },
-        };
-        if (account.idCliente !== null) {
-          request.body.Id__c = account.idCliente;
-        }
-
-        const response = compositeResponseSchema.safeParse(
-          await dependencies.restClient.composite([request]),
-        );
-        if (!response.success) {
-          throw new SalesforceTestDataAdapterError(
-            'SALESFORCE_RESPONSE_INVALID',
-          );
-        }
-        createdCount += 1;
-        const accountRecordId = response.data.compositeResponse[0]!.body.id;
-        recordIds.push(accountRecordId);
-        if (account.idCliente !== null) {
-          accountIdsByExternalId.set(account.idCliente, accountRecordId);
-        }
+      } catch (error) {
+        if (recordIds.length === 0) throw error;
+        throw new SalesforceTestDataPartialSetupError(error, [...recordIds]);
       }
 
       return {

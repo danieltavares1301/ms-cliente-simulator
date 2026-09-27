@@ -407,6 +407,25 @@ describe('run administration service', () => {
     );
   });
 
+  it('refuses to retry a run with Salesforce test data without scheduling anything', async () => {
+    const scheduler = { schedule: vi.fn() } as unknown as Scheduler;
+    const service = createRunAdministrationService({
+      repository: {
+        reserveRetries: vi
+          .fn()
+          .mockResolvedValue({ outcome: 'NOT_RETRYABLE', status: 'PARTIAL' }),
+      } as unknown as RunRepository,
+      scheduler,
+    });
+
+    await expect(service.retryRun({ runId })).rejects.toEqual(
+      expect.objectContaining<Partial<RunAdministrationError>>({
+        code: 'RETRY_NOT_SUPPORTED',
+      }),
+    );
+    expect(scheduler.schedule).not.toHaveBeenCalled();
+  });
+
   it('returns an in-progress retry replay without publishing a duplicate', async () => {
     const repository = {
       reserveRetries: vi.fn().mockResolvedValue({

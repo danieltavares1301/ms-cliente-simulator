@@ -51,6 +51,20 @@ function technicalErrorCode(error: unknown): string {
   return 'SALESFORCE_TEST_DATA_OPERATION_FAILED';
 }
 
+// IDs que uma falha no meio do setup já tinha criado
+// (SalesforceTestDataPartialSetupError), lidos estruturalmente como o `code`.
+function partialRecordIds(error: unknown): string[] {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'recordIds' in error &&
+    Array.isArray(error.recordIds)
+  ) {
+    return error.recordIds.filter((id): id is string => typeof id === 'string');
+  }
+  return [];
+}
+
 function adapterInput(
   claim: Extract<ClaimLifecycleStepResult, { outcome: 'CLAIMED' }>,
 ): SalesforceTestDataAdapterInput | null {
@@ -84,6 +98,49 @@ export function createSalesforceLifecycleService(
 ) {
   const now = dependencies.now ?? (() => new Date());
 
+  /**
+   * Registros que o Apex cria em resposta aos eventos (Lead, Account Y...)
+   * só entram na lista de IDs do run quando o VERIFY roda. Numa compensação
+   * por falha de dispatch ou por cancelamento, o VERIFY não rodou: a
+   * descoberta usa a mesma consulta, que só acha registros com os
+   * identificadores deste run, e o cleanup ainda confere a propriedade de
+   * cada ID. É o melhor esforço: se a consulta falhar, segue com os IDs já
+   * conhecidos.
+   */
+  async function discoverRunRecordIds(
+    input: SalesforceTestDataAdapterInput,
+  ): Promise<string[]> {
+    try {
+      const result = await dependencies.adapter.verify(input);
+      return Array.isArray(result?.recordIds) ? result.recordIds : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Um step de lifecycle que termina depois de o cancelamento começar: a
+   * compensação do cancelamento já rodou sem conhecer estes IDs.
+   */
+  async function cleanupAfterCancellation(
+    runId: string,
+    input: SalesforceTestDataAdapterInput,
+    recordIds: readonly string[],
+  ): Promise<void> {
+    try {
+      await dependencies.adapter.cleanup(input, recordIds);
+    } catch (error) {
+      await dependencies.repository.recordLifecycleCompensation({
+        runId,
+        succeeded: false,
+        responseRedacted: { status: 'FAILED', recordIds },
+        errorCode: technicalErrorCode(error),
+        actor: dependencies.actor,
+        finishedAt: now(),
+      });
+    }
+  }
+
   async function compensate(
     runId: string,
     additionalRecordIds: readonly string[] = [],
@@ -102,7 +159,11 @@ export function createSalesforceLifecycleService(
       limit: 100,
     });
     const ids = [
-      ...new Set([...ownedRecordIds(steps.items), ...additionalRecordIds]),
+      ...new Set([
+        ...ownedRecordIds(steps.items),
+        ...additionalRecordIds,
+        ...(await discoverRunRecordIds(input)),
+      ]),
     ];
     try {
       const result = await dependencies.adapter.cleanup(input, ids);
@@ -210,27 +271,17 @@ export function createSalesforceLifecycleService(
             completion.outcome === 'CANCELLED' &&
             result.recordIds.length > 0
           ) {
-            try {
-              await dependencies.adapter.cleanup(input, result.recordIds);
-            } catch (error) {
-              await dependencies.repository.recordLifecycleCompensation({
-                runId: claim.run.id,
-                succeeded: false,
-                responseRedacted: {
-                  status: 'FAILED',
-                  recordIds: result.recordIds,
-                },
-                errorCode: technicalErrorCode(error),
-                actor: dependencies.actor,
-                finishedAt: now(),
-              });
-            }
+            await cleanupAfterCancellation(
+              claim.run.id,
+              input,
+              result.recordIds,
+            );
           }
           return completion;
         }
         if (stepKind === 'VERIFY') {
           const result = await dependencies.adapter.verify(input);
-          return complete(
+          const completion = await complete(
             claim,
             stepKind,
             result.passed,
@@ -243,6 +294,19 @@ export function createSalesforceLifecycleService(
             },
             result.passed ? null : 'VERIFICATION_FAILED',
           );
+          // Mesmo caso do SETUP: o VERIFY achou registros (criados pelo
+          // Apex) depois de o cancelamento já ter compensado sem eles.
+          if (
+            completion.outcome === 'CANCELLED' &&
+            result.recordIds.length > 0
+          ) {
+            await cleanupAfterCancellation(
+              claim.run.id,
+              input,
+              result.recordIds,
+            );
+          }
+          return completion;
         }
 
         const steps = await dependencies.repository.listSteps(claim.run.id, {
@@ -260,11 +324,14 @@ export function createSalesforceLifecycleService(
           null,
         );
       } catch (error) {
+        const recordIds = partialRecordIds(error);
         return complete(
           claim,
           stepKind,
           false,
-          { status: 'FAILED' },
+          recordIds.length === 0
+            ? { status: 'FAILED' }
+            : { status: 'FAILED', recordIds },
           technicalErrorCode(error),
         );
       }

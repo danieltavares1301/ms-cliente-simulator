@@ -172,9 +172,13 @@ receiver interno aceita somente assinatura QStash e não é publicado no OpenAPI
 Cancelamento aceita corpo vazio ou `{ "reasonCode": "OPERATOR_REQUEST" }`;
 valores possíveis são `OPERATOR_REQUEST`, `INCIDENT_RESPONSE` e `SUPERSEDED`.
 Retry aceita corpo vazio ou `{ "stepKeys": ["cliente-update"] }`. Não há texto
-livre. Runs `SUCCEEDED`, `FAILED` e `PARTIAL` não são canceláveis; `FAILED` e
-`PARTIAL` podem reservar retry de steps `FAILED`. Falha ao cancelar no QStash
-mantém `CANCELLING` com auditoria técnica, sem falso `CANCELLED`.
+livre. Runs `SUCCEEDED`, `FAILED` e `PARTIAL` não são canceláveis, exceto
+`PARTIAL` com massa de teste e cleanup falho, que pode ser cancelado para
+repetir a limpeza. `FAILED` e `PARTIAL` podem reservar retry de steps `FAILED`,
+exceto runs com massa de teste Salesforce, que respondem
+`409 RETRY_NOT_SUPPORTED`: a compensação já apagou a massa, então repetir exige
+um run novo. Falha ao cancelar no QStash mantém `CANCELLING` com auditoria
+técnica, sem falso `CANCELLED`.
 
 Claims de agendamento inicial e reservas de retry usam leases UTC persistidas.
 Replays não publicam durante uma lease válida; após expiração, um CAS retoma
@@ -190,9 +194,13 @@ O lifecycle Salesforce também usa claims CAS recuperáveis: `SETUP` precede o
 agendamento, e uma entrega terminal retoma `VERIFY`/`CLEANUP` sem reenviar o
 target. `ALWAYS` executa cleanup mesmo após verify negativo. O resultado final
 é `SUCCEEDED` quando dispatch, verify e cleanup passam; `FAILED` quando verify
-falha sem falha de cleanup; e `PARTIAL` quando cleanup falha. Runs legados sem
-`fixture_snapshot` falham fechados. A fixture nunca é exposta pelas respostas
-de listagem/detalhe.
+falha sem falha de cleanup; e `PARTIAL` quando cleanup falha. Quando a
+compensação de um run com massa de teste falha, a resposta
+`503 LIFECYCLE_CLEANUP_FAILED` faz o QStash reentregar, e cada reentrega repete
+a limpeza. A compensação também descobre, com a consulta do verify, registros
+que o Apex criou em resposta aos eventos, mesmo quando o verify não chegou a
+rodar. Runs legados sem `fixture_snapshot` falham fechados. A fixture nunca é
+exposta pelas respostas de listagem/detalhe.
 
 Os schemas Zod em `src/contracts/` são estritos na borda pública. O envelope
 Event Grid aceita exatamente um dos seis eventos de cliente, contato ou

@@ -9,6 +9,7 @@ import {
 import {
   createSalesforceTestDataAdapter,
   SalesforceTestDataAdapterError,
+  SalesforceTestDataPartialSetupError,
 } from './test-data-adapter';
 
 const accountId = '001000000000001AAA';
@@ -735,6 +736,44 @@ describe('Salesforce test data adapter setup', () => {
         input('no-match-cliente-insert'),
       ),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+  });
+
+  it('carries the ids created before a later setup instruction fails', async () => {
+    const client = restClient();
+    client.query
+      .mockResolvedValueOnce({ totalSize: 0, done: true, records: [] })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [{ Id: '012000000000001AAA' }],
+      })
+      .mockResolvedValueOnce({
+        totalSize: 1,
+        done: true,
+        records: [accountFromFixture(fixture('no-match-cliente-insert'))],
+      });
+    client.composite.mockResolvedValue({
+      compositeResponse: [
+        {
+          body: { id: controlAccountId, success: true, errors: [] },
+          httpHeaders: {},
+          httpStatusCode: 201,
+          referenceId: 'createAccount',
+        },
+      ],
+    });
+
+    const failure = createSalesforceTestDataAdapter({
+      restClient: client,
+    }).setup(prospectDivergenteInput());
+
+    await expect(failure).rejects.toBeInstanceOf(
+      SalesforceTestDataPartialSetupError,
+    );
+    await expect(failure).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      recordIds: [controlAccountId],
+    });
   });
 
   it('rejects a fixture whose run or scenario does not match the typed input', async () => {

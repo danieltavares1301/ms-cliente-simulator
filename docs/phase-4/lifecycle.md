@@ -63,6 +63,42 @@ Cada transição gera auditoria `SETUP_*`, `VERIFY_*` ou `CLEANUP_*` contendo
 somente status, códigos e contagens técnicas. Tokens, secrets e respostas
 Salesforce brutas não são persistidos.
 
+## Correções de recuperação (2026-09-27)
+
+Uma revisão reproduziu, com PGlite e doubles, falhas que deixavam registros
+órfãos na org ou runs presos. Cada uma tem teste de regressão, a maioria em
+`src/db/run-recovery.integration.test.ts`. A reentrega do dispatch está em
+`src/runs/dispatch.test.ts`, e o kill switch em `src/graphql/handler.test.ts`.
+
+- **Cleanup que falha é retentado.** Antes, a reentrega depois do
+  `503 LIFECYCLE_CLEANUP_FAILED` respondia `noop`. O recálculo pelos steps de
+  dispatch ainda rebaixava o run de `PARTIAL` para `FAILED`, e `FAILED` não é
+  cancelável, então a massa ficava sem caminho de recuperação. Agora
+  `completeDispatch` não recalcula `FAILED`/`PARTIAL` de run com massa de
+  teste, e a reentrega repete a compensação enquanto o cleanup não passar.
+  Isso também cobre um crash entre concluir o dispatch e compensar.
+- **Retry de run com massa de teste é recusado** (`409 RETRY_NOT_SUPPORTED`).
+  O retry reenviava só os steps `FAILED` contra uma massa já apagada, e o
+  `CLEANUP`, já concluído, não apagava o que o `VERIFY` achava depois.
+- **Setup parcial é compensado.** Uma instrução que falha depois de outras
+  terem criado registros lança `SalesforceTestDataPartialSetupError` com
+  esses IDs, que ficam no step `SETUP` e entram na compensação. Antes, o
+  cleanup recebia lista vazia.
+- **`VERIFY` concluído depois do cancelamento limpa o que achou,** como o
+  `SETUP` já fazia.
+- **A compensação descobre registros criados pelo Apex.** Ela roda a mesma
+  consulta do `VERIFY`, que só encontra registros com os identificadores do
+  run (derivados do `runId`), e o cleanup continua conferindo a propriedade
+  de cada ID. Antes, uma falha de dispatch ou um cancelamento anterior ao
+  `VERIFY` deixava para trás os Leads e Accounts criados pelo Apex. A
+  descoberta é o melhor esforço: se a consulta falhar, segue com os IDs já
+  conhecidos.
+- **O kill switch vale no callback GraphQL.** Com
+  `SALESFORCE_TEST_DATA_ENABLED` desligada, a retomada pelo callback não roda
+  para runs com massa de teste, e o run fica em `VERIFYING` com a massa
+  intacta. Antes, verify e cleanup falhavam e o run terminava `PARTIAL` com a
+  massa na org.
+
 ## Limitações
 
 - Os quatro cenários `CORE` cobrem somente `Account`.

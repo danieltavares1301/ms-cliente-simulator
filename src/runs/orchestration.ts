@@ -16,6 +16,7 @@ import { scenarioCatalog } from '../scenarios/catalog';
 import { renderScenarioFixture } from '../scenarios/renderer';
 import type { Scheduler } from './scheduler';
 import { createSalesforceLifecycleService } from './salesforce-lifecycle';
+import { redeliveryStepKey } from './step-keys';
 
 export type RunServiceErrorCode =
   | 'IDEMPOTENCY_CONFLICT'
@@ -160,7 +161,7 @@ function buildDispatchSchedule(
       duplicateIndex += 1
     ) {
       deliveries.push({
-        stepKey: `${step.key}-redelivery-${duplicateIndex}`,
+        stepKey: redeliveryStepKey(step.key, duplicateIndex),
         target: step.target,
         eventType: step.eventType,
         scheduledAt: new Date(
@@ -454,7 +455,9 @@ export function createRunOrchestrationService(
         !input.request.execution.dryRun &&
         dependencies.scheduler &&
         (result.outcome === 'CREATED' ||
-          ['PROVISIONING', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(
+          // CREATED entra na retomada: um erro transitório entre o insert do
+          // run e o claim deixa o run parado aí, e o claim é CAS.
+          ['CREATED', 'PROVISIONING', 'FAILED', 'PARTIAL', 'SCHEDULED'].includes(
             result.run.status,
           ))
       ) {
@@ -495,8 +498,11 @@ export function createRunOrchestrationService(
               limit: 100,
             })
           ).items;
-          const fixtureStepsByKey = new Map(
-            fixture.steps.map((step) => [step.key, step]),
+          // O `scheduledAt` persistido já é eventStartAt + delayMs/speed,
+          // inclusive o deslocamento das reentregas físicas, que não existem
+          // como step no fixture.
+          const eventStartMs = Date.parse(
+            result.run.fixtureSnapshot?.eventStartAt ?? fixture.eventStartAt,
           );
           try {
             await dependencies.scheduler.schedule({
@@ -508,13 +514,14 @@ export function createRunOrchestrationService(
                     status === 'PENDING' &&
                     qstashMessageId === null,
                 )
-                .map(({ id, stepKey, ordinal, attemptCount }) => ({
+                .map(({ id, stepKey, ordinal, attemptCount, scheduledAt }) => ({
                   stepId: id,
                   stepKey,
                   ordinal,
                   delayMs:
-                    (fixtureStepsByKey.get(stepKey)?.delayMs ?? 0) /
-                    input.request.execution.speed,
+                    scheduledAt === null
+                      ? 0
+                      : Math.max(0, scheduledAt.getTime() - eventStartMs),
                   attemptNumber: Math.max(1, attemptCount),
                 })),
             });

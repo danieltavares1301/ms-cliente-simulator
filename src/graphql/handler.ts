@@ -111,6 +111,15 @@ export function createGraphqlCallbackHandler(
     }
 
     try {
+      // Kill switch do lifecycle: com a flag desligada, o adapter de produção
+      // lança em verify/cleanup e o run terminaria PARTIAL com a massa na org.
+      // Como já fazem o dispatch e o cancelamento, o run com massa de teste
+      // fica em VERIFYING, com a massa intacta, até a flag voltar ou até ser
+      // cancelado.
+      if (dependencies.environment.SALESFORCE_TEST_DATA_ENABLED !== 'true') {
+        const run = await repository.findRun(persisted.callback.runId);
+        if (run === null || run.testDataEnabled) return;
+      }
       await lifecycleServiceFactory({
         repository,
         adapter: dependencies.testDataAdapter,
