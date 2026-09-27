@@ -30,7 +30,43 @@ Dois modos de identidade:
 
 Filtro opcional `--orders O01,O02,...` para rodar um subconjunto.
 
-## Achado de causa-raiz: o que realmente cria o Lead de Y
+## Causa-raiz: o que realmente cria o Lead de Y (reteste de 2026-09-27)
+
+**O Lead de Y nasce quando um `cliente-update(Y)` é aplicado**, ou seja,
+quando a `dataalteracao` dele é posterior ao `DataAlteracaoEvento__c` da
+Account. Não importa se um contato chegou antes, nem se o payload traz
+`idprospectsalesforce`. Com data igual ao marcador, o Apex descarta o evento
+como "sucesso sem alteração" (`docs/phase-0/contract-matrix.md`) e nenhum
+Lead é criado. É o mesmo mecanismo descrito no O09 do catálogo
+("`cliente-update(PROS-X)` dispara `insertLeadQueueable`").
+
+Isolamento feito com `scripts/tc-005-isolamento-causa-raiz.ts`
+(`npm run retest:tc005 -- --repeticoes 2`) na `mrv-devDan`. Cada variante
+usa X e Y novas, com o marcador de Y em `t0`, e espera até 90 s pelo Lead:
+
+| Variante | Sequência | Lead criado | `cliente-update` aplicado |
+|---|---|---|---|
+| V1 | `cliente-update(Y)` sozinho, data posterior ao marcador, com PROS-X | 2/2 (6–12 s) | 2/2 |
+| V2 | `cliente-update(Y)` sozinho, data posterior, sem `idprospectsalesforce` | 2/2 | 2/2 |
+| V3 | `cliente-update(Y)` sozinho, data igual ao marcador | 0/2 | 0/2 |
+| V4 | `contato-insert` antes + `cliente-update` com data igual ao marcador | 0/2 | 0/2 |
+| V5 | `contato-insert` antes + `cliente-update` com data posterior | 2/2 | 2/2 |
+| V6 | `contato-insert` sozinho | 0/2 | — |
+
+Os jobs assíncronos confirmam a leitura. Só nas variantes aplicadas (V1, V2
+e V5) rodaram os Queueables de `NotificacaoCliente`. Na V3 não rodou job
+nenhum, e nas V4 e V6 rodou só o `ReconciliacaoContatosLeadQueueable` do
+contato. Os 6 Leads criados foram apagados pelo próprio reteste, sem
+resíduo.
+
+### Hipótese anterior (refutada pelo reteste)
+
+Nas 9 ordens em que o script do TC-005 espera "sem Lead", o
+`cliente-update(Y)` sai com `dataalteracao` igual ao marcador gravado no
+setup de Y (`t0`). Nas 4 que criam Lead, ele sai em `t0 + 5s`. A divisão
+Lead/sem Lead abaixo vinha dessa diferença de data, que é um artefato do
+próprio script, e não da ordem de chegada. O texto original segue como
+registro:
 
 A hipótese inicial (baseada em O01/O02/O08 do catálogo geral) era que o
 `cliente-update(Y)` carregando o `idprospectsalesforce` de X — um prospect
@@ -57,6 +93,11 @@ antepõe um `contato-*` ao `cliente-update` não cria o Lead de Y — é o
 comportamento real e determinístico do Apex.
 
 ## Tabela de convergência esperada por ordem
+
+> **Inválida (2026-09-27).** A tabela abaixo reflete a hipótese refutada.
+> O script precisa ser reescrito: o `cliente-update(Y)` de toda ordem deve
+> sair com data posterior ao marcador de Y, e o esperado passa a ser
+> "exatamente um Lead para Y com C/D", como diz o runbook.
 
 O script mantém `expectedLeadCreated: Record<OrderId, boolean>`, derivado
 de "essa ordem antepõe um `contato-*`/`endereco-*` ao primeiro
@@ -93,6 +134,10 @@ Rodado contra `mrv-devDan` em 2026-09-23, ambos os modos:
 - Zero resíduo confirmado em `mrv-devDan` após ambas as execuções
   (Account X/Y, Lead, Opportunity, Proponente e PAC sintéticos todos
   removidos pela limpeza do próprio script).
+
+Essa convergência mostra só que o script concordava com o próprio artefato
+de data (ver "Hipótese anterior"), não que o resultado do runbook foi
+atingido.
 
 ## Simplificações honestas assumidas
 

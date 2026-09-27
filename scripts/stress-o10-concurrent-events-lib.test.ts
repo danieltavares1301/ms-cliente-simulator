@@ -6,6 +6,7 @@ import {
   countLeadsById,
   findRunCreatedLeadIds,
   parseCliArguments,
+  readCliFlag,
   resolveFieldWinners,
 } from './stress-o10-concurrent-events-lib.ts';
 
@@ -214,6 +215,19 @@ describe('findRunCreatedLeadIds', () => {
 
     await expect(findRunCreatedLeadIds(fake.client, [])).resolves.toEqual([]);
     await expect(countLeadsById(fake.client, [])).resolves.toBe(0);
+  });
+});
+
+describe('readCliFlag', () => {
+  it('reads both --name value and --name=value forms', () => {
+    expect(readCliFlag(['--mode', 'fresh-x'], 'mode')).toBe('fresh-x');
+    expect(readCliFlag(['--mode=fresh-x'], 'mode')).toBe('fresh-x');
+  });
+
+  it('returns undefined when the flag is absent or has no value', () => {
+    expect(readCliFlag(['--modes', 'x'], 'mode')).toBeUndefined();
+    expect(readCliFlag(['--mode'], 'mode')).toBeUndefined();
+    expect(readCliFlag(['--mode', '--orders', 'O01'], 'mode')).toBeUndefined();
   });
 });
 
