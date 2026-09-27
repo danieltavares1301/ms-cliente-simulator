@@ -131,6 +131,27 @@ describe('sanitizeSecrets', () => {
       expect(JSON.stringify(result)).not.toContain(secret);
   });
 
+  it('removes credential fields named with Salesforce API suffixes', () => {
+    const secret = ['sf', 'opaque', 'value'].join('-');
+    const source = {
+      Name: 'Endpoints',
+      Campanhas__c: 'https://example.invalid/campanhas',
+      XApiKey__c: secret,
+      XApiKeySensia__c: secret,
+      ChavePrimariaCCA__c: secret,
+      resenhaProduto: 'Produto bem avaliado',
+    };
+
+    const result = sanitizeSecrets(source);
+
+    expect(result).toEqual({
+      Name: 'Endpoints',
+      Campanhas__c: 'https://example.invalid/campanhas',
+      resenhaProduto: 'Produto bem avaliado',
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
   it('redacts embedded Bearer, JWT and URL credentials without removing business text', () => {
     const source = {
       message:

@@ -130,12 +130,22 @@ export function createPacCreditoCallbackHandler(
     }
 
     const requestId = requestIdFactory();
+    // Só os 4 campos do contrato vão para o log. Campos extras aceitos pelo
+    // `.passthrough()` (drift de versão do Apex, ex.: CodigoPAC) entram só
+    // pelo nome: o valor nunca é logado e não pode sobrescrever os campos do
+    // próprio evento.
+    const { IdSalesforcePac, IdPac, IdJornada, DataCriacao, ...extraFields } =
+      parsed.data;
     console.log(
       JSON.stringify({
         event: 'pac-credito-callback.accepted',
         requestId,
         receivedAt: new Date().toISOString(),
-        ...parsed.data,
+        IdSalesforcePac,
+        IdPac,
+        IdJornada,
+        DataCriacao,
+        extraFieldNames: Object.keys(extraFields).sort(),
       }),
     );
 

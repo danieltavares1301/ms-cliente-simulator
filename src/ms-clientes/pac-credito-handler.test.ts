@@ -271,5 +271,48 @@ describe('createPacCreditoCallbackHandler', () => {
       requestId: 'request-extra-field',
     });
     expect(logSpy).toHaveBeenCalledTimes(1);
+
+    const [rawLog] = logSpy.mock.calls[0] ?? [];
+    expect(JSON.parse(String(rawLog))).toMatchObject({
+      extraFieldNames: ['CodigoPAC'],
+    });
+    expect(rawLog).not.toContain('PAC-751122');
+  });
+
+  it('logs only contract fields: extra fields cannot forge event fields or leak values', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const handler = createPacCreditoCallbackHandler({
+      environment: validEnvironment,
+      requestIdFactory: () => 'request-real',
+    });
+
+    const response = await handler(
+      createRequest(
+        JSON.stringify({
+          IdSalesforcePac: 'a0BHZ0000001234',
+          IdPac: 'PAC-001',
+          IdJornada: null,
+          DataCriacao: '2026-01-01T00:00:00.000Z',
+          event: 'contestacao-insert-callback.accepted',
+          requestId: 'request-forjado',
+          cpf: '52998224725',
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    const [rawLog] = logSpy.mock.calls[0] ?? [];
+    expect(JSON.parse(String(rawLog))).toStrictEqual({
+      event: 'pac-credito-callback.accepted',
+      requestId: 'request-real',
+      receivedAt: expect.any(String),
+      IdSalesforcePac: 'a0BHZ0000001234',
+      IdPac: 'PAC-001',
+      IdJornada: null,
+      DataCriacao: '2026-01-01T00:00:00.000Z',
+      extraFieldNames: ['cpf', 'event', 'requestId'],
+    });
+    expect(rawLog).not.toContain('52998224725');
+    expect(rawLog).not.toContain('request-forjado');
   });
 });
