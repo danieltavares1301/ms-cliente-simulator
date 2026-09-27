@@ -35,6 +35,14 @@ Payload logado: `IdSalesforcePac`, `IdPac`, `IdJornada`, `DataCriacao`
 (`pacCreditoRequestSchema`) — todos identificadores/IDs de negócio ou
 timestamps, sem campo de texto livre. **Sem achado.**
 
+**Correção (2026-09-27):** a conclusão acima descrevia a intenção, não o
+código. O handler espalhava `...parsed.data`, e o schema é `.passthrough()`.
+Com isso, qualquer campo extra do corpo ia para o log com valor e podia
+sobrescrever `event`/`requestId`. A autenticação só confere o prefixo
+`SharedAccessSignature`. Agora o log leva só os 4 campos acima, mais
+`extraFieldNames`, só com os nomes dos campos extras, para ainda revelar
+drift como o `CodigoPAC`.
+
 ### 3. `src/ms-clientes/contestacao-insert-handler.ts:130` — **achado real (corrigido)**
 
 Payload logado (antes da correção): `...parsed.data`, incluindo o campo

@@ -197,6 +197,35 @@ describe('scanSecrets', () => {
       expect(JSON.stringify(findings)).not.toContain(value);
   });
 
+  it('detects credential keys named with Salesforce API suffixes', () => {
+    const opaque = ['sf', 'opaque', 'value'].join('-');
+    const payload = {
+      Name: 'Endpoints',
+      Campanhas__c: 'https://example.invalid/campanhas',
+      XApiKey__c: opaque,
+      XApiKeySensia__c: opaque,
+      ClientSecret__c: opaque,
+      AccessToken__c: opaque,
+      Senha__c: opaque,
+      Password__c: opaque,
+      ChavePrimariaCCA__c: opaque,
+      ns__ApiKey__c: opaque,
+      resenhaProduto: 'Produto bem avaliado',
+      CPF__pc: '52998224725',
+    };
+
+    expect(compact(scanSecrets(payload))).toEqual([
+      { path: '$.AccessToken__c', category: 'CREDENTIAL' },
+      { path: '$.ChavePrimariaCCA__c', category: 'CREDENTIAL' },
+      { path: '$.ClientSecret__c', category: 'CREDENTIAL' },
+      { path: '$.ns__ApiKey__c', category: 'CREDENTIAL' },
+      { path: '$.Password__c', category: 'CREDENTIAL' },
+      { path: '$.Senha__c', category: 'CREDENTIAL' },
+      { path: '$.XApiKey__c', category: 'CREDENTIAL' },
+      { path: '$.XApiKeySensia__c', category: 'CREDENTIAL' },
+    ]);
+  });
+
   it('detects Bearer, JWT and credential URLs in nested values', () => {
     const jwt = bearer();
     const credentialUrl = [
