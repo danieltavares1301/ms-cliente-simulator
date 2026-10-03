@@ -1,13 +1,18 @@
 import {
   contaDaPessoa,
+  ehPerfilIdentidade,
   type AccountRegistro,
   type Aprovacao,
   type Assercao,
+  type EvidenciaIdentidade,
   type Execucao,
   type LeadRegistro,
+  type Perfil,
   type Snapshot,
 } from './engine.ts';
 
+// Marcadores de contato e o carimbo de pendência pegam escritas indevidas mesmo
+// quando o valor gravado coincide (ex.: TC-001, Y com os contatos de X).
 const camposAccount = [
   'Id__c',
   'IdProspectSalesforce__c',
@@ -16,6 +21,9 @@ const camposAccount = [
   'Celular__c',
   'LastName',
   'DataAlteracaoEvento__c',
+  'DataAlteracaoEventoContatoEmail__c',
+  'DataAlteracaoEventoContatoCelular__c',
+  'ContatoDataHoraAtualizacaoEmailPendencia',
 ] as const;
 const camposLead = [
   'Id__c',
@@ -25,6 +33,9 @@ const camposLead = [
   'CelularSemFormatacao__c',
   'LastName',
 ] as const;
+
+/** Asserção que, no pool paralelo, pode acusar job de outro RUN (a janela é da org). */
+export const NOME_ASSERCAO_JOBS = 'Nenhum job assíncrono com erro na janela do RUN';
 
 function digitos(valor: string | null | undefined): string {
   return (valor ?? '').replace(/\D/g, '');
@@ -312,7 +323,7 @@ export class Verificador {
       assercoes.push(...this.parciaisSemEfeito(this.intermediario));
     }
     assercoes.push({
-      nome: 'Nenhum job assíncrono com erro na janela do RUN',
+      nome: NOME_ASSERCAO_JOBS,
       ok: opcoes.jobs.length === 0,
       ...(opcoes.jobs.length ? { detalhe: opcoes.jobs } : {}),
     });
@@ -321,6 +332,67 @@ export class Verificador {
       ok: opcoes.logs.length === 0,
       ...(opcoes.logs.length ? { detalhe: opcoes.logs } : {}),
     });
+    return assercoes;
+  }
+
+  /**
+   * Perfis C1 a C4: o RUN só vale se as PACs em análise chegaram ao Proponente
+   * e o gatilho aconteceu. Em C1 e C2, X também tem que estar intacta antes da
+   * pendência, o que atribui a ela qualquer mudança posterior.
+   */
+  evidenciasDoPerfil(
+    perfil: Perfil,
+    evidencia: EvidenciaIdentidade | null,
+    xAlteravel: boolean,
+  ): Assercao[] {
+    if (!ehPerfilIdentidade(perfil)) return [];
+    const proponente = evidencia?.precondicao?.proponente ?? null;
+    const contaX = this.execucao.fixtures.get('accountX')?.registro.Id;
+    const contaDoProponente =
+      proponente?.Proponente__c == null
+        ? null
+        : proponente.Proponente__c === contaX
+          ? 'X'
+          : proponente.Proponente__c === this.conta()?.Id
+            ? 'aprovada'
+            : 'outra';
+    const assercoes: Assercao[] = [
+      {
+        nome: `${perfil}: PACs em análise aplicadas ao Proponente`,
+        ok:
+          proponente !== null &&
+          digitos(proponente.CpfProponente__c) === digitos(this.pessoa.cpf) &&
+          (proponente.EmailAtualizado__c ?? '').toLowerCase() === this.aprovacao.email.toLowerCase(),
+        // Onde o Proponente ficou diz se o caminho alcançou X neste TC.
+        detalhe: { contaDoProponente },
+      },
+      perfil === 'C4'
+        ? {
+            nome: 'C4: contestação pendente antes das PACs em análise',
+            ok: evidencia?.contestacoesAntes === 1,
+            detalhe: { pendentes: evidencia?.contestacoesAntes ?? null },
+          }
+        : {
+            nome: `${perfil}: pendência aplicada (flag ligada)`,
+            ok: this.final.proponente?.EnviarNotificacaoPendencia__c === true,
+          },
+    ];
+    if ((perfil === 'C1' || perfil === 'C2') && !xAlteravel) {
+      assercoes.push(
+        evidencia?.precondicao
+          ? {
+              ...new Verificador(
+                this.execucao,
+                this.aprovacao,
+                evidencia.precondicao,
+                null,
+                null,
+              ).preservado('accountX'),
+              nome: `${perfil}: Account X intacta antes da pendência`,
+            }
+          : { nome: `${perfil}: Account X intacta antes da pendência`, ok: false, detalhe: 'sem snapshot' },
+      );
+    }
     return assercoes;
   }
 
