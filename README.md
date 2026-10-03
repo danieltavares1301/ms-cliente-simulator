@@ -397,7 +397,8 @@ descrito acima.
   O padrão continua sequencial, como pede o runbook (§4.1.1); usar o pool é um
   desvio consciente. Em 02/10, a campanha completa com `--paralelo 6` repetiu
   os vereditos de 27/09 (121 conformes e 11 divergentes, sem nenhuma asserção
-  diferente) em cerca de 19 minutos de parede, contra 98 em sequência. A
+  diferente) em cerca de 19 minutos de parede, contra 98 em sequência
+  ([relatório](docs/resultado-runbook-recorte-2.2-2026-10-02.md)). A
   correlação de jobs olha a janela da org. Por isso, um RUN que acusa job com
   erro no pool é refeito em sequência antes de virar divergência, e o resultado
   final traz `tentativaParalela`.
@@ -549,6 +550,12 @@ roda automaticamente no build/deploy.
   divergência reproduzível no TC-040 (HTTP 400 para contato antes do cliente
   sem correlação) e nos TCs 045, 046 e 049 (Lead candidato sem CPF não
   reutilizado quando a Account Y é nova).
+- [Resultado do runbook — recorte 2.2, 2026-10-02](docs/resultado-runbook-recorte-2.2-2026-10-02.md) —
+  a mesma campanha com `--paralelo 6`: vereditos idênticos aos de 27/09 em
+  cerca de 19 minutos, com uma queda de rede refeita e as mudanças da dev
+  desde 27/09.
+- [Passagem de contexto do bug 4 do TC-001](docs/handoff-investigacao-tc001-bug4.md) —
+  causa, reprodução, estado do harness e da `mrv-devDan` em 02/10.
 
 ### Fase 0 — Validação e configuração técnica
 

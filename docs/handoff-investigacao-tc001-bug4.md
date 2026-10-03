@@ -1,7 +1,9 @@
 # Passagem de contexto: reproduzir o bug original do TC-001 (commit 4)
 
-Atualizado em **2026-10-01**. Leia este documento primeiro se estiver assumindo
-a investigação sem acesso à conversa anterior.
+Atualizado em **2026-10-02**. Leia este documento primeiro se estiver assumindo
+a investigação sem acesso à conversa anterior. A seção 10 traz o estado do
+harness do runbook, a campanha de 02/10 e a situação da `mrv-devDan` depois
+dela.
 
 ## 1. Objetivo e estado atual
 
@@ -349,11 +351,12 @@ reais involuntariamente.
 - Compara um subconjunto de campos, não uma preservação integral do registro.
 - `accountXAlterada` considera os campos da Account comparados; mudanças do Lead
   são emitidas nos snapshots, mas não entram nesse booleano final.
-- `aguardarJobs` consulta a janela da org, não somente jobs desta execução,
-  e o helper atual pode sair por timeout sem lançar erro. Não usar seu retorno
-  como prova absoluta de conclusão de todos os jobs.
+- `aguardarJobs` consulta os jobs do usuário do CLI na janela da org, não só
+  os desta execução, e pode sair por timeout sem lançar erro. Não usar seu
+  retorno como prova absoluta de conclusão de todos os jobs.
 - Cleanup confere o conjunto descoberto/allowlist; não equivale a auditoria de
-  todos os efeitos colaterais possíveis das automações.
+  todos os efeitos colaterais possíveis das automações. Desde 02/10, quando a
+  descoberta falha, o resíduo sai `null` ("não verificado"), e não 0.
 
 ## 8. Evidências locais e situação do Git
 
@@ -381,10 +384,15 @@ Alguns logs foram escritos em UTF-16 pelo redirecionamento do Windows PowerShell
 usar leitor com encoding apropriado. Não confundir caracteres de encoding
 com conteúdo real dos eventos.
 
-Na última inspeção, README/package.json estavam modificados, diagnósticos e
-relatório estavam não versionados. Não houve commit/push desta investigação.
-Há alterações e arquivos de outros trabalhos; preservar tudo e revisar
-`git status` antes de editar ou fazer commit. Não usar `git add -A`.
+Em 02/10, a investigação e o harness foram commitados na `main` local, sem
+push:
+
+- `a09c6ee`: diagnósticos e documentos do bug 4;
+- `d98919e`: perfis C1 a C4, pool paralelo e tolerância a queda de rede;
+- o commit de documentação seguinte: resultado de 02/10 e a seção 10.
+
+A pasta `claude/` fica fora do versionamento de propósito. Revisar
+`git status` antes de editar ou fazer commit, e não usar `git add -A`.
 
 ## 9. Próximos passos sugeridos, sem causa-raiz presumida
 
@@ -427,3 +435,94 @@ e-mail de Y pelo Proponente ainda ligado a X. O replay com `--pendencia`
 reproduz isso na dev com a mesma impressão digital, e o controle sem o evento
 preserva X. Id Cliente compartilhado foi uma hipótese artificial já refutada
 como representação deste incidente.
+
+## 10. Estado do harness do runbook e da dev em 02/10
+
+### Harness
+
+Commit `d98919e`; os detalhes de uso estão no README, seção "Runbook da
+Unificação 2.2".
+
+- **Perfis C1 a C4.** São os quatro caminhos do bug 4, aplicados sobre os TCs
+  existentes. A "Account X intacta" foi reforçada com os marcadores de contato
+  e o carimbo de pendência. **Ainda não rodaram na dev.**
+- **Pool paralelo.** `--paralelo N` (padrão 1), espera de jobs a 1,5 s
+  filtrada pelo usuário do CLI, snapshots em paralelo, cleanup em etapas e
+  `tempos` por fase. Foi validado ao vivo em 02/10 (abaixo).
+- **Celular sintético** com 7 dígitos aleatórios. Com 4, sobras antigas davam
+  ERRO falso no precheck.
+- **Queda de rede** (`scripts/runbook/rede.ts`):
+  - leituras e exclusões tentam de novo;
+  - evento sem resposta HTTP vira ERRO;
+  - um portão pausa o pool até a org voltar;
+  - o RUN que caiu é refeito, e a retomada refaz pares com ERRO;
+  - o cleanup devolve resíduo `null` quando a descoberta falha.
+
+  Está coberta por testes com conexão falsa, mas **ainda não foi validada ao
+  vivo**.
+
+### Campanha de 02/10
+
+O relatório está em
+[`resultado-runbook-recorte-2.2-2026-10-02.md`](resultado-runbook-recorte-2.2-2026-10-02.md).
+
+- Com `--paralelo 6`, os 132 pares repetiram os vereditos e as asserções de
+  27/09: 121 conformes, em ~19 minutos contra 98.
+- Uma queda de rede de ~40 s derrubou 46 RUNs. Eles foram refeitos e deram o
+  mesmo resultado.
+- Essa queda motivou o tratamento de rede descrito acima.
+
+### Limpeza das sobras na dev
+
+Em 02/10, com autorização do usuário, foram apagados da `mrv-devDan` cerca de
+9,7 mil registros sintéticos dos executores antigos. Todos tinham sido criados
+pelo usuário do CLI (`dtava`) antes de 02/10:
+
+| Padrão | Proponentes | PACs | Opportunities | Leads | Accounts |
+|---|---|---|---|---|---|
+| `qa.unif22.*@example.com`, nome com `UNIF22` ou `TC0nn CLIENTE` | 1.333 | 1.319 | 1.326 | 2.643 | 2.724 |
+| `qa.tcNNN.*@example.com` e Leads `TCnnn Y …` sem e-mail | 46 | 46 | 46 | 94 | 89 |
+
+- **Resíduo da campanha:** também foram apagados os 16 registros que a queda
+  de rede deixou.
+- **Ordem:** Proponente, PAC, Opportunity e, por fim, Lead e Account. O
+  manifesto dos IDs foi gravado antes de cada exclusão.
+- **Mantido de propósito:** um Lead "MANUAL CLIENTE X"
+  (`tcNNN.manual…@example.com`, de 22/08), que pode ter sido criado à mão pelo
+  usuário.
+- **Scripts e manifestos:** `limpeza-sobras.mjs` e `manifesto-limpeza*.json`
+  estão no scratchpad temporário, na pasta `paralelo`, ao lado da `bug4`
+  citada na seção 8.
+- **Lições:**
+  - lotes de 200 Proponentes ou PACs estouraram o limite de 10 mil linhas de
+    DML no `OportunidadeTrigger`, e lotes de 50 passaram;
+  - exclusões de Lead em paralelo com Accounts deram `UNABLE_TO_LOCK_ROW` e
+    passaram na repetição.
+
+### Mudanças na dev desde 27/09
+
+- **27/09, 21:28–21:31 UTC:** deploy de `ClienteService`,
+  `NotificacaoCliente`, `NotificacaoMaquinaEstado` e `NotificacaoPAC`, o estado
+  revertido da seção 5.
+- **29/09, 17:04 UTC:** deploy de 31 componentes `LeadEventGrid*`, com um
+  trigger novo de Lead. Ele não enfileirou jobs nos fluxos do runbook.
+- **01/10:** o permission set `AcessoDeAPI` ganhou leitura de
+  `Contact.DataHoraAtualizacaoEmailPendencia__c` para o usuário do CLI (deploy
+  `0AfHZ00000QaIsH0AV`). A mudança está só no checkout local do repo
+  Salesforce, sem commit.
+- **`JBIntBulkManager`:** é do Marketing Cloud Connect (`et4ae5`) e roda como
+  Automated Process sempre que a campanha mexe em registros. Fica de fora da
+  espera de jobs.
+
+### Próximos passos
+
+1. Validar ao vivo a tolerância a queda de rede. Rodar alguns TCs com
+   `--paralelo 6` e derrubar a rede por 30 a 60 s. O esperado: logs
+   `runbook-rede-queda`, `runbook-rede-sondagem` e `runbook-rede-volta`, RUNs
+   reagendados e nenhum resíduo.
+2. Rodar os perfis C1 a C4 antes e depois dos guards de identidade do plano de
+   correção (seção 9).
+3. Investigar a interceptação de TLS intermitente nesta máquina
+   (`SELF_SIGNED_CERT_IN_CHAIN`), que segue sem causa conhecida. O
+   `src/salesforce/network-policy.ts` descarta a causa das falhas do rest
+   client, então quem a registra é a sondagem do portão.
