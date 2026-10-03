@@ -372,18 +372,112 @@ descrito acima.
   ordem do perfil, Queueable/callback, `cliente-update(PROS-Y)`, `pac-update`
   e máquina). A 2.1 e a 1.3 reais não são chamadas, então cada RUN é um
   diagnóstico do recorte 2.2 (runbook §4.2).
+- **Contatos sintéticos:** os e-mails seguem o formato
+  `qa.unif22.tcNNN.<letra>.<run>@example.com`. Os celulares têm 11 dígitos: um
+  prefixo por contato (`3198`, `3197`, `3196` e `3195`) e 7 dígitos aleatórios
+  por RUN. Antes eram só 4 dígitos aleatórios, depois do número do TC. Com
+  isso, sobras antigas davam ERRO falso no precheck, e RUNs simultâneos do
+  mesmo TC podiam sortear o mesmo celular.
 - **Cada RUN:** confere o esperado do TC e os critérios comuns (X intacto,
   vínculo, Proponente, Opportunity, PAC, jobs e logs sem erro). No fim, apaga
-  só o que criou (§6.5).
-- **Retomada:** o JSONL de saída serve também para retomar, porque pares
-  TC×perfil já gravados não rodam de novo.
+  só o que criou (§6.5). Se a cadeia parou no meio, o cleanup espera os jobs
+  dela antes de procurar o que o Apex criou. Quando essa procura falha, o
+  resíduo fica `null` ("não verificado") em vez de 0.
+- **"Account X intacta":** compara também os marcadores de contato de X
+  (`DataAlteracaoEventoContatoEmail__c` e `DataAlteracaoEventoContatoCelular__c`)
+  e o carimbo `DataHoraAtualizacaoEmailPendencia__c` do Person Contact. Assim,
+  uma escrita indevida aparece mesmo quando o valor coincide, como no TC-001,
+  em que Y usa os contatos de X. Ler o carimbo exige FLS para o usuário do CLI
+  (permission set `AcessoDeAPI` na `mrv-devDan`); sem ela, todo RUN termina em
+  erro com essa explicação.
+- **Retomada:** o JSONL de saída serve também para retomar. Um par TC×perfil
+  cujo último resultado tem veredito não roda de novo; um que terminou em ERRO
+  roda. O relatório vale pelo último resultado de cada par.
+- **Paralelo (opcional):** `--paralelo N` (até 10) roda N RUNs ao mesmo tempo.
+  O padrão continua sequencial, como pede o runbook (§4.1.1); usar o pool é um
+  desvio consciente. Em 02/10, a campanha completa com `--paralelo 6` repetiu
+  os vereditos de 27/09 (121 conformes e 11 divergentes, sem nenhuma asserção
+  diferente) em cerca de 19 minutos de parede, contra 98 em sequência. A
+  correlação de jobs olha a janela da org. Por isso, um RUN que acusa job com
+  erro no pool é refeito em sequência antes de virar divergência, e o resultado
+  final traz `tentativaParalela`.
+- **Queda de rede** (`scripts/runbook/rede.ts`), em sequência ou no pool:
+  - Leituras e exclusões tentam de novo por cerca de 1 minuto. Uma exclusão
+    que volta 404 depois de uma queda conta como feita.
+  - Escritas e eventos não se repetem, porque poderiam duplicar. Um evento sem
+    resposta HTTP é ERRO de infraestrutura, não divergência.
+  - A primeira falha fecha um portão, e nenhum RUN novo começa até a org
+    responder a uma sondagem de `/services/data/`. Os logs
+    `runbook-rede-*` registram a causa, por exemplo `SELF_SIGNED_CERT_IN_CHAIN`.
+  - O RUN que caiu é refeito inteiro, com massa nova, até 3 tentativas por
+    par; o resultado final traz `quedasDeRede`.
+  - Se a rede não voltar em 10 minutos, o runner para de iniciar RUNs e lista
+    em `runbook-interrompido` os pares sem resultado. Rodar de novo com o mesmo
+    `--saida` completa a campanha.
+- **Tempo de cada RUN:**
+  - a espera de jobs consulta a cada 1,5 s e só considera os jobs do usuário
+    do CLI (`INTERVALO_JOBS_MS` e `LEITURAS_VAZIAS_JOBS` em `engine.ts`);
+  - os snapshots fazem as consultas independentes em paralelo;
+  - o PROS-Y é lido com uma consulta só;
+  - o cleanup apaga em etapas paralelas, sempre na ordem das dependências.
+
+  Cada resultado traz `tempos` por fase, e o relatório mostra as médias.
 - **Relatório:** `npm run runbook:relatorio -- --entrada resultados.jsonl --saida relatorio.md`.
 
 Código em `scripts/runbook/`: `engine.ts` (motor), `verificacoes.ts`,
-`cenarios.ts` (as 44 especificações) e `run.ts`. O script antigo do TC-005
+`cenarios.ts` (as 44 especificações), `pool.ts` (pool e refação de RUNs),
+`rede.ts` (falhas de rede) e `run.ts`. O script antigo do TC-005
 foi substituído pelo runner. A causa-raiz do Lead de Y, confirmada pelo
 reteste `npm run retest:tc005`, está em
 [`docs/tc-005-conta-y-sem-lead.md`](docs/tc-005-conta-y-sem-lead.md).
+
+#### Perfis C1 a C4: bug 4 do TC-001
+
+Os TCs do runbook são um escopo fechado, então os caminhos do bug 4 não
+viraram TCs novos: são perfis opcionais que rodam sobre os TCs existentes. A
+campanha padrão (`--todos`, perfis PA, CA e ME) não muda. Exemplo:
+
+`npm run runbook -- --tcs TC-001,TC-005 --perfis C1,C2,C3,C4`
+
+Cada perfil C usa a ordem do CA nos eventos de cliente. Antes deles, envia
+duas `pac-update` em análise com os dados da pessoa aprovada do TC (CPF e
+contatos) e um gatilho que projeta o contato do Proponente na Account:
+
+| Perfil | PACs em análise | Gatilho |
+|---|---|---|
+| C1 | sem IdCliente (o incidente) | pendência depois dos eventos de cliente |
+| C2 | com o IdCliente da jornada (X) | pendência depois dos eventos de cliente |
+| C3 | com o IdCliente da jornada (X) | pendência antes das PACs, com o Proponente ainda de X |
+| C4 | com o IdCliente da jornada (X) | contestação pendente na PAC |
+
+**O que o RUN confere:**
+
+- **O esperado do TC e os critérios comuns.** Inclui a "Account X intacta"
+  reforçada, que é o que acusa o bug.
+- **A validade do perfil.** As PACs em análise chegaram ao Proponente, e o
+  detalhe mostra se ele ficou em X, na conta aprovada ou em outra. Também
+  confere que o gatilho aconteceu e, em C1 e C2, que X estava intacta antes da
+  pendência. Essa última checagem atribui à pendência qualquer mudança
+  posterior; o próprio perfil CA do TC serve de controle sem gatilho.
+
+**Como ler o resultado:**
+
+- **Na `mrv-devDan` revertida, antes dos guards:** a "Account X intacta"
+  diverge nos TCs em que o caminho alcança X. Exemplos: o TC-001 nos quatro
+  perfis; o TC-005 em C2, C3 e C4. No TC-005 em C1, o CPF de Y acha a conta
+  de Y, e o caminho não chega a X.
+- **Com os guards do plano de correção do repositório Salesforce:** todos
+  devem sair conformes.
+- **Nos TCs de MATCH** (X pode mudar, como o TC-003), o gatilho é uma
+  sincronização legítima da própria pessoa.
+- **Contexto e evidências:** [handoff do bug 4](docs/handoff-investigacao-tc001-bug4.md),
+  seção 1.1.
+
+O perfil C4 cria uma `Contestacao__c` e a apaga no cleanup. O trigger dela
+chama `Endpoints__c.ContestacaoInsert__c`. Confira antes que o endpoint
+aponta para o simulador, nunca para uma API da MRV.
+
+`npm run runbook:relatorio` monta as colunas com os perfis presentes no JSONL.
 
 ### Diagnósticos TC-001 (commits 3 e 4 revertidos, `GV_918914_UnificPosAprovPAC`)
 

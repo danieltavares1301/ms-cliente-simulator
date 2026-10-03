@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
 import { CENARIOS } from './cenarios.ts';
-import { NOMES_PERFIS, PERFIS, type ResultadoRun } from './engine.ts';
+import { NOMES_PERFIS, PERFIS, PERFIS_IDENTIDADE, TODOS_PERFIS, type ResultadoRun } from './engine.ts';
 import { readCliFlag } from '../stress-o10-concurrent-events-lib.ts';
 
 /**
@@ -38,6 +38,8 @@ async function main(): Promise<void> {
     porPar.set(`${resultado.tc}:${resultado.perfil}`, resultado);
   }
   const resultados = [...porPar.values()];
+  const presentes = TODOS_PERFIS.filter((perfil) => resultados.some((resultado) => resultado.perfil === perfil));
+  const perfis = presentes.length > 0 ? presentes : PERFIS;
   const contar = (veredito: ResultadoRun['veredito']) =>
     resultados.filter((resultado) => resultado.veredito === veredito).length;
   const inicio = resultados.map(({ inicio }) => inicio).sort()[0] ?? '';
@@ -57,13 +59,22 @@ async function main(): Promise<void> {
     '',
     `**${resultados.length} RUNs:** ${contar('CONFORME')} conformes, ${contar('DIVERGENTE')} divergentes, ${contar('ERRO')} com erro de execução.`,
     '',
+    ...(perfis.some((perfil) => PERFIS_IDENTIDADE.includes(perfil))
+      ? [
+          '> **Perfis C1 a C4 (bug 4 do TC-001):** ordem CA mais PACs em análise com os',
+          '> dados da pessoa aprovada e um gatilho (pendência ou contestação). Nos TCs em',
+          '> que o caminho alcança X, "Account X intacta" diverge até os guards de',
+          '> identidade serem implantados. Veja `docs/handoff-investigacao-tc001-bug4.md`.',
+          '',
+        ]
+      : []),
     '## Resumo por TC',
     '',
-    `| TC | Cenário | ${PERFIS.map((perfil) => `${perfil} (${NOMES_PERFIS[perfil]})`).join(' | ')} |`,
-    `|---|---|${PERFIS.map(() => '---').join('|')}|`,
+    `| TC | Cenário | ${perfis.map((perfil) => `${perfil} (${NOMES_PERFIS[perfil]})`).join(' | ')} |`,
+    `|---|---|${perfis.map(() => '---').join('|')}|`,
   ];
   for (const cenario of CENARIOS) {
-    const celulas = PERFIS.map((perfil) => {
+    const celulas = perfis.map((perfil) => {
       const resultado = porPar.get(`${cenario.id}:${perfil}`);
       return resultado === undefined ? '—' : SIMBOLO[resultado.veredito];
     });
@@ -72,7 +83,7 @@ async function main(): Promise<void> {
   }
 
   const comProblema = CENARIOS.filter((cenario) =>
-    PERFIS.some((perfil) => {
+    perfis.some((perfil) => {
       const resultado = porPar.get(`${cenario.id}:${perfil}`);
       return resultado !== undefined && resultado.veredito !== 'CONFORME';
     }),
@@ -82,7 +93,7 @@ async function main(): Promise<void> {
     for (const cenario of comProblema) {
       linhas.push(`### ${cenario.id} — ${cenario.titulo}`, '');
       if (cenario.observacao) linhas.push(`_Observação:_ ${cenario.observacao}`, '');
-      for (const perfil of PERFIS) {
+      for (const perfil of perfis) {
         const resultado = porPar.get(`${cenario.id}:${perfil}`);
         if (resultado === undefined || resultado.veredito === 'CONFORME') continue;
         linhas.push(`**${perfil}** (\`${resultado.run}\`, ${SIMBOLO[resultado.veredito]}):`, '');
@@ -100,7 +111,7 @@ async function main(): Promise<void> {
   const observacoes = CENARIOS.filter(
     (cenario) =>
       cenario.observacao && !comProblema.includes(cenario) &&
-      PERFIS.some((perfil) => porPar.has(`${cenario.id}:${perfil}`)),
+      perfis.some((perfil) => porPar.has(`${cenario.id}:${perfil}`)),
   );
   if (observacoes.length > 0) {
     linhas.push('## Adaptações registradas', '');
@@ -108,6 +119,32 @@ async function main(): Promise<void> {
       linhas.push(`- **${cenario.id}:** ${cenario.observacao}`);
     }
     linhas.push('');
+  }
+
+  const comTempos = resultados.flatMap(({ tempos }) => (tempos ? [tempos] : []));
+  if (comTempos.length > 0) {
+    const media = (campo: keyof (typeof comTempos)[number]) =>
+      (comTempos.reduce((soma, tempos) => soma + tempos[campo], 0) / comTempos.length / 1_000).toFixed(1);
+    const refeitos = resultados.filter(({ tentativaParalela }) => tentativaParalela !== undefined);
+    const quedas = resultados.filter(({ quedasDeRede }) => quedasDeRede !== undefined);
+    linhas.push(
+      '## Tempos',
+      '',
+      `Média de ${comTempos.length} RUNs, em segundos: total ${media('totalMs')}; massa ${media('massaMs')}; cadeia ${media('cadeiaMs')} (dos quais ${media('esperaJobsMs')} esperando jobs); verificação ${media('verificacaoMs')}; cleanup ${media('cleanupMs')}.`,
+      '',
+      ...(refeitos.length > 0
+        ? [
+            `Refeitos em sequência depois de acusar job com erro no pool paralelo: ${refeitos.map(({ tc, perfil }) => `${tc}/${perfil}`).join(', ')}.`,
+            '',
+          ]
+        : []),
+      ...(quedas.length > 0
+        ? [
+            `Refeitos depois de queda de rede: ${quedas.map(({ tc, perfil, quedasDeRede }) => `${tc}/${perfil} (${quedasDeRede!.length} ${quedasDeRede!.length === 1 ? 'queda' : 'quedas'})`).join(', ')}.`,
+            '',
+          ]
+        : []),
+    );
   }
 
   const residuos = resultados.filter(
@@ -118,7 +155,15 @@ async function main(): Promise<void> {
     residuos.length === 0
       ? 'Todos os RUNs apagaram a própria massa e o que o Apex criou para ela, sem resíduo (runbook §6.5).'
       : `RUNs com resíduo ou erro de limpeza: ${residuos
-          .map(({ tc, perfil, cleanup }) => `${tc}/${perfil} (${cleanup?.restantes ?? '?'} restantes; ${cleanup?.erros.join('; ') ?? ''})`)
+          .map(({ tc, perfil, cleanup }) => {
+            const restantes =
+              cleanup === null
+                ? 'sem limpeza'
+                : cleanup.restantes === null
+                  ? 'resíduo não verificado'
+                  : `${cleanup.restantes} restantes`;
+            return `${tc}/${perfil} (${restantes}; ${cleanup?.erros.join('; ') ?? ''})`;
+          })
           .join(', ')}`,
     '',
   );
