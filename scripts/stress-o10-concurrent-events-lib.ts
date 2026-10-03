@@ -775,7 +775,7 @@ export async function dispatchConcurrentRequest(
   access: SalesforceAccess,
   planEntry: ConcurrentDispatchPlanEntry,
   timeoutMs: number,
-  target: 'Cliente' | 'PAC' | 'MaquinaEstado' = 'Cliente',
+  target: 'Cliente' | 'PAC' | 'MaquinaEstado' | 'Pendencia' = 'Cliente',
 ): Promise<RequestResult> {
   const event = planEntry.envelope[0];
   const startedAt = new Date();
