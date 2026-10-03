@@ -31,7 +31,11 @@
     "composite:o09": "tsx scripts/composite-o09-ordem-clarice.ts",
     "runbook": "tsx scripts/runbook/run.ts",
     "runbook:relatorio": "tsx scripts/runbook/relatorio.ts",
-    "retest:tc005": "tsx scripts/tc-005-isolamento-causa-raiz.ts"
+    "retest:tc005": "tsx scripts/tc-005-isolamento-causa-raiz.ts",
+    "diag:tc001-idcliente-compartilhado": "tsx scripts/runbook/diagnostico-tc001-idcliente-compartilhado.ts",
+    "diag:tc001-race-insert-update": "tsx scripts/runbook/diagnostico-tc001-corrida-insert-update.ts",
+    "diag:tc001-race-cliente-pac": "tsx scripts/runbook/diagnostico-tc001-corrida-cliente-pac.ts",
+    "diag:tc001-race-prospect-estrangeiro": "tsx scripts/runbook/diagnostico-tc001-corrida-prospect-estrangeiro.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

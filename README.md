@@ -385,6 +385,41 @@ foi substituído pelo runner. A causa-raiz do Lead de Y, confirmada pelo
 reteste `npm run retest:tc005`, está em
 [`docs/tc-005-conta-y-sem-lead.md`](docs/tc-005-conta-y-sem-lead.md).
 
+### Diagnósticos TC-001 (commits 3 e 4 revertidos, `GV_918914_UnificPosAprovPAC`)
+
+**Para assumir a investigação sem contexto:** leia primeiro a
+[passagem de contexto do bug 4](docs/handoff-investigacao-tc001-bug4.md),
+com evidências reais, tentativas, retificações, comandos e limitações.
+
+Scripts ad-hoc em `scripts/runbook/diagnostico-tc001-*.ts` (fora do
+catálogo dos 44 TCs, mesmo nível de acesso do O06/O07/O09/O10/O12) tentam
+reproduzir os dois bugs do TC-001 corrigidos pelos commits `1f6844e910`
+(guard de identidade) e `72cbd884f6` (retry lock), contra o estado
+revertido desses commits em `mrv-devDan`. Quatro têm atalho no npm:
+
+```bash
+npm run diag:tc001-idcliente-compartilhado
+npm run diag:tc001-race-insert-update -- --rajada 8 --ondas 4 --intervalo-ms 1200
+npm run diag:tc001-race-cliente-pac -- --rajada 8 --ondas 4 --intervalo-ms 1200
+npm run diag:tc001-race-prospect-estrangeiro -- --concorrencia 8
+```
+
+**Reteste com evidência real do commit 4 (2026-10-01):** o incidente usa
+IdClientes distintos, não compartilhados. O diagnóstico
+`npx tsx scripts/runbook/diagnostico-tc001-evidencia-staging.ts --org-alias mrv-devDan`
+(opcional `--concorrente`) reconstrói as relações dos logs com dados sintéticos.
+As três primeiras tentativas preservaram X, porque faltava o
+`notificacaopendencia-insert`. Com `--pendencia --data-proponente-staging`, X
+muda com a mesma impressão digital de staging, e o controle sem a pendência
+preserva X: o bug 4 está reproduzido. A causa e as variantes
+(`--idcliente-x-na-analise`, `--pendencia-antes` e `--contestacao-pendente`)
+estão na seção 1.1 do handoff.
+
+Resultado, achados e a hipótese revisada para o `UNABLE_TO_LOCK_ROW` não
+reproduzido (incluindo um achado novo — corrida silenciosa de Leads
+duplicados órfãos, sem nenhum erro visível):
+[`docs/tc-001-diagnostico-corridas-commits-3-4.md`](docs/tc-001-diagnostico-corridas-commits-3-4.md).
+
 ## Schema e migrations
 
 O schema tipado está em `src/db/schema.ts` e as migrations geradas ficam em
