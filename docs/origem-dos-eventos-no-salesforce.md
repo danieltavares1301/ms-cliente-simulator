@@ -4,8 +4,9 @@ Análise de 2026-10-11. Responde a três perguntas:
 
 1. Quais eventos a Plataforma BFF (`com_plataforma_bff`) lança no Salesforce,
    e quem publica os demais eventos que o simulador reproduz.
-2. O que o MS Clientes real (repositório `cliente`) e o MS de crédito real
-   (repositório `com_proponente_credito`) publicam, como publicam e quem
+2. O que o MS Clientes real (repositório `cliente`), o MS de crédito real
+   (repositório `com_proponente_credito`) e o WebJob do crédito (repositório
+   `com_analise_credito_web_job`) publicam ou acionam, em que ordem, e quem
    dispara cada evento.
 3. Se a separação entre esses projetos explica as diferenças de ordem dos
    eventos no Salesforce.
@@ -45,6 +46,12 @@ O código do MS de crédito explica o resto:
   foi assim que o bug 4 aconteceu (seções 3.7 e 6.2).
 - **Horários:** os dois horários que o crédito manda estão 3h atrás, inclusive
   o `eventTime` (seção 6.4).
+- **WebJob:** quem cria o cliente no MS Clientes depois da aprovação é o
+  "Análise Crédito Web Job":
+  - ele faz as chamadas uma de cada vez e numa ordem fixa: cliente, contatos,
+    endereços;
+  - ele grava o cliente com o prospect da jornada. É daí que vem o PROS-X nos
+    primeiros eventos de Y (seções 3.8 e 6.5).
 
 ## 2. Como foi verificado
 
@@ -55,6 +62,8 @@ O código do MS de crédito explica o resto:
   `aa0a4e9f` (2026-10-09).
 - **Código do MS de crédito:** repositório `com_proponente_credito`, branch
   `master`, commit `8a6bf138f` (2026-09-23).
+- **Código do WebJob do crédito:** repositório `com_analise_credito_web_job`,
+  branch `master`, commit `ef17311` (2026-05-19).
 - **Envelope real em `mrv-staging`:** consultas somente leitura em
   `LogIntegracao__c.BodyRequest__c`. As consultas imprimiram só tópico,
   subject, forma do envelope, formato de data e contagens. Nenhum dado de
@@ -105,7 +114,9 @@ Nesta seção, os caminhos `src/...` não são do simulador:
 - em 3.1 a 3.3, são do repositório `com_plataforma_bff`;
 - em 3.4 e 3.5, do repositório `cliente`;
 - em 3.6 e 3.7, do repositório `com_proponente_credito`, a partir de
-  `src/main/java/br/com/mrv/qualidadedecredito/proponentecredito/`.
+  `src/main/java/br/com/mrv/qualidadedecredito/proponentecredito/`;
+- em 3.8, do repositório `com_analise_credito_web_job`, a partir de
+  `src/main/java/br/com/mrv/analisecreditowebjob/`.
 
 ### 3.1 `jornadausuario-insert` e `jornadausuario-update`
 
@@ -220,12 +231,12 @@ dos últimos 30 dias, com até 600 logs por tipo:
 
 - **MS de crédito, no pós-PAC:** quem chama o MS Clientes não é a API do
   crédito, e sim o "Análise Crédito Web Job", acionado pela fila que o crédito
-  alimenta na aprovação (seção 3.7). Pelo diagrama de Crédito do README do MS
-  Clientes, ele chama `criarAtualizarCliente` e depois, conforme o contato e o
-  endereço já existam ou não, `criarContato` ou `atualizarContato` e
-  `criarEndereco` ou `atualizarEndereco`, em chamadas separadas. O código do
-  WebJob não está em nenhum repositório clonado, então o `client_id` "Credito"
-  foi atribuído a ele por dedução.
+  alimenta na aprovação (seções 3.7 e 3.8). As chamadas dele mandam o header
+  `idUsuario: Credito` (`repository/cliente/ClienteAgentV2.java`, no
+  `com_analise_credito_web_job`). Por isso os eventos trazem
+  `UsuarioAlteracao = "Credito"`, e os clientes criados por ele trazem
+  `SistemaOrigem = "Crédito"`. Na tabela, os 102 `cliente-insert` com
+  `Credito` têm todos `SistemaOrigem = Crédito`.
 - **Salesforce:** no branch da unificação, quatro classes usam
   `callout:VFlexMsClientes`. Duas delas geram eventos:
   - `MSClienteService.atualizarCliente`, o callback do IdProspect, gera o
@@ -294,7 +305,7 @@ prod), essa chamada faz três coisas, nesta ordem:
    Quem consome a fila é o "Análise Crédito Web Job". Pelo diagrama
    `src/main/resources/diagramas/proponentecredito.py`, ele chama o MS de
    crédito, o MS Central de Crédito, o MS Clientes e o Oracle Integration. O
-   código dele não está em nenhum repositório clonado.
+   que ele faz com a PAC aprovada está na seção 3.8.
 2. **Publica a pendência na hora.** Se houver pendências a notificar, publica
    um `notificacaopendencia-insert` com `tipoNotificacao = DESLIGAMENTO` (no
    código: "envia notificacao de desligamento"). Essa publicação não espera
@@ -307,7 +318,8 @@ prod), essa chamada faz três coisas, nesta ordem:
 Depois, fora dessa chamada, o WebJob faz o resto:
 
 4. **Cria o cliente.** O WebJob cria ou atualiza o cliente no MS Clientes, que
-   publica `cliente-*`, `contato-*` e `endereco-*`.
+   publica `cliente-*`, `contato-*` e `endereco-*`. A ordem exata das chamadas
+   está na seção 3.8.
 5. **Grava o IdCliente.** O WebJob chama `POST /proponentes/atualiza-id-cliente`
    (`web/rest/ProponenteResource.java`). O crédito grava o IdCliente no
    proponente e publica um `pac-update`. Agora todos têm IdCliente, e a PAC
@@ -333,6 +345,106 @@ Essa ordem tem três consequências:
 - **A pendência não espera nada.** Ela chega ao Salesforce antes da PAC
   aprovada, numa janela em que o Proponente ainda aponta para quem iniciou a
   jornada. A seção 6.2 mostra o efeito no bug 4.
+
+### 3.8 O que o WebJob do crédito faz depois da aprovação
+
+O "Análise de Crédito Web Job", do mesmo squad do crédito, é um serviço
+Java/Spring que consome cerca de 30 filas do Service Bus. Para a unificação,
+importam duas.
+
+**Fila `clientequeue` (`service/ClienteSbConsumer.java`).** É a fila que o MS
+de crédito alimenta na aprovação (seção 3.7, passo 1). Mensagens com status
+diferente de `CREDITO_APROVADO_CONDICIONADO` são ignoradas.
+
+Para cada proponente da PAC, em sequência, o WebJob faz estas chamadas ao MS
+Clientes. Cada chamada espera a resposta da anterior
+(`repository/cliente/ClienteAgentV2.java`, método `saveCliente`):
+
+1. **`criarAtualizarCliente`**, com `cadastroNacional` = CPF, os dados
+   pessoais da PAC, `sistemaOrigem = "Crédito"` e
+   `idProspectSalesforce` = o `idProponente` do proponente na PAC. **Não manda
+   IdCliente.** O MS Clientes procura pelo CPF: cria o cliente se ele não
+   existe (`cliente-insert`) ou o atualiza se existe (`cliente-update`). A
+   resposta traz o IdCliente.
+2. **Consulta** os contatos e endereços que o cliente já tem.
+3. **Contatos:** celular, e-mail e telefone residencial, os que a PAC tiver.
+   O WebJob trata um contato por tipo:
+   - se o cliente já tem um contato daquele tipo, `atualizarContato` troca o
+     valor (`contato-update`);
+   - se não tem, `criarContato` o cria (`contato-insert`).
+4. **Endereços:** dois com os mesmos dados, um `PRINCIPAL` e um `COBRANCA`
+   (`endereco-insert`, ou update se já existirem).
+
+Depois de todos os proponentes, o WebJob chama **uma vez**
+`POST /proponentes/atualiza-id-cliente` no MS de crédito, com os pares
+proponente e IdCliente. É isso que libera a PAC aprovada (seção 3.7, passo 5).
+Todas as chamadas ao MS Clientes levam o header `idUsuario: Credito`
+(seção 3.5).
+
+```
+fila clientequeue (PAC aprovada)
+ └─ para cada proponente, uma chamada de cada vez:
+      criarAtualizarCliente(cadastroNacional = CPF,
+                            idProspectSalesforce = idProponente da PAC)    → cliente-insert ou cliente-update
+      consulta contatos e endereços
+      criarContato ou atualizarContato: CELULAR, EMAIL, TELEFONE           → contato-*
+      criarEndereco ou atualizarEndereco: PRINCIPAL e COBRANCA (iguais)    → endereco-*
+ └─ POST /proponentes/atualiza-id-cliente (todos os pares)                 → o crédito publica a PAC aprovada
+```
+
+Detalhes que importam para a ordem dos eventos:
+
+- **Não há concorrência no WebJob.** Ele processa uma mensagem por vez
+  (`MessageHandlerOptions(1, …)` em `service/AzureServiceBusConsumer.java`) e
+  roda com uma réplica só (`replicaCount: 1` no Helm). As aprovações entram
+  numa fila única e são atendidas em série.
+- **A ordem de emissão é fixa:** cliente, celular, e-mail, telefone, endereço
+  Principal, endereço Cobrança. É a ordem vista no incidente do bug 4. A
+  troca de ordem só aparece depois, no MS Clientes, no Event Grid e no
+  Salesforce (seção 6.1).
+- **Falha repete tudo.** Se uma chamada falha, a mensagem volta para a fila
+  depois de 180 s, até 10 vezes em produção (`schedule-delay` e
+  `max-retry-count`). Depois disso, vai para a dead-letter, e o WebJob manda
+  um e-mail. Uma resposta 400 vai direto para a dead-letter, sem repetição.
+  Na repetição, todas as chamadas são refeitas: o cliente já
+  existe, então saem `cliente-update` e `contato-update` em vez de
+  `-insert`. Enquanto isso, a PAC aprovada continua retida.
+- **O tempo até a PAC aprovada varia.**
+  - No bug 4, foi menos de 1 s, pelos `eventTime` corrigidos das 3h: a
+    pendência saiu às 17:52:42,86 e a PAC aprovada às 17:52:43,81.
+  - Com fila acumulada, a espera cresce, porque o consumidor é um só.
+  - Com falhas, a espera pode passar de 30 minutos.
+
+Consequências:
+
+- **Origem do PROS-X.** O `idProponente` da PAC é o prospect da jornada. Por
+  isso o cliente Y nasce no MS Clientes com PROS-X, e todos os eventos de Y
+  saem com PROS-X até o callback do Salesforce gravar PROS-Y (seção 6.5).
+  Conferido em staging na PAC do bug 4, com consulta só de leitura:
+  - o `idProponente` das três PACs é igual ao `IdProspectSalesforce__c` da
+    Account X;
+  - o `cliente-insert` de Y saiu com esse mesmo prospect, com
+    `SistemaOrigem = Crédito` e `UsuarioAlteracao = Credito`.
+- **A PAC sobrescreve contatos.** Como o WebJob trata um contato por tipo, a
+  aprovação troca o e-mail e o celular que o cliente já tinha no MS Clientes
+  pelos da PAC. Isso gera `contato-update` para o `/Cliente`.
+- **Dois endereços iguais.** Toda aprovação manda o mesmo endereço como
+  `PRINCIPAL` e `COBRANCA`.
+
+**Fila do callback PAC Crédito (`service/PacSalesforceSbConsumer.java`).** É
+a fila que o Salesforce alimenta pelo `EnvioPACCreditoQueue`, o callback que
+o simulador intercepta em `/api/ms-clientes/pac-credito`.
+
+- O WebJob lê `IdSalesforcePac` e `IdPac` e faz `POST {urlPlataforma}pacs/salesforce`
+  no MS de crédito (`web/rest/PacSalesforceResource.java:66` no
+  `com_proponente_credito`), que guarda qual registro do Salesforce
+  corresponde a cada PAC.
+- Na dev, com o redirecionamento para o simulador, essa ligação nunca chega
+  ao crédito.
+
+**O WebJob não chama o Salesforce.** Nenhuma chamada dele vai para o
+Salesforce, então ele não explica as duas rotas de entrega da pendência
+(seção 6.3).
 
 ## 4. Formato real por origem e o que o simulador manda
 
@@ -409,12 +521,15 @@ Entre o MS Clientes e o dado gravado, a ordem pode se perder em três trechos:
 MS Clientes ──(1) publicar──► Event Grid ──(2) entregar──► Salesforce ──(3) processar──► dado gravado
 ```
 
-**(1) Publicar.** O código do MS Clientes não preserva a ordem:
+**(1) Publicar.** Quem chama o MS Clientes no pós-PAC, o WebJob do crédito,
+chama numa ordem fixa e espera cada resposta (seção 3.8). Então as chamadas
+chegam em ordem: cliente, celular, e-mail, telefone, endereço Principal,
+endereço Cobrança. O MS Clientes, porém, não preserva essa ordem ao publicar:
 
 - **Publicação sem espera:** com `AddAgents(true)`
   (`src/Cliente.API/Startup.cs:92`), `EventGridAgent.Publicar` dispara o envio
   sem `await`. A mutation responde antes de o evento sair, e a chamada seguinte
-  do MS de crédito já pode publicar o próximo evento.
+  do WebJob já pode publicar o próximo evento.
 - **Retentativa local:** se o envio ao Event Grid falha, o agente tenta de novo
   5 vezes, esperando 2, 4, 8, 16 e 32 s. O evento sai até cerca de 1 min
   depois dos seguintes. Se as 5 tentativas falharem, ele se perde sem erro
@@ -497,6 +612,20 @@ Dois efeitos se somam:
   retenção só existe porque a PAC depende do IdCliente que o MS Clientes cria.
   Ou seja, também é efeito da separação, só que dentro do código do crédito.
 
+**O que os `eventTime` dizem.** Corrigidos das 3h do crédito, eles mostram os
+momentos em que cada evento foi **publicado**, não quando o log foi gravado:
+
+- a pendência saiu às 17:52:42,86;
+- a PAC aprovada saiu às 17:52:43,81.
+
+Em menos de 1 s, o WebJob criou Y no MS Clientes e gravou o IdCliente no
+crédito (seção 3.8). A PAC aprovada só aparece no log às 17:52:48 porque o
+log é gravado depois do processamento.
+
+Nesse incidente, a janela foi curta e mesmo assim bastou. Com a fila do
+WebJob acumulada, ou com uma falha que o faça repetir as chamadas a cada
+180 s, a mesma janela pode durar minutos.
+
 ### 6.3 A pendência chega por duas rotas
 
 Nos últimos 7 dias (`reentregas.ts`):
@@ -564,12 +693,16 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
 
 ### 6.5 Prospect misturado nos eventos de Y e o eco do callback
 
+- **Y nasce com PROS-X:** o WebJob do crédito cria o cliente Y no MS Clientes
+  mandando, como `idProspectSalesforce`, o `idProponente` que está na PAC. Esse
+  valor é o prospect da jornada, ou seja, PROS-X (seção 3.8). Por isso o
+  `cliente-insert` de Y já sai com PROS-X, como no incidente do bug 4.
 - **Prospect lido na hora:** o MS Clientes publica em contato e endereço o
-  `IdProspectSalesforce` que o cliente tem gravado no momento (seção 3.4). Se
-  o cliente Y foi gravado com o prospect da jornada (PROS-X), seus contatos e
-  endereços saem com PROS-X até o callback do Salesforce gravar PROS-Y.
-  Eventos publicados antes e depois do callback misturam os dois prospects, e
-  a ordem de chegada decide qual deles o Salesforce processa por último.
+  `IdProspectSalesforce` que o cliente tem gravado no momento (seção 3.4).
+  Então os contatos e endereços de Y também saem com PROS-X, até o callback
+  do Salesforce gravar PROS-Y. Eventos publicados antes e depois do callback
+  misturam os dois prospects, e a ordem de chegada decide qual deles o
+  Salesforce processa por último.
 - **Eco do callback:** o `cliente-update` com PROS-Y é eco do próprio
   Salesforce. `MSClienteService.atualizarCliente` grava o prospect no MS
   Clientes, que publica um `cliente-update` de volta para o `/Cliente`, também
@@ -620,6 +753,14 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
 - **Horários do crédito:** para reproduzir a PAC e a pendência como elas
   chegam, o `eventTime` teria de sair 3h atrás com `Z` e a `dataAlteracao`,
   sem fuso. É a mesma decisão do item "Datas", no começo desta lista.
+- **Pós-PAC como o WebJob faz (seção 3.8):** para cada proponente, os eventos
+  saem nesta ordem: `cliente-insert` (ou `-update`) com PROS-X e
+  `SistemaOrigem = Crédito`, celular, e-mail, telefone, endereço `PRINCIPAL`
+  e endereço `COBRANCA` iguais. Isso tem três implicações para o simulador:
+  - um cenário fiel do pós-PAC começa assim;
+  - nos casos de MATCH, o contato do mesmo tipo é substituído
+    (`contato-update`), e não criado;
+  - o contrato do endereço precisa aceitar `PRINCIPAL`.
 - **Venda Genérica no runbook:** o harness manda `jornadausuario-update` com
   `Documentacao` em todos os TCs (`scripts/runbook/engine.ts`). Na jornada
   genérica, a BFF quase não publica eventos de jornada. Vale rever esse passo
@@ -636,17 +777,22 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
   contagens de reentrega dos últimos 7 dias usam até 400 logs por tipo e
   servem como indício, não como taxa.
 - Não foi confirmado como os eventos de `clientes` e `pacs` chegam ao
-  Salesforce sem `metadataVersion`: se por intermediário (APIM, Function) ou
-  por outro esquema de entrega. O tópico de origem, porém, está no envelope
-  em todos os casos.
+  Salesforce sem `metadataVersion`, nem por onde passa a segunda rota da
+  pendência: se por um intermediário (APIM, Function) ou por outro esquema de
+  entrega.
+  - O tópico de origem está no envelope em todos os casos.
+  - Nenhum dos repositórios clonados chama o Salesforce para entregar esses
+    eventos, nem o WebJob do crédito. A resposta deve estar na configuração
+    das assinaturas do Event Grid ou da APIM.
 - O código Apex citado na seção 6.4 é o do branch da unificação e o implantado
   na `mrv-devDan`. Não há garantia de que será promovido igual.
 - A correspondência entre a jornada genérica da BFF e a Venda Genérica do
   runbook foi inferida pelos nomes.
 - Os GUIDs da seção 3.5 não foram ligados a sistemas. O payload só traz o
   `client_id`, e o cadastro de clientes do provedor de identidade não foi
-  consultado.
-- Quem chama o MS Clientes depois da aprovação é o "Análise Crédito Web Job",
-  e o código dele não está em nenhum repositório clonado. Por isso seguem sem
-  confirmação a ordem e a concorrência dessas chamadas, e o tempo entre a
-  aprovação e o `atualiza-id-cliente`.
+  consultado. O "Credito", ao contrário, está confirmado no código do WebJob.
+- Que o `idProponente` da PAC é o prospect da jornada foi conferido só na PAC
+  do bug 4, e não no código que cria a PAC.
+- O tempo entre a aprovação e o `atualiza-id-cliente` foi medido só na PAC do
+  bug 4 (menos de 1 s). Não há medida de como ele se comporta com a fila do
+  WebJob acumulada.

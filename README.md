@@ -589,6 +589,7 @@ máquina, eles ficam ao lado deste diretório:
 | `cliente` | `../cliente` | MS Clientes real: publica `cliente-*`, `contato-*` e `endereco-*` |
 | `com_proponente_credito` | `../com_proponente_credito` | MS de crédito ("MS Proponente Crédito", Java/Spring): publica `pac-*`, `notificacaopendencia-*`, `paccontestacao-*`, `pendencia-*` e `processo-*` no tópico `pacs` |
 | `com_proposta` | `../com_proposta` | MS Proposta ("Gerador de Propostas"): simulação e proposta. Não publica `pac-*`; só recebe o `pac-update`, para sincronizar o rating pós-PAC |
+| `com_analise_credito_web_job` | `../com_analise_credito_web_job` | "Análise Crédito Web Job": depois da aprovação, cria o cliente no MS Clientes e grava o IdCliente no crédito. Também recebe o callback PAC Crédito do Salesforce |
 
 - **Branch do Salesforce:** o checkout local do `com_salesforce_mrv` pode estar
   na branch de outra frente. Não troque a branch. Para ler o código da
@@ -598,9 +599,9 @@ máquina, eles ficam ao lado deste diretório:
   (`/v1.0/qualidadedecredito/proponentecredito/...`) e no prefixo do subject
   dos eventos (`EventGridPublisher.java:41`).
 - **WebJob do crédito:** quem chama o MS Clientes depois da aprovação de uma
-  PAC é o "Análise Crédito Web Job", que consome uma fila do Service Bus
-  alimentada pelo MS de crédito. O código dele não está clonado. O fluxo está
-  na seção 3.7 do [doc de origem dos eventos](docs/origem-dos-eventos-no-salesforce.md).
+  PAC é o `com_analise_credito_web_job`, que consome uma fila do Service Bus
+  alimentada pelo MS de crédito. O fluxo e a ordem das chamadas estão nas
+  seções 3.7 e 3.8 do [doc de origem dos eventos](docs/origem-dos-eventos-no-salesforce.md).
 - **Caminhos do Windows:** o projeto começou no Windows. O plano, a passagem
   de contexto do bug 4 e outros docs ainda citam caminhos de lá, como
   `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`,

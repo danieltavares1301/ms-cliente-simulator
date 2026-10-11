@@ -47,6 +47,23 @@ Nenhuma outra classe conhecida consome esses campos. Portanto, o redirecionament
 do endpoint e a troca das credenciais por placeholders afetam apenas essa
 integração específica.
 
+## Quem consome esse callback em produção (2026-10-11)
+
+O consumidor real da fila foi identificado no código do "Análise Crédito Web
+Job" (repositório `com_analise_credito_web_job`,
+`service/PacSalesforceSbConsumer.java`).
+
+- **O que ele faz:** lê `IdSalesforcePac` e `IdPac` da mensagem e faz
+  `POST {urlPlataforma}pacs/salesforce` no MS de crédito
+  (`web/rest/PacSalesforceResource.java:66` no `com_proponente_credito`). Com
+  isso, o crédito guarda qual registro do Salesforce corresponde a cada PAC.
+  `IdJornada` e `DataCriacao` não são usados.
+- **Efeito na dev:** com o redirecionamento para o simulador, essa ligação
+  nunca chega ao crédito. Isso não atrapalha os testes: as PACs da
+  `mrv-devDan` são sintéticas, criadas pelo simulador, e não existem em
+  nenhum ambiente do crédito. O contexto completo está na seção 3.8 de
+  [`origem-dos-eventos-no-salesforce.md`](../origem-dos-eventos-no-salesforce.md).
+
 ## Decisão de credenciais falsas
 
 Assim como já foi aceito no precedente
