@@ -1,4 +1,25 @@
-# Resultado do runbook da Unificação 2.2 — recorte 2.2 na `mrv-devDan`
+# Resultado do runbook — campanha completa sem os commits (dev revertida), 11/10
+
+> **Campanha sem os commits.** Rodou na dev revertida, com `ClienteService`,
+> `NotificacaoCliente` e `NotificacaoPAC` iguais a `c04b6add92` e
+> `NotificacaoMaquinaEstado` igual a `9f0ba21f38`, os dois de 03/09. Faltavam
+> nelas os cinco commits abaixo, do branch da 2.2
+> (`GV_918914_UnificPosAprovPAC`). A campanha com os commits, depois que as
+> quatro voltaram à ponta da 2.2, está em
+> [`resultado-runbook-completo-com-commits-2026-10-11.md`](resultado-runbook-completo-com-commits-2026-10-11.md).
+
+| Commit | Data | Título | Classes que ele muda |
+|---|---|---|---|
+| `1f6844e910` (commit 4) | 08/09 | Guard de identidade em NotificacaoCliente para eventos parciais pós-PAC | `ClienteService`, `NotificacaoCliente`, `NotificacaoPAC` |
+| `72cbd884f6` (commit 3) | 09/09 | Novo Lead não é criado em cenário de aprovação de PAC com CPF divergente (UNABLE TO LOCK ROW) | `NotificacaoCliente` |
+| `9210581ea5` | 09/09 | PAC enviado para fila manual indevidamente com erro "Cliente(Account) não encontrado no Salesforce" | `ClienteService`, `NotificacaoMaquinaEstado` |
+| `7c86318a05` | 10/09 | Preserva vínculo histórico da Opp em jornadausuario-* sem idCliente | `NotificacaoMaquinaEstado` |
+| `3f2919f5e7` | 21/09 | Corrige falso positivo no guard de identidade de payload parcial (contato-update/endereco-update) | `ClienteService`, `NotificacaoCliente` |
+
+Os títulos são os dos commits, sem o prefixo `[918914] - [UNIFICAÇÃO DE LEADS]`.
+Os commits também mudam as classes de teste, que não alteram o comportamento
+medido. O que cada um muda no código está na seção 4.1 do
+[estado da dev](estado-da-mrv-devDan.md).
 
 Execução de 2026-10-11T16:48:19.433Z a 2026-10-11T18:11:05.356Z (UTC), por `npm run runbook`.
 

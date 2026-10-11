@@ -917,13 +917,17 @@ completa está no [relatório](resultado-runbook-ordens-reais-2026-10-11.md):
 - **TC-013:** a pendência antes dos eventos de cliente impede a reutilização
   do Lead candidato. Isolado com execuções avulsas.
 - **FW:** a repetição do WebJob leva contatos de outra pessoa ao Lead novo de
-  Y em 11 TCs e, no TC-040, cria um segundo Lead para Y.
+  Y em 11 TCs (13 na classificação revista de 11/10, no
+  [catálogo](bugs-pegos-pelo-runbook.md#b6)) e, no TC-040, cria um segundo
+  Lead para Y.
 - **TC-040:** a PAC em análise de quem ainda não existe é recusada pelo
   código da unificação. A reentrega depois da aprovação passa.
 
-Depois, a campanha completa rodou os 44 TCs nos 13 perfis (545 RUNs). O
-[catálogo de bugs](bugs-pegos-pelo-runbook.md) liga cada divergência a um bug
-e traz a matriz TC × perfil.
+Depois, a campanha completa rodou os 44 TCs nos 13 perfis (545 RUNs) duas
+vezes em 11/10: sem os cinco commits da 2.2 que a dev revertida não tinha e,
+depois do deploy das 20:43 UTC, com eles. O
+[catálogo de bugs](bugs-pegos-pelo-runbook.md) liga cada divergência a um bug,
+lista os commits e traz as duas matrizes TC × perfil.
 
 **O que falta:**
 
