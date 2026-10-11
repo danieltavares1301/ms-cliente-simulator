@@ -977,7 +977,7 @@ describe('renderScenarioFixture', () => {
       new Set(fixture.steps.map((step) => step.envelope[0].eventTime)),
     ).toStrictEqual(new Set([input.eventStartAt]));
     expect(
-      new Set(fixture.steps.map((step) => step.envelope[0].data.dataalteracao)),
+      new Set(fixture.steps.map((step) => (step.envelope[0].data as { dataalteracao?: string }).dataalteracao)),
     ).toStrictEqual(new Set([input.eventStartAt]));
     expect(
       fixture.steps.find((step) => step.eventType === 'endereco-insert')
@@ -1226,7 +1226,7 @@ describe('renderScenarioFixture', () => {
 
         expect(step.scheduledAt).toBe(expectedTime);
         expect(step.envelope[0].eventTime).toBe(expectedEventTime);
-        expect(step.envelope[0].data.dataalteracao).toBe(expectedDataAlteracao);
+        expect((step.envelope[0].data as { dataalteracao?: string }).dataalteracao).toBe(expectedDataAlteracao);
       }
     },
   );
@@ -1362,7 +1362,7 @@ describe('renderScenarioFixture', () => {
       expect(fixture.steps[0]?.envelope[0].eventTime).toBe(
         '2026-08-22T15:00:00.000Z',
       );
-      expect(fixture.steps[0]?.envelope[0].data.dataalteracao).toBe(
+      expect((fixture.steps[0]?.envelope[0].data as { dataalteracao?: string }).dataalteracao).toBe(
         '2026-08-22T14:59:54.000Z',
       );
     } finally {

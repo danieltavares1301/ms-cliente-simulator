@@ -1,24 +1,6 @@
 import { z } from 'zod';
 
-const apexUtcDateTimePattern =
-  /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.000)?Z$/;
-
-const maquinaEstadoDateTimeSchema = z
-  .string()
-  .regex(
-    apexUtcDateTimePattern,
-    'Expected UTC datetime ending in Z, with no fraction or exactly .000',
-  )
-  .refine((value) => {
-    const parsed = new Date(value);
-    const normalizedInput = value.endsWith('.000Z')
-      ? value
-      : value.replace(/Z$/, '.000Z');
-    return (
-      !Number.isNaN(parsed.getTime()) &&
-      parsed.toISOString() === normalizedInput
-    );
-  }, 'Invalid UTC datetime');
+import { eventDateTimeSchema } from './event-datetime.ts';
 
 export const maquinaEstadoClienteSchema = z
   .object({
@@ -31,7 +13,7 @@ export const maquinaEstadoDataSchema = z
   .object({
     cliente: maquinaEstadoClienteSchema,
     id: z.string().min(1),
-    dataalteracao: maquinaEstadoDateTimeSchema,
+    dataalteracao: eventDateTimeSchema,
     estado: z.string().min(1),
     idunidade: z.string().min(1),
   })
@@ -40,9 +22,9 @@ export const maquinaEstadoDataSchema = z
 const eventGridEnvelopeItemShape = {
   id: z.string().min(1),
   subject: z.string(),
-  eventTime: maquinaEstadoDateTimeSchema,
+  eventTime: eventDateTimeSchema,
   dataVersion: z.string(),
-  metadataVersion: z.string(),
+  metadataVersion: z.string().optional(),
   topic: z.string(),
 };
 

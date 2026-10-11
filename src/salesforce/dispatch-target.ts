@@ -26,7 +26,11 @@ type DispatchTargetPayload = DispatchRequest & {
 
 function apexRestPath(
   target: string,
-): '/services/apexrest/Cliente' | '/services/apexrest/PAC' | '/services/apexrest/MaquinaEstado' {
+):
+  | '/services/apexrest/Cliente'
+  | '/services/apexrest/PAC'
+  | '/services/apexrest/MaquinaEstado'
+  | '/services/apexrest/Pendencia' {
   switch (target) {
     case 'CLIENTE':
       return '/services/apexrest/Cliente';
@@ -34,6 +38,8 @@ function apexRestPath(
       return '/services/apexrest/PAC';
     case 'MAQUINA_ESTADO':
       return '/services/apexrest/MaquinaEstado';
+    case 'PENDENCIA':
+      return '/services/apexrest/Pendencia';
     default:
       throw new Error(`Unsupported Salesforce dispatch target: ${target}`);
   }

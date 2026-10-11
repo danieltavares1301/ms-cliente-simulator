@@ -231,11 +231,12 @@ const maquinaEstadoEventTypeSchema = z.enum([
   'jornadausuario-insert',
   'jornadausuario-update',
 ]);
+const pendenciaEventTypeSchema = z.enum(['notificacaopendencia-insert']);
 
 const renderedFixtureStepSchema = z
   .object({
     key: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-    target: z.enum(['CLIENTE', 'PAC', 'MAQUINA_ESTADO']),
+    target: z.enum(['CLIENTE', 'PAC', 'MAQUINA_ESTADO', 'PENDENCIA']),
     eventType: z.union([
       z.enum([
         'cliente-insert',
@@ -247,6 +248,7 @@ const renderedFixtureStepSchema = z
       ]),
       pacEventTypeSchema,
       maquinaEstadoEventTypeSchema,
+      pendenciaEventTypeSchema,
     ]),
     delayMs: z.number().int().nonnegative(),
     scheduledAt: apexCompatibleUtcDateTimeSchema,
@@ -267,6 +269,8 @@ const renderedFixtureStepSchema = z
     const isPacEvent = pacEventTypeSchema.safeParse(eventType).success;
     const isMaquinaEstadoEvent =
       maquinaEstadoEventTypeSchema.safeParse(eventType).success;
+    const isPendenciaEvent =
+      pendenciaEventTypeSchema.safeParse(eventType).success;
     if (target === 'PAC' && !isPacEvent) {
       context.addIssue({
         code: 'custom',
@@ -285,6 +289,20 @@ const renderedFixtureStepSchema = z
       context.addIssue({
         code: 'custom',
         message: 'CLIENTE steps cannot dispatch MaquinaEstado events',
+        path: ['target'],
+      });
+    }
+    if (target === 'CLIENTE' && isPendenciaEvent) {
+      context.addIssue({
+        code: 'custom',
+        message: 'CLIENTE steps cannot dispatch Pendencia events',
+        path: ['target'],
+      });
+    }
+    if (target === 'PENDENCIA' && !isPendenciaEvent) {
+      context.addIssue({
+        code: 'custom',
+        message: 'PENDENCIA steps only accept notificacaopendencia-insert events',
         path: ['target'],
       });
     }

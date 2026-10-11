@@ -77,7 +77,7 @@ describe('cross-endpoint scenario definitions', () => {
       idprospectsalesforce: fixture.identifiers.controlAccountIdProspect,
     });
     expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
-      idjornadapac: fixture.steps[0]!.envelope[0]!.data.id,
+      idjornadapac: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       status: 'CREDITO_APROVADO_CONDICIONADO',
       proponentes: [
         expect.objectContaining({
@@ -90,7 +90,7 @@ describe('cross-endpoint scenario definitions', () => {
         idCliente: null,
         idProspectSalesforce: fixture.identifiers.controlAccountIdProspect,
       },
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'Documentacao',
     });
   });
@@ -139,7 +139,7 @@ describe('cross-endpoint scenario definitions', () => {
         idCliente: expect.stringMatching(/^CLI-SIM-X-/),
         idProspectSalesforce: expect.stringMatching(/^PRO-SIM-X-/),
       },
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'CONTRATO',
     });
     expect(Date.parse(fixture.steps[2]!.scheduledAt)).toBeGreaterThan(

@@ -257,7 +257,7 @@ export const deliveryPolicySchema = z
 export const scenarioStepSchema = z
   .object({
     key: kebabCaseSchema,
-    target: z.enum(['CLIENTE', 'PAC', 'MAQUINA_ESTADO']),
+    target: z.enum(['CLIENTE', 'PAC', 'MAQUINA_ESTADO', 'PENDENCIA']),
     eventType: eventTypeSchema,
     delayMs: z.number().int().nonnegative(),
     expectedHttpStatus: z.number().int().min(100).max(599).optional(),
