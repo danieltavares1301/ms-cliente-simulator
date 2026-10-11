@@ -585,15 +585,16 @@ máquina, eles ficam ao lado deste diretório:
 | `com_salesforce_mrv` | `../com_salesforce_mrv` | Apex e metadados da org. As regras críticas do plano valem aqui: nada de commit, e mudança na org só com aprovação |
 | `com_plataforma_bff` | `../com_plataforma_bff` | Plataforma BFF: publica `jornadausuario-*` e chama `POST /apexrest/Lead` |
 | `cliente` | `../cliente` | MS Clientes real: publica `cliente-*`, `contato-*` e `endereco-*` |
+| `com_proponente_credito` | `../com_proponente_credito` | MS de crédito ("MS Proponente Crédito", Java/Spring): publica `pac-*`, `notificacaopendencia-*`, `paccontestacao-*`, `pendencia-*` e `processo-*` no tópico `pacs` |
+| `com_proposta` | `../com_proposta` | MS Proposta ("Gerador de Propostas"): simulação e proposta. Não publica `pac-*`; só recebe o `pac-update`, para sincronizar o rating pós-PAC |
 
 - **Branch do Salesforce:** o checkout local do `com_salesforce_mrv` pode estar
   na branch de outra frente. Não troque a branch. Para ler o código da
   unificação, use `git show origin/GV_918914_UnificPosAprovPAC:<arquivo>`.
-- **MS de crédito:** o código dele, que publica `pac-*` e
-  `notificacaopendencia-*`, não está clonado, e nenhum repositório local cita
-  o nome do repositório. O serviço se identifica como `proponentecredito`, na
-  rota da API (`/v1.0/qualidadedecredito/proponentecredito/...`) e no subject
-  dos eventos.
+- **MS de crédito:** é o `com_proponente_credito`. O serviço se identifica como
+  `proponentecredito` na rota da API
+  (`/v1.0/qualidadedecredito/proponentecredito/...`) e no prefixo do subject
+  dos eventos (`EventGridPublisher.java:41`).
 - **Caminhos do Windows:** o projeto começou no Windows. O plano, a passagem
   de contexto do bug 4 e outros docs ainda citam caminhos de lá, como
   `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`,

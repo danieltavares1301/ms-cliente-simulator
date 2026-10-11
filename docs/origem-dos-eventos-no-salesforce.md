@@ -137,9 +137,12 @@ na contestação e em `notificacao-pendencias`. Quem publica os `pac-*` e os
 `notificacaopendencia-*` resultantes é o MS de crédito, no tópico `pacs`. A
 BFF só consome o status da PAC, pela fila `eg-status-pac`.
 
-O repositório do MS de crédito não está clonado, e nenhum dos repositórios
-locais cita o nome dele. O serviço se identifica como `proponentecredito`,
-tanto na rota da API quanto no prefixo do subject dos eventos.
+O MS de crédito é o repositório `com_proponente_credito` ("MS Proponente
+Crédito", Java/Spring). Ele se identifica como `proponentecredito` na rota da
+API e no prefixo do subject dos eventos (`EventGridPublisher.java:41`). Os
+`pac-*` e as pendências saem de `PacSender` e `NotificacaoPendenciaSender`,
+que publicam no tópico `pacs`. O `com_proposta` (MS Proposta) não publica
+`pac-*`; só recebe o `pac-update`.
 
 ### 3.4 O que o MS Clientes publica
 
@@ -365,8 +368,11 @@ Nos últimos 7 dias (`reentregas.ts`):
 - a mediana entre a primeira e a última entrega foi de 11 s, mas alguns
   eventos continuaram chegando por horas.
 
-Isso indica duas assinaturas ou rotas para o mesmo evento, mas a rota exata não
-foi confirmada. A [passagem de contexto do bug 4](handoff-investigacao-tc001-bug4.md)
+Isso indica duas assinaturas ou rotas para o mesmo evento. No MS de crédito, o
+`NotificacaoPendenciaSender` publica cada pendência uma vez, no tópico `pacs`.
+Como as duas entregas têm o mesmo `id` de envelope, a duplicação acontece na
+entrega, não na publicação. A rota exata não foi confirmada. A
+[passagem de contexto do bug 4](handoff-investigacao-tc001-bug4.md)
 já tinha visto reentregas da mesma pendência, uma delas pelo usuário Guest do
 site. Na prática, cada pendência é processada mais de uma vez, em momentos
 diferentes em relação aos eventos das outras origens.
@@ -473,5 +479,5 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
 - Os GUIDs da seção 3.5 não foram ligados a sistemas. O payload só traz o
   `client_id`, e o cadastro de clientes do provedor de identidade não foi
   consultado.
-- A ordem e a concorrência das chamadas do MS de crédito ao MS Clientes não
-  foram vistas, porque o código dele está em outro repositório.
+- A ordem e a concorrência das chamadas do MS de crédito ao MS Clientes ainda
+  não foram analisadas no código do `com_proponente_credito`.
