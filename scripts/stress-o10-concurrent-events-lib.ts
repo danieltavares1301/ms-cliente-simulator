@@ -684,29 +684,51 @@ export function detectLockSignals(value: string): {
   };
 }
 
+const sfAccessTokenSchema = z
+  .object({
+    status: z.number().int(),
+    result: z.object({ accessToken: z.string().min(1) }).passthrough(),
+  })
+  .passthrough();
+
+/** Token de sessão da Salesforce: o org ID, um `!` e o resto. */
+const TOKEN_DE_SESSAO = /^00D[A-Za-z0-9]{12,15}!/;
+
+async function runSfJson(sfCommand: string, args: string[]): Promise<unknown> {
+  const options = { windowsHide: true, maxBuffer: 10 * 1024 * 1024 };
+  // No Windows a CLI é um .cmd, que só roda por um shell.
+  const execution = /\.(?:cmd|bat)$/i.test(sfCommand)
+    ? exec(`"${sfCommand}" ${args.map((arg) => `"${arg}"`).join(' ')}`, options)
+    : execFile(sfCommand, args, options);
+  const { stdout } = await execution;
+  return JSON.parse(stdout) as unknown;
+}
+
+/**
+ * Instância e token da org pela Salesforce CLI. Desde a 2.152, o
+ * `sf org display` esconde o token; ele vem então do
+ * `sf org auth show-access-token`. Numa CLI anterior, que ainda mostra o
+ * token, ele vale como está.
+ */
 export async function loadOrgAccess(
   sfCommand: string,
   orgAlias: string,
 ): Promise<z.infer<typeof sfOrgDisplaySchema>> {
-  const isBatchWrapper = /\.(?:cmd|bat)$/i.test(sfCommand);
-  const execution = isBatchWrapper
-    ? exec(
-        `"${sfCommand}" org display --target-org "${orgAlias}" --json`,
-        {
-          windowsHide: true,
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      )
-    : execFile(
-        sfCommand,
-        ['org', 'display', '--target-org', orgAlias, '--json'],
-        {
-          windowsHide: true,
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      );
-  const { stdout } = await execution;
-  return sfOrgDisplaySchema.parse(JSON.parse(stdout) as unknown);
+  const display = sfOrgDisplaySchema.parse(
+    await runSfJson(sfCommand, ['org', 'display', '--target-org', orgAlias, '--json']),
+  );
+  if (TOKEN_DE_SESSAO.test(display.accessToken)) return display;
+  const token = sfAccessTokenSchema.parse(
+    await runSfJson(sfCommand, [
+      'org',
+      'auth',
+      'show-access-token',
+      '--target-org',
+      orgAlias,
+      '--json',
+    ]),
+  );
+  return { ...display, accessToken: token.result.accessToken };
 }
 
 export function createStaticAccessProvider(
