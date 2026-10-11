@@ -33,8 +33,8 @@ Os trabalhos mais recentes:
   MS de crédito e Plataforma BFF);
 - os perfis do harness com as ordens reais da aprovação e a campanha deles
   de 11/10 ([relatório](docs/resultado-runbook-ordens-reais-2026-10-11.md));
-- os contratos da API alargados para os formatos reais, ainda sem deploy no
-  Vercel (seção 7.4 do doc de origem dos eventos).
+- os contratos da API alargados para os formatos reais, no Vercel desde
+  11/10 (seção 7.4 do doc de origem dos eventos).
 
 Para assumir o trabalho sem contexto, leia nesta ordem:
 
