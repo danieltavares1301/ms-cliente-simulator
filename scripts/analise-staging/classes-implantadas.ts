@@ -26,6 +26,10 @@ const PADROES: Array<[string, RegExp]> = [
     'passa DataAlteracaoEvento__c da PAC para o sync',
     /sincronizarContatos(?:AprovadosPac|Contestacao)\s*\([^;]*DataAlteracaoEvento__c/,
   ],
+  [
+    'soma 3h à data da PAC sem fuso (horário de Brasília)',
+    /override\s+DateTime\s+parseDateTime[\s\S]*?addHours\(\s*3\s*\)/,
+  ],
 ];
 
 const classes = consultar(
