@@ -709,67 +709,114 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
   sem esperar o envio. Esse evento pode chegar antes ou depois dos parciais
   que ainda carregam PROS-X.
 
-## 7. O que isso muda no simulador
+## 7. O que muda no simulador: plano
 
-- **Atribuição:** registrar nos cenários e no runbook a origem real de cada
-  evento. Na prática, o `/PAC` e o `/Pendencia` são do MS de crédito e o
-  `/MaquinaEstado` é da Plataforma BFF.
-- **Datas:**
-  - o schema (`apexCompatibleUtcDateTimeSchema`, `maquina-estado.ts`) só
-    aceita datas terminadas em `Z`;
-  - para reproduzir a PAC e a jornada como elas chegam, é preciso aceitar
-    horário local sem fuso nesses contratos. É a mesma decisão pendente do
-    `O15`;
-  - sem isso, o efeito da seção 6.4 fica fora de qualquer teste.
-- **Payload da jornada:** o simulador manda 5 campos (`cliente`, `id`,
-  `dataalteracao`, `estado`, `idunidade`). O real manda a Jornada inteira, e o
-  Salesforce usa dezenas de campos dela. Sem `IdCorretor`, por exemplo, o
-  `atribuirProprietariosOportunidade` nunca roda.
-- **Envelope da jornada:** chaves em PascalCase, `Subject` e `Topic` =
-  `jornadas`, `DataVersion` vazio e `metadataVersion` `"1"`.
-- **Payload do MS Clientes:** alinhar o contrato do `/Cliente` à segunda
-  tabela da seção 4:
-  - tirar `numerocpf` do contato e aceitar `Complemento`;
-  - aceitar `Principal` no endereço;
-  - aceitar data de nascimento com hora e datas com 7 casas;
-  - omitir campos nulos.
+Hoje o simulador não consegue reproduzir pela API o caminho real que gerou o
+bug 4. O harness do runbook só aproxima esse caminho, e vários formatos que o
+simulador exige nunca aparecem nos eventos reais. O plano abaixo foi montado
+em 2026-10-11, a partir das seções 3 a 6. Ele tem quatro frentes de mudança,
+em ordem de prioridade, e oito ordens de eventos a adicionar.
 
-  O handoff do bug 4 já pedia para avaliar o escopo antes de mudar o schema
-  público do simulador.
-- **Telefone com DDI:** o `/Cliente` ignora o `Complemento`. No branch da
-  unificação, `NotificacaoCliente.cls:588` tem o comentário "FALTA
-  CONCATENACAO DO CAMPO COMPLEMENTO". Telefones de outros países entram sem
-  DDI e podem coincidir com números nacionais no casamento por celular. Um
-  cenário com DDI diferente de 55 mostraria o efeito.
-- **Pendência:** a entrega dupla, por duas rotas e com alguns segundos de
-  intervalo, é o comportamento normal, não exceção.
-- **Aprovação da PAC:** no fluxo real, quando há pendência a notificar, a
-  aprovação publica a pendência `DESLIGAMENTO` antes da PAC aprovada. A PAC
-  aprovada só chega com o IdCliente de todos os proponentes, depois de o MS
-  Clientes criar o cliente (seção 3.7).
-  - O perfil C1 do runbook aproxima essa ordem.
-  - Os perfis PA, CA e ME não mandam pendência, então não passam pelo caminho
-    real da aprovação quando há pendência a notificar.
-- **Horários do crédito:** para reproduzir a PAC e a pendência como elas
-  chegam, o `eventTime` teria de sair 3h atrás com `Z` e a `dataAlteracao`,
-  sem fuso. É a mesma decisão do item "Datas", no começo desta lista.
-- **Pós-PAC como o WebJob faz (seção 3.8):** para cada proponente, os eventos
-  saem nesta ordem: `cliente-insert` (ou `-update`) com PROS-X e
-  `SistemaOrigem = Crédito`, celular, e-mail, telefone, endereço `PRINCIPAL`
-  e endereço `COBRANCA` iguais. Isso tem três implicações para o simulador:
-  - um cenário fiel do pós-PAC começa assim;
-  - nos casos de MATCH, o contato do mesmo tipo é substituído
-    (`contato-update`), e não criado;
-  - o contrato do endereço precisa aceitar `PRINCIPAL`.
-- **Venda Genérica no runbook:** o harness manda `jornadausuario-update` com
-  `Documentacao` em todos os TCs (`scripts/runbook/engine.ts`). Na jornada
-  genérica, a BFF quase não publica eventos de jornada. Vale rever esse passo
-  nos TCs de Venda Genérica.
-- **Docs antigos:** em 2026-10-11, o §6 e o §9 da análise de staging, o doc
-  do cenário de `Estado` não reconhecido e o Checkpoint 7.2 do plano ganharam
-  uma nota de retificação apontando para a seção 5. A descrição do cenário
-  em `src/scenarios/definitions.ts`, servida pela API pública, ainda diz que
-  ele reproduz "um jornadausuario-update real com estado de UF (SP)".
+### 7.1 Mudanças por prioridade
+
+**1. Contratos da API, que hoje bloqueiam cenários reais.** Antes de mudar,
+avaliar o escopo do schema público, como a passagem de contexto do bug 4 já
+pedia.
+
+- **PAC sem IdCliente.** O proponente da PAC exige `idCliente`
+  (`src/contracts/event-grid.ts:122`). Mas a PAC em análise de uma pessoa nova
+  sempre sai sem IdCliente, porque ele só passa a existir depois da aprovação
+  (seção 3.7). Hoje só os scripts conseguem mandar essa PAC.
+- **Pendência.** O `notificacaopendencia-insert` e o endpoint `/Pendencia`
+  não existem no `eventTypeSchema` nem em `src/salesforce/dispatch-target.ts`.
+  É o gatilho do bug 4, e hoje só aparece nos scripts.
+- **Datas.** O `apexCompatibleUtcDateTimeSchema` e o `maquina-estado.ts` só
+  aceitam `Z` com `.000` ou sem fração. O real usa de 2 a 7 casas decimais,
+  `+00:00` (BFF) e horário sem fuso (crédito e BFF) (seção 4). É a decisão
+  pendente do O15. Sem ela, o desvio de 3h da seção 6.4 não entra em nenhum
+  teste.
+- **Formatos do MS Clientes** (segunda tabela da seção 4):
+  - endereço `PRINCIPAL`;
+  - contato com `complemento` (o DDI) e sem `numerocpf`;
+  - data de nascimento com hora;
+  - campos nulos omitidos;
+  - `metadataVersion` opcional.
+
+**2. Fidelidade de formato.** Não muda o que dá para testar, mas aproxima os
+eventos do real.
+
+- **Relógio do crédito:** uma opção de gerar, nas PACs e pendências,
+  `eventTime` 3h atrás com `Z` e `dataAlteracao` em horário de Brasília sem
+  fuso (seção 6.4).
+- **Jornada:**
+  - envelope em PascalCase, com `Subject` e `Topic` iguais a `jornadas`,
+    `DataVersion` vazio e `metadataVersion` `"1"`;
+  - payload com `IdCorretor`, que está em 100% dos updates reais. Hoje vão 5
+    campos (`cliente`, `id`, `dataalteracao`, `estado`, `idunidade`), e o
+    `atribuirProprietariosOportunidade` nunca roda.
+- **Origem do evento:** marcar em cada passo do cenário e do runbook qual
+  sistema publica (MS Clientes, crédito ou BFF). O `/PAC` e o `/Pendencia` são
+  do crédito; o `/MaquinaEstado`, da BFF.
+- **Cenário de DDI:** o `/Cliente` ignora o `Complemento`
+  (`NotificacaoCliente.cls:588` no branch da unificação: "FALTA CONCATENACAO
+  DO CAMPO COMPLEMENTO"). Um cenário com DDI diferente de 55 mostraria
+  telefones de outros países coincidindo com números nacionais no casamento
+  por celular.
+
+**3. Harness do runbook (`scripts/runbook/`).**
+
+- **Parciais como o WebJob manda** (seção 3.8): celular, e-mail, telefone,
+  endereço `PRINCIPAL` e endereço `COBRANCA`, com os dois endereços iguais.
+  Hoje o harness manda só e-mail, celular e `COBRANCA`.
+- **Datas do crédito** com o desvio de 3h, para exercitar a comparação da
+  seção 6.4, que está implantada na `mrv-devDan`.
+- **Venda Genérica:** não mandar `jornadausuario-update` com `Documentacao`
+  nesses TCs (`scripts/runbook/engine.ts`), porque a BFF quase não publica
+  eventos de jornada na jornada genérica (seção 3.1).
+- **Perfil novo** com a ordem real da aprovação: a ordem 1 da seção 7.2.
+- **Pendência repetida:** a mesma pendência chegando duas ou três vezes é o
+  comportamento normal (seção 6.3), não exceção.
+
+**4. Ajuste pequeno.** A descrição do cenário
+`maquina-estado-update-estado-nao-reconhecido` em
+`src/scenarios/definitions.ts`, servida pela API pública, ainda diz que ele
+reproduz "um jornadausuario-update real com estado de UF (SP)". Os docs já
+foram corrigidos (seção 5).
+
+### 7.2 Ordens de eventos a adicionar
+
+O catálogo cobre de O01 a O14, e o O15 segue bloqueado. Estas são as ordens
+reais que as seções 3.7, 3.8 e 6 mostraram e que o simulador ainda não
+reproduz:
+
+| # | Sequência real | O que testa | Situação hoje |
+|---|---|---|---|
+| 1 | **Aprovação de pessoa nova:** PAC em análise sem IdCliente (`idProponente` = PROS-X), pendência `DESLIGAMENTO`, `cliente-insert` (PROS-X, `SistemaOrigem` Crédito), celular, e-mail, telefone, endereço Principal, endereço Cobrança, PAC aprovada com IdCliente, `cliente-update` com PROS-Y (eco do callback) e máquina | o caminho exato do bug 4 | o perfil C1 aproxima, mas manda a pendência depois dos eventos de cliente; o código do crédito a publica antes ou junto. A API não consegue (item 1 de 7.1) |
+| 2 | **Aprovação de MATCH** (o proponente já tem IdCliente): pendência, PAC aprovada na hora, `cliente-update` e `contato-update` do WebJob (que substitui o contato por tipo) e PAC aprovada de novo, depois do `atualiza-id-cliente` | PAC aprovada duas vezes, com updates do MS Clientes no meio | não coberta; O04 e O05 usam outra ordem |
+| 3 | **Dois proponentes:** eventos do primeiro, eventos do segundo e PAC aprovada só com os dois IdClientes | segundo proponente (TCs 030 a 037 do runbook, hoje bloqueados) | não coberta |
+| 4 | **Falha no WebJob:** pendência, parte dos eventos do MS Clientes e, a cada 180 s, a repetição como `cliente-update` e `contato-update`, com a PAC aprovada atrasada minutos | a janela do bug 4 durando minutos | não coberta |
+| 5 | **Pendência por duas rotas:** a mesma pendência chegando duas ou três vezes, em até 1 s, por volta de 11 s e às vezes horas depois | idempotência do `/Pendencia` e do `ProponenteTrigger` | o O14 cobre a reentrega só no `/Cliente` |
+| 6 | **Relógio do crédito:** `contato-update` do MS Clientes de até 3h antes da aprovação e, depois, a PAC aprovada com carimbo 3h atrás | a comparação da seção 6.4 decidindo errado: a PAC parece mais velha e perde para o contato | não coberta. O O13 usa datas UTC certas, e este é o caso concreto do O15 |
+| 7 | **Eco antes do parcial:** `cliente-insert` (PROS-X), eco `cliente-update` (PROS-Y) e um `contato-insert` (PROS-X) atrasado | parcial com prospect velho chegando depois do eco (seção 6.5) | não forçada por nenhum perfil |
+| 8 | **Repostagem em lote do MS Clientes:** `cliente-update`, `contato-update` e `endereco-update` juntos, com a `DataAlteracao` antiga (seção 3.4) | descarte de eventos republicados | não coberta |
+
+### 7.3 Por onde começar
+
+- **Ordens 1 e 6 primeiro.**
+  - A 1 reproduz o bug 4 exatamente como ele acontece.
+  - A 6 testa um defeito latente do código da unificação, já implantado na
+    `mrv-devDan` (seção 6.4), que hoje nenhum teste alcança.
+- **No harness, já:**
+  - as ordens 1, 5, 6 e 7 dão para fazer agora, porque o harness fala com o
+    Salesforce por REST direto, sem passar pelos contratos da API;
+  - as ordens 2, 3, 4 e 8 também cabem no harness, mas cada uma precisa de
+    passos novos: a repetição do WebJob, o segundo proponente e a repostagem
+    em lote.
+- **Na API, depois.** Para os cenários entrarem no catálogo, os contratos do
+  item 1 de 7.1 têm de mudar primeiro.
+- **Cuidado comum:** as ordens que mandam pendência ou contestação disparam
+  automações do Salesforce com callouts externos. Antes de rodar, confira os
+  endpoints, como o README pede para o perfil C4.
 
 ## 8. Limitações
 
