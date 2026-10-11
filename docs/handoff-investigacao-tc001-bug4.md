@@ -32,10 +32,14 @@ dela.
 > - **Caminhos e arquivos do Windows:** os caminhos `D:\`, `C:\` e `%TEMP%`
 >   deste documento são da máquina Windows onde a investigação começou. A
 >   seção [Repositórios relacionados](../README.md#repositórios-relacionados)
->   do README dá os caminhos atuais. Também lista o que ficou só no Windows:
->   - a skill `salesforce-unificacao-clientes`, citada na seção 5;
->   - o plano de correção do guard, citado na seção 9;
->   - os logs das seções 8 e 10.
+>   do README dá os caminhos atuais. Também diz o que está fora do git:
+>   - a skill `salesforce-unificacao-clientes`, citada na seção 5, foi
+>     copiada para o checkout do Mac em 11/10, fora do git;
+>   - o plano de correção do guard, citado na seção 9, e os logs das seções 8
+>     e 10 ficaram só no Windows.
+> - **Estado exato da dev:** o [retrato de 11/10](estado-da-mrv-devDan.md)
+>   mostra, arquivo por arquivo, em que ponto dos branches da unificação está o
+>   código da `mrv-devDan`.
 
 ## 1. Objetivo e estado atual
 
@@ -264,6 +268,10 @@ Consultas devem comparar relações/igualdades e mostrar somente rótulos X/Y.
   `IsValid=false`, mas recompilou e executou normalmente.
 - Ausência de esses métodos não prova equivalência completa ao código histórico
   de staging em 08/09. Outras correções continuaram presentes.
+- **Retrato exato, de 11/10:** [estado da `mrv-devDan`](estado-da-mrv-devDan.md),
+  arquivo por arquivo. A reversão levou as quatro classes à versão de 03/09.
+  Além dos commits 3 e 4, ficaram fora `9210581ea5`, `7c86318a05` e
+  `3f2919f5e7`.
 
 Repo do simulador nesta máquina:
 `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`.

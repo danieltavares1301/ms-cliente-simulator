@@ -35,8 +35,10 @@ Para assumir o trabalho sem contexto, leia nesta ordem:
 
 1. a seção "Regras críticas" do [plano técnico](plano-api-simulador-ms-clientes-2.2.md);
 2. a [passagem de contexto do bug 4](docs/handoff-investigacao-tc001-bug4.md);
-3. a [origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md);
-4. a seção [Repositórios relacionados](#repositórios-relacionados), para achar
+3. o [estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md), que diz em que
+   ponto dos branches da unificação está o código da dev;
+4. a [origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md);
+5. a seção [Repositórios relacionados](#repositórios-relacionados), para achar
    o código dos outros sistemas.
 
 ## Quick Start
@@ -510,7 +512,9 @@ Scripts ad-hoc em `scripts/runbook/diagnostico-tc001-*.ts` (fora do
 catálogo dos 44 TCs, mesmo nível de acesso do O06/O07/O09/O10/O12) tentam
 reproduzir os dois bugs do TC-001 corrigidos pelos commits `1f6844e910`
 (guard de identidade) e `72cbd884f6` (retry lock), contra o estado
-revertido desses commits em `mrv-devDan`. Quatro têm atalho no npm:
+revertido desses commits em `mrv-devDan`. Esse estado está descrito, arquivo
+por arquivo, em [estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md).
+Quatro dos scripts têm atalho no npm:
 
 ```bash
 npm run diag:tc001-idcliente-compartilhado
@@ -561,6 +565,18 @@ A seção 2 do doc lista os oito scripts. Eles só aceitam SELECT, só falam com
 `mrv-staging` ou `mrv-devDan` e mascaram valores com cara de dado pessoal,
 então nunca alteram nada em staging.
 
+A mesma pasta tem o `versao-implantada.ts`, que sustenta o
+[estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md). Ele compara o código
+implantado na dev com os branches da unificação no `com_salesforce_mrv`:
+
+```bash
+node scripts/analise-staging/versao-implantada.ts
+```
+
+Além do SELECT, ele baixa os metadados da org para uma pasta temporária
+(retrieve) e lê o repositório Salesforce só com comandos git de leitura, sem
+trocar de branch.
+
 ## Schema e migrations
 
 O schema tipado está em `src/db/schema.ts` e as migrations geradas ficam em
@@ -608,12 +624,15 @@ máquina, eles ficam ao lado deste diretório:
   `C:\Users\preda\...\com_salesforce_mrv` e `%TEMP%\claude\...`, e comandos
   `sf.cmd`/`npm.cmd`. Use os caminhos relativos acima, e `sf`/`npm` no lugar
   dos `.cmd`.
-- **Arquivos que ficaram no Windows:** a skill `salesforce-unificacao-clientes`,
-  citada como fonte normativa pelo plano e pelo runbook, não está em nenhum
-  ref git do `com_salesforce_mrv`. O mesmo vale para
-  `docs/plano-correcao-guard-identidade-email-pendencia-proponente.md` e para
-  as evidências brutas citadas nas seções 8 e 10 da passagem do bug 4. Quem
-  precisar delas tem que pedir uma cópia ao dono do projeto.
+- **Arquivos fora do git do Salesforce:** a skill
+  `salesforce-unificacao-clientes`, citada como fonte normativa pelo plano e
+  pelo runbook, não está em nenhum ref git do `com_salesforce_mrv`. Em 11/10,
+  ela e a pasta `docs/unificacao-clientes/` foram copiadas para o checkout
+  desta máquina, em `.github/skills/salesforce-unificacao-clientes/` e
+  `docs/unificacao-clientes/`, como arquivos não rastreados. Seguem só no
+  Windows o `docs/plano-correcao-guard-identidade-email-pendencia-proponente.md`
+  e as evidências brutas citadas nas seções 8 e 10 da passagem do bug 4.
+  Quem precisar delas tem que pedir uma cópia ao dono do projeto.
 
 ## Documentação
 
@@ -640,6 +659,10 @@ máquina, eles ficam ao lado deste diretório:
   desde 27/09.
 - [Passagem de contexto do bug 4 do TC-001](docs/handoff-investigacao-tc001-bug4.md) —
   causa, reprodução, estado do harness e da `mrv-devDan` em 02/10.
+- [Estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md) — em que ponto dos
+  branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev,
+  por que quatro classes estão em 03/09 e o que o simulador achou nesse
+  estado. É atualizado a cada mudança na dev.
 - [Origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md) —
   quem publica cada evento (MS Clientes, MS de crédito, Plataforma BFF), o
   que o código do MS Clientes publica e quem dispara cada evento, o formato
