@@ -26,26 +26,38 @@ export function consultar(
     throw new Error('A consulta não pode ter aspas duplas.');
   }
   const org = opcoes.org ?? ORG_STAGING;
+  exigirOrgPermitida(org);
+  const argumentos = ['data', 'query', '-o', org, '--json', '-q', soql];
+  if (opcoes.tooling) argumentos.push('--use-tooling-api');
+  const resposta = JSON.parse(executarSf(argumentos)) as {
+    result?: { records?: Registro[] };
+  };
+  return resposta.result?.records ?? [];
+}
+
+export function exigirOrgPermitida(org: string): void {
   if (!ORGS_PERMITIDAS.includes(org)) {
     throw new Error(
       `Org não permitida: ${org} (use ${ORGS_PERMITIDAS.join(' ou ')}).`,
     );
   }
-  const argumentos = ['data', 'query', '-o', org, '--json', '-q', soql];
-  if (opcoes.tooling) argumentos.push('--use-tooling-api');
-  const configuracao = { maxBuffer: 1024 * 1024 * 1024 };
+}
+
+/** Roda a Salesforce CLI e devolve a saída padrão. */
+export function executarSf(
+  argumentos: string[],
+  opcoes: { cwd?: string } = {},
+): string {
+  const configuracao = { maxBuffer: 1024 * 1024 * 1024, cwd: opcoes.cwd };
   // No Windows a CLI é um .cmd, que só roda por um shell.
   const saida =
     process.platform === 'win32'
       ? execSync(
-          `sf ${argumentos.map((a) => (a === soql ? `"${a}"` : a)).join(' ')}`,
+          `sf ${argumentos.map((a) => (/[\s<>|&^]/.test(a) ? `"${a}"` : a)).join(' ')}`,
           configuracao,
         )
       : execFileSync('sf', argumentos, configuracao);
-  const resposta = JSON.parse(saida.toString()) as {
-    result?: { records?: Registro[] };
-  };
-  return resposta.result?.records ?? [];
+  return saida.toString();
 }
 
 /** Lê `--nome valor` da linha de comando. */
