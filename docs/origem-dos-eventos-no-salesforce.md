@@ -4,8 +4,9 @@ Análise de 2026-10-11. Responde a três perguntas:
 
 1. Quais eventos a Plataforma BFF (`com_plataforma_bff`) lança no Salesforce,
    e quem publica os demais eventos que o simulador reproduz.
-2. O que o MS Clientes real (repositório `cliente`) publica, como publica e
-   quem dispara cada evento.
+2. O que o MS Clientes real (repositório `cliente`) e o MS de crédito real
+   (repositório `com_proponente_credito`) publicam, como publicam e quem
+   dispara cada evento.
 3. Se a separação entre esses projetos explica as diferenças de ordem dos
    eventos no Salesforce.
 
@@ -36,6 +37,15 @@ esperar o envio, tenta de novo por até cerca de 1 min quando o envio falha, e
 cada contato e cada endereço chega por uma chamada separada (seções 3.4 e
 6.1).
 
+O código do MS de crédito explica o resto:
+
+- **Aprovação:** ao aprovar uma PAC, o crédito solta na hora a pendência
+  `DESLIGAMENTO`, mas segura a PAC aprovada até o cliente existir no MS
+  Clientes. Nesse intervalo, o Proponente ainda aponta para a pessoa errada, e
+  foi assim que o bug 4 aconteceu (seções 3.7 e 6.2).
+- **Horários:** os dois horários que o crédito manda estão 3h atrás, inclusive
+  o `eventTime` (seção 6.4).
+
 ## 2. Como foi verificado
 
 - **Código da Plataforma BFF:** branch `feature/deslegado/cliente-exterior`,
@@ -43,6 +53,8 @@ cada contato e cada endereço chega por uma chamada separada (seções 3.4 e
   nos dois.
 - **Código do MS Clientes:** repositório `cliente`, branch `master`, commit
   `aa0a4e9f` (2026-10-09).
+- **Código do MS de crédito:** repositório `com_proponente_credito`, branch
+  `master`, commit `8a6bf138f` (2026-09-23).
 - **Envelope real em `mrv-staging`:** consultas somente leitura em
   `LogIntegracao__c.BodyRequest__c`. As consultas imprimiram só tópico,
   subject, forma do envelope, formato de data e contagens. Nenhum dado de
@@ -69,18 +81,31 @@ As consultas estão em `scripts/analise-staging/`. Todas rodam direto no
 | `estado-jornada.ts` | `Estado` da raiz em `jornadausuario-*` contra o primeiro `"Estado"` do texto | 5 |
 | `reentregas.ts` | eventos entregues mais de uma vez: intervalo, erro da 1ª entrega e formas de envelope | 6.1 e 6.3 |
 | `classes-implantadas.ts` | se o código implantado compara a data da PAC com os marcadores de contato (`--org mrv-staging` ou `--org mrv-devDan`) | 6.4 |
+| `relogios.ts` | sufixo de fuso do `eventTime` e diferença até a gravação do log, por origem | 4 e 6.4 |
+| `aprovacao-pac.ts` | ordem real dos eventos de uma PAC numa janela (`--pac`, `--de`, `--ate`) | 3.7 e 6.2 |
 
-Exemplo: `node scripts/analise-staging/estado-jornada.ts --dias 45`.
+Exemplos:
+
+```bash
+node scripts/analise-staging/estado-jornada.ts --dias 45
+node scripts/analise-staging/aprovacao-pac.ts --pac a0kHZ00000BDELNYA5 --de 2026-09-08T17:45:00Z --ate 2026-09-08T17:56:00Z
+```
+
+O segundo exemplo usa a PAC do bug 4 (passagem de contexto, seção 4).
 
 Os scripts só aceitam SELECT, só falam com `mrv-staging` ou `mrv-devDan` e
 mascaram qualquer valor com cara de dado pessoal. As janelas são relativas ao
 dia em que rodam, então os números mudam de uma execução para outra. As
 contagens deste documento são de 2026-10-11.
 
-## 3. O que a Plataforma BFF e o MS Clientes enviam ao Salesforce
+## 3. O que a Plataforma BFF, o MS Clientes e o MS de crédito enviam ao Salesforce
 
-Nesta seção, os caminhos `src/...` não são do simulador. Em 3.1 a 3.3, são do
-repositório `com_plataforma_bff`; em 3.4 e 3.5, do repositório `cliente`.
+Nesta seção, os caminhos `src/...` não são do simulador:
+
+- em 3.1 a 3.3, são do repositório `com_plataforma_bff`;
+- em 3.4 e 3.5, do repositório `cliente`;
+- em 3.6 e 3.7, do repositório `com_proponente_credito`, a partir de
+  `src/main/java/br/com/mrv/qualidadedecredito/proponentecredito/`.
 
 ### 3.1 `jornadausuario-insert` e `jornadausuario-update`
 
@@ -137,12 +162,9 @@ na contestação e em `notificacao-pendencias`. Quem publica os `pac-*` e os
 `notificacaopendencia-*` resultantes é o MS de crédito, no tópico `pacs`. A
 BFF só consome o status da PAC, pela fila `eg-status-pac`.
 
-O MS de crédito é o repositório `com_proponente_credito` ("MS Proponente
-Crédito", Java/Spring). Ele se identifica como `proponentecredito` na rota da
-API e no prefixo do subject dos eventos (`EventGridPublisher.java:41`). Os
-`pac-*` e as pendências saem de `PacSender` e `NotificacaoPendenciaSender`,
-que publicam no tópico `pacs`. O `com_proposta` (MS Proposta) não publica
-`pac-*`; só recebe o `pac-update`.
+O MS de crédito é o repositório `com_proponente_credito`, descrito nas seções
+3.6 e 3.7. O `com_proposta` (MS Proposta) não publica `pac-*`; só recebe o
+`pac-update`.
 
 ### 3.4 O que o MS Clientes publica
 
@@ -196,10 +218,14 @@ dos últimos 30 dias, com até 600 logs por tipo:
 | `endereco-insert` (361) | 59% | 41% | — |
 | `endereco-update` (587) | 62% | 38% | — |
 
-- **MS de crédito, no pós-PAC:** chama `criarAtualizarCliente` e depois,
-  conforme o contato e o endereço já existam ou não, `criarContato` ou
-  `atualizarContato` e `criarEndereco` ou `atualizarEndereco`. São chamadas
-  separadas, como mostra o diagrama de Crédito no README do MS Clientes.
+- **MS de crédito, no pós-PAC:** quem chama o MS Clientes não é a API do
+  crédito, e sim o "Análise Crédito Web Job", acionado pela fila que o crédito
+  alimenta na aprovação (seção 3.7). Pelo diagrama de Crédito do README do MS
+  Clientes, ele chama `criarAtualizarCliente` e depois, conforme o contato e o
+  endereço já existam ou não, `criarContato` ou `atualizarContato` e
+  `criarEndereco` ou `atualizarEndereco`, em chamadas separadas. O código do
+  WebJob não está em nenhum repositório clonado, então o `client_id` "Credito"
+  foi atribuído a ele por dedução.
 - **Salesforce:** no branch da unificação, quatro classes usam
   `callout:VFlexMsClientes`. Duas delas geram eventos:
   - `MSClienteService.atualizarCliente`, o callback do IdProspect, gera o
@@ -215,6 +241,99 @@ dos últimos 30 dias, com até 600 logs por tipo:
   18% dos `contato-update` e 15% dos `endereco-update`. O `/Cliente` não lê
   `OrigemAlteracao` nem `UsuarioAlteracao`.
 
+### 3.6 O que o MS de crédito publica
+
+O MS de crédito ("MS Proponente Crédito", do squad Qualidade de Crédito) é uma
+API Java/Spring Boot gerada com JHipster. A BFF fala com ele pela rota
+`/v1.0/qualidadedecredito/proponentecredito/...` (seção 3.3).
+
+- **Destino:** `eventgrid/EventGridPublisher.java` publica no tópico `pacs`,
+  um evento por envio. O subject é `proponentecredito/` mais o nome da classe
+  do payload (linha 41). É assim que aparecem `PacEventGridDTO`,
+  `NotificacaoPendenciasProponenteDTO` e os outros subjects vistos no
+  Salesforce.
+- **Quem publica o quê:**
+
+  | Classe (`eventgrid/`) | Eventos | Endpoint no Salesforce |
+  |---|---|---|
+  | `PacSender` | `pac-insert`, `pac-update` | `/PAC` |
+  | `NotificacaoPendenciaSender` | `notificacaopendencia-insert` | `/Pendencia` |
+  | `PendenciaSender` | `pendencia-insert`, `-update`, `-delete` | `/PendenciaPAC` |
+  | `ProcessoSender` | `processo-insert`, `-update`, `-delete` | `/ProcessoPAC` |
+  | `PacContestacaoSender` | `paccontestacao-insert`, `-update`, `-delete` | `/Contestacao` (só update e delete têm mapeamento) |
+
+  Os endpoints vêm dos registros de `MapaEvento__mdt` do repositório
+  Salesforce. A exceção é o `processo-*`, que não tem registro no checkout
+  local: o endpoint foi deduzido da classe `NotificacaoProcessoPAC` e do teste
+  dela, que usa o subject `proponentecredito/ProcessoDTO`.
+
+- **Publicação com espera:** ao contrário do MS Clientes, o `send` espera o
+  Event Grid confirmar. O SDK tenta de novo até 6 vezes, com espera
+  exponencial (`app.eventgrid.retry.maxRetries: 6`), segurando a chamada. Se
+  todas falharem, o erro só vai para o log e o evento se perde. A alteração na
+  PAC já foi gravada.
+- **Quando a PAC é publicada:**
+  - o `pac-insert` sai na criação da PAC (`web/rest/PacResource.java`);
+  - o `pac-update` sai depois de quase toda alteração: mudança de status
+    (análise, aprovação, reprovação, cancelamento), proponentes (criar,
+    alterar, remover, gravar o IdCliente), processo, pendência e
+    internalização;
+  - cada `pac-update` leva a PAC inteira como ela está naquele momento, porque
+    `PacSender.send(tipo, idPac)` relê a PAC do banco antes de publicar.
+- **Horários:** a `dataAlteracao` e o `eventTime` saem 3h atrás. A causa está
+  na seção 6.4.
+
+### 3.7 Como o MS de crédito aprova uma PAC
+
+A aprovação é `PATCH /pacs/{id}/status` (`web/rest/pac/StatusPacResource.java`).
+Com a flag `app.features.gestao-leads` ligada (está `true` em dev, qas, sim e
+prod), essa chamada faz três coisas, nesta ordem:
+
+1. **Manda a PAC para o WebJob.** `ClienteServiceBus.publicarPacToMsClienteWebJob`
+   põe a PAC numa fila do Service Bus, com o rótulo "Integrar com Ms Clientes".
+   Quem consome a fila é o "Análise Crédito Web Job". Pelo diagrama
+   `src/main/resources/diagramas/proponentecredito.py`, ele chama o MS de
+   crédito, o MS Central de Crédito, o MS Clientes e o Oracle Integration. O
+   código dele não está em nenhum repositório clonado.
+2. **Publica a pendência na hora.** Se houver pendências a notificar, publica
+   um `notificacaopendencia-insert` com `tipoNotificacao = DESLIGAMENTO` (no
+   código: "envia notificacao de desligamento"). Essa publicação não espera
+   nada.
+3. **Tenta publicar a PAC aprovada.** O `PacSender` só publica um `pac-update`
+   com status `CREDITO_APROVADO_CONDICIONADO` se todos os proponentes já têm
+   IdCliente. Quando a pessoa aprovada é nova, ela ainda não tem, e a PAC
+   aprovada não sai.
+
+Depois, fora dessa chamada, o WebJob faz o resto:
+
+4. **Cria o cliente.** O WebJob cria ou atualiza o cliente no MS Clientes, que
+   publica `cliente-*`, `contato-*` e `endereco-*`.
+5. **Grava o IdCliente.** O WebJob chama `POST /proponentes/atualiza-id-cliente`
+   (`web/rest/ProponenteResource.java`). O crédito grava o IdCliente no
+   proponente e publica um `pac-update`. Agora todos têm IdCliente, e a PAC
+   aprovada finalmente sai.
+
+```
+aprovação (PATCH /pacs/{id}/status)
+ ├─(1) fila ──► Análise Crédito Web Job ──(4)──► MS Clientes ──► cliente-*, contato-*, endereco-*
+ │                        └──(5) POST /proponentes/atualiza-id-cliente ──► pac-update APROVADO (com IdCliente)
+ ├─(2) notificacaopendencia-insert DESLIGAMENTO ──► sai na hora
+ └─(3) pac-update APROVADO ──► retido enquanto faltar IdCliente
+```
+
+Essa ordem tem três consequências:
+
+- **A PAC em análise de uma pessoa nova sai sem IdCliente.** O IdCliente só
+  existe depois da aprovação, quando o WebJob cria o cliente. Até lá, o
+  Salesforce só tem o prospect da jornada para achar a pessoa, e esse prospect
+  é o de quem iniciou a jornada.
+- **A PAC aprovada chega depois de o cliente existir no MS Clientes.** Mas não
+  há garantia de que chegue depois de o Salesforce processar os eventos do MS
+  Clientes, porque os dois seguem caminhos diferentes.
+- **A pendência não espera nada.** Ela chega ao Salesforce antes da PAC
+  aprovada, numa janela em que o Proponente ainda aponta para quem iniciou a
+  jornada. A seção 6.2 mostra o efeito no bug 4.
+
 ## 4. Formato real por origem e o que o simulador manda
 
 | | MS Clientes (`clientes`) | MS de crédito (`pacs`) | Plataforma BFF (`jornadas`) | Simulador hoje |
@@ -222,12 +341,17 @@ dos últimos 30 dias, com até 600 logs por tipo:
 | Chaves do envelope | camelCase | camelCase | PascalCase (`Id`, `EventType`, `Data`…) | camelCase |
 | `metadataVersion` | ausente | ausente, exceto parte das pendências (seção 6.3) | `"1"` | presente |
 | `dataVersion` | `1.0` | `1.0` | vazio | presente |
-| `eventTime` | UTC com `Z`, 7 casas | UTC com `Z`, 7 casas | UTC com `+00:00`, 7 casas | UTC com `Z`, sem fração ou `.000` |
-| `dataAlteracao` | UTC com `Z`, 2 a 7 casas | horário local **sem fuso** | horário de Brasília **sem fuso** | UTC com `Z` |
+| `eventTime` | UTC com `Z`, 7 casas | horário de Brasília **rotulado com `Z`** (3h atrás), 7 casas | UTC com `+00:00`, 7 casas | UTC com `Z`, sem fração ou `.000` |
+| `dataAlteracao` | UTC com `Z`, 2 a 7 casas | horário de Brasília **sem fuso** | horário de Brasília **sem fuso** | UTC com `Z` |
 | Eventos por request | 1 | 1 | 1 | 1 |
 
-No `jornadausuario-*` real, `EventTime` menos `DataAlteracao` lida como UTC dá
-exatamente 3h em todos os 20 casos medidos.
+Medidas que sustentam a tabela:
+
+- **`eventTime`** (`relogios.ts`): a gravação do log menos o `eventTime` dá 0h
+  no MS Clientes e na BFF, e 3h em todos os eventos do crédito (59 de 59
+  `pac-update` e 21 de 21 pendências).
+- **`DataAlteracao` da jornada:** no `jornadausuario-*` real, o `EventTime`
+  menos a `DataAlteracao` lida como UTC dá exatamente 3h nos 20 casos medidos.
 
 O `data` dos eventos do MS Clientes também difere do que o simulador manda.
 Contagens de eventos distintos de staging, últimos 30 dias:
@@ -340,20 +464,38 @@ traz o IdCliente que o MS Clientes cria, e a jornada traz o cliente e o
 prospect. Nada garante, por exemplo, que o `cliente-insert` de Y chegue antes
 da primeira PAC que fala de Y.
 
-O bug 4 mostra esse efeito. Os horários de recebimento em staging foram:
+O bug 4 mostra esse efeito. A tabela junta o que o código do MS de crédito faz
+na aprovação (seção 3.7) com o que chegou ao Salesforce em staging, na PAC do
+incidente. As fontes são o `aprovacao-pac.ts` e a seção 4 da
+[passagem de contexto](handoff-investigacao-tc001-bug4.md). Os horários são da
+gravação do log, em UTC:
 
-1. `pac-update` em análise (MS de crédito), às 17:50 e às 17:52;
-2. `cliente-insert` e parciais de Y (MS Clientes), às 17:52:43;
-3. `notificacaopendencia-insert` (MS de crédito), também às 17:52:43;
-4. `cliente-update` (MS Clientes), às 17:52:47;
-5. PAC aprovada (MS de crédito), às 17:52:48.
+| Horário | Evento | Origem | O que acontece |
+|---|---|---|---|
+| 17:50:28 | `pac-update` `EM_ANALISE_CREDITO` | MS de crédito | PAC em análise. O proponente, Y, ainda não tem IdCliente |
+| 17:52:38 | `pac-update` `EM_ANALISE_CREDITO` | MS de crédito | O mesmo. Sem IdCliente, o Salesforce acha a pessoa pelo prospect da jornada e liga o Proponente a X |
+| ~17:52:43 | aprovação | MS de crédito | Passos 1 a 3 da seção 3.7: PAC na fila do WebJob, pendência publicada, PAC aprovada retida |
+| 17:52:43 | `cliente-insert` e parciais de Y | MS Clientes, via WebJob | Y passa a existir no MS Clientes e no Salesforce |
+| 17:52:45 | `notificacaopendencia-insert` `DESLIGAMENTO` | MS de crédito | 1ª entrega da pendência. Ao processá-la, o Salesforce grava o e-mail de Y em X: o `AccountHistory` de X marca 17:52:43, e o log é gravado depois |
+| 17:52:46 | a mesma pendência | MS de crédito, 2ª rota | A duplicação da seção 6.3 |
+| 17:52:47 | `cliente-update` com PROS-Y | MS Clientes | Eco do callback do Salesforce (seção 6.5) |
+| 17:52:48 | `pac-update` `CREDITO_APROVADO_CONDICIONADO` | MS de crédito | Passo 5: só sai agora, já com o IdCliente de Y, e religa o Proponente a Y |
+| 17:52:57 | a mesma pendência, de novo | MS de crédito | — |
 
-As PACs em análise chegaram antes de o MS Clientes criar Y e vieram sem
-IdCliente, então o Salesforce ligou o Proponente a X pelo prospect. Esse é o
-efeito entre origens. A pendência e a PAC aprovada, porém, são do mesmo
-publicador e chegaram na ordem em que foram emitidas. A pendência veio antes
-da aprovação, que religaria o Proponente a Y, e projetou o e-mail de Y em X
-nessa janela.
+Dois efeitos se somam:
+
+- **PAC em análise antes do cliente.** A PAC em análise de Y não tinha como
+  trazer o IdCliente dele, porque ele só é criado depois da aprovação, pelo
+  WebJob. O Salesforce caiu no prospect da jornada, que é o de X, e ligou o
+  Proponente a X. Esse é o efeito da separação entre sistemas: a PAC depende de
+  uma identidade que outro sistema cria.
+- **Pendência antes da PAC aprovada.** A pendência e a PAC são do mesmo
+  publicador, mas o código do crédito solta a pendência na aprovação e segura
+  a PAC aprovada até o IdCliente existir. A pendência chegou 3 s antes da PAC
+  aprovada, que religaria o Proponente a Y. Nesse intervalo, o Proponente
+  ainda apontava para X, e o e-mail de Y foi parar em X. Essa regra de
+  retenção só existe porque a PAC depende do IdCliente que o MS Clientes cria.
+  Ou seja, também é efeito da separação, só que dentro do código do crédito.
 
 ### 6.3 A pendência chega por duas rotas
 
@@ -382,9 +524,24 @@ diferentes em relação aos eventos das outras origens.
 `EventGrid.parseDateTime` lê `dataAlteracao` com `DateTime.valueOfGmt`, isto é,
 como GMT. O resultado depende da origem:
 
-- **MS Clientes:** manda UTC, então a data fica correta;
-- **MS de crédito e Plataforma BFF:** mandam horário local sem fuso, então as
-  datas ficam **3h atrás** do instante real.
+- **MS Clientes:** manda UTC, então a data fica correta.
+- **MS de crédito:** os dois horários ficam **3h atrás**:
+  - a `dataAlteracao` vai em horário de Brasília sem fuso;
+  - o `eventTime` vai em horário de Brasília com `Z` no fim, como se fosse UTC.
+
+  A causa está no código:
+  - a JVM sobe com `-Duser.timezone=America/Sao_Paulo`
+    (`src/main/docker/entrypoint.sh:39`);
+  - a `dataAlteracao` do proponente é um `LocalDateTime`
+    (`service/dto/ProponenteEventGridDTO.java`), que não leva fuso;
+  - o `eventTime` sai de `OffsetDateTime.of(LocalDateTime.now(), ZoneOffset.UTC)`
+    (`eventgrid/EventGridPublisher.java:102`), que pega o relógio de Brasília
+    e o rotula como UTC.
+
+  Em staging (`relogios.ts`), a gravação do log menos o `eventTime` dá 3h em
+  todos os eventos do crédito, contra 0h no MS Clientes e na BFF.
+- **Plataforma BFF:** a `DataAlteracao` vai em horário de Brasília sem fuso
+  (3h atrás), e o `EventTime` vai certo, em UTC com `+00:00`.
 
 Isso pesa quando o Salesforce compara datas de origens diferentes:
 
@@ -402,8 +559,8 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
   sincronização da PAC, ou, se chegar depois, sobrescreve o contato aprovado.
 - **Staging:** a `mrv-staging` (implantação de 09/10) não tem esse método hoje.
   O risco vale para a dev e para quando o código da unificação for promovido.
-- **Simulador:** manda a data da PAC com `Z`, então nunca reproduz esse efeito
-  na dev.
+- **Simulador:** manda a data e o `eventTime` da PAC em UTC correto, com `Z`,
+  então nunca reproduz esse efeito na dev.
 
 ### 6.5 Prospect misturado nos eventos de Y e o eco do callback
 
@@ -453,6 +610,16 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
   cenário com DDI diferente de 55 mostraria o efeito.
 - **Pendência:** a entrega dupla, por duas rotas e com alguns segundos de
   intervalo, é o comportamento normal, não exceção.
+- **Aprovação da PAC:** no fluxo real, quando há pendência a notificar, a
+  aprovação publica a pendência `DESLIGAMENTO` antes da PAC aprovada. A PAC
+  aprovada só chega com o IdCliente de todos os proponentes, depois de o MS
+  Clientes criar o cliente (seção 3.7).
+  - O perfil C1 do runbook aproxima essa ordem.
+  - Os perfis PA, CA e ME não mandam pendência, então não passam pelo caminho
+    real da aprovação quando há pendência a notificar.
+- **Horários do crédito:** para reproduzir a PAC e a pendência como elas
+  chegam, o `eventTime` teria de sair 3h atrás com `Z` e a `dataAlteracao`,
+  sem fuso. É a mesma decisão do item "Datas", no começo desta lista.
 - **Venda Genérica no runbook:** o harness manda `jornadausuario-update` com
   `Documentacao` em todos os TCs (`scripts/runbook/engine.ts`). Na jornada
   genérica, a BFF quase não publica eventos de jornada. Vale rever esse passo
@@ -479,5 +646,7 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
 - Os GUIDs da seção 3.5 não foram ligados a sistemas. O payload só traz o
   `client_id`, e o cadastro de clientes do provedor de identidade não foi
   consultado.
-- A ordem e a concorrência das chamadas do MS de crédito ao MS Clientes ainda
-  não foram analisadas no código do `com_proponente_credito`.
+- Quem chama o MS Clientes depois da aprovação é o "Análise Crédito Web Job",
+  e o código dele não está em nenhum repositório clonado. Por isso seguem sem
+  confirmação a ordem e a concorrência dessas chamadas, e o tempo entre a
+  aprovação e o `atualiza-id-cliente`.

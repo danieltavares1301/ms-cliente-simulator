@@ -15,6 +15,13 @@ dela.
 >   - a jornada vem da Plataforma BFF.
 >
 >   O efeito entre origens que iniciou o bug 4 está na seção 6.2 daquele doc.
+> - **De onde vem a pendência do bug 4:** é a notificação `DESLIGAMENTO` que o
+>   MS de crédito (`com_proponente_credito`) publica no momento da aprovação.
+>   Na mesma chamada, ele segura a PAC aprovada até todos os proponentes terem
+>   IdCliente, mas não segura a pendência. Por isso ela chega antes da PAC
+>   aprovada, enquanto o Proponente ainda aponta para X (seções 3.7 e 6.2
+>   daquele doc). A sequência real da PAC do incidente se refaz com
+>   `scripts/analise-staging/aprovacao-pac.ts`.
 > - **PROS-X nos primeiros eventos de Y:** o MS Clientes publica contato e
 >   endereço com o prospect que o cliente tem no momento. Por isso os eventos
 >   de Y saem com PROS-X até o callback do Salesforce gravar PROS-Y (seção 6.5
