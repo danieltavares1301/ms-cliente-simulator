@@ -885,7 +885,7 @@ Junto com os perfis, entraram no harness:
   aceita essa resposta e reentrega a PAC depois da aprovação, como o Event
   Grid faria.
 
-**Nos contratos da API** (`src/contracts/`), ainda sem deploy no Vercel:
+**Nos contratos da API** (`src/contracts/`), no Vercel desde 11/10:
 
 - datas dos eventos nos formatos reais: de 0 a 7 casas, com `Z`, com
   `+00:00` ou sem fuso (`event-datetime.ts`);
@@ -924,8 +924,8 @@ completa está no [relatório](resultado-runbook-ordens-reais-2026-10-11.md):
 **O que falta:**
 
 - **Cenários de catálogo com os contratos novos:** pendência, PAC sem
-  IdCliente e datas reais. Pedem deploy no Vercel e validação ao vivo, que
-  dependem de autorização. O adaptador de massa
+  IdCliente e datas reais. Os contratos já estão no Vercel; faltam os
+  cenários e a validação ao vivo de cada um. O adaptador de massa
   (`src/salesforce/test-data-adapter.ts`) ainda não sabe preparar um passo de
   pendência.
 - **Jornada em PascalCase, com `IdCorretor`:** antes, é preciso investigar o
