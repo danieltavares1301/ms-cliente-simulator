@@ -14,7 +14,8 @@ duas partes:
 - **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
   Salesforce CLI:
   - o harness do runbook da Unificação 2.2, com 44 TCs executáveis nos perfis
-    PA, CA e ME e os perfis opcionais C1 a C4 do bug 4;
+    PA, CA e ME, os perfis opcionais C1 a C4 do bug 4 e os perfis opcionais
+    AR, AM, FW, RC, EP e RL, com as ordens reais da aprovação;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
   - as consultas somente leitura de `mrv-staging` (`scripts/analise-staging/`).
@@ -29,7 +30,11 @@ Os trabalhos mais recentes:
 - a investigação do bug 4 do TC-001, reproduzido na `mrv-devDan` em 01/10;
 - a campanha do runbook de 02/10, com 121 de 132 RUNs conformes;
 - a análise de quem publica cada evento que o Salesforce recebe (MS Clientes,
-  MS de crédito e Plataforma BFF).
+  MS de crédito e Plataforma BFF);
+- os perfis do harness com as ordens reais da aprovação e a campanha deles
+  de 11/10 ([relatório](docs/resultado-runbook-ordens-reais-2026-10-11.md));
+- os contratos da API alargados para os formatos reais, ainda sem deploy no
+  Vercel (seção 7.4 do doc de origem dos eventos).
 
 Para assumir o trabalho sem contexto, leia nesta ordem:
 
@@ -361,6 +366,10 @@ distingue dois níveis de acesso para reproduzir uma ordem:
     fazer isso via API, exige credenciais reais de acesso à org;
   - rodar o comando `npm run` correspondente.
 
+  Desde a versão 2.152 da CLI, o `sf org display` esconde o token de acesso.
+  Os scripts (`loadOrgAccess`, em `scripts/stress-o10-concurrent-events-lib.ts`)
+  pegam então o token com `sf org auth show-access-token`, sem imprimi-lo.
+
 | Ordem | Comando | O que faz |
 |---|---|---|
 | `O06` | `npm run manual-intervention:o06` | Intervenção manual pós-PAC: cria uma Account com prospect provisório, publica contatos divergentes, limpa o campo manualmente e reentrega a PAC aprovada. |
@@ -499,6 +508,56 @@ contatos) e um gatilho que projeta o contato do Proponente na Account:
 O perfil C4 cria uma `Contestacao__c` e a apaga no cleanup. O trigger dela
 chama `Endpoints__c.ContestacaoInsert__c`. Confira antes que o endpoint
 aponta para o simulador, nunca para uma API da MRV.
+
+#### Perfis das ordens reais da aprovação: AR, AM, FW, RC, EP e RL
+
+Também são opcionais e rodam sobre os TCs existentes. Reproduzem as ordens
+de eventos que o código do MS de crédito, do WebJob dele e do MS Clientes
+produz de verdade (seção 7.2 do
+[doc de origem dos eventos](docs/origem-dos-eventos-no-salesforce.md)).
+Exemplo:
+
+`npm run runbook -- --tcs TC-001,TC-005 --perfis AR,AM,FW,RC,EP,RL`
+
+| Perfil | Ordem real | O que manda |
+|---|---|---|
+| AR | 1 e 5: aprovação de pessoa nova | PACs em análise sem IdCliente; a pendência na hora, de novo pela 2ª rota (mesmo `id`, sem `metadataVersion`) e mais uma vez no fim; as chamadas do WebJob em ordem (cliente com `SistemaOrigem` Crédito, celular, e-mail, telefone, endereços Principal e Cobrança); o eco; a PAC aprovada |
+| AM | 2: aprovação de quem já é cliente | PACs em análise com IdCliente; a PAC aprovada sai na hora e de novo depois do WebJob. Só roda nos TCs com `cliente-update` |
+| FW | 4: falha e repetição do WebJob | como o AR, mas a 1ª tentativa cai depois do celular. Depois do eco, a repetição manda `cliente-update` com o prospect da jornada, como o MS Clientes faz, e os parciais |
+| RC | 6: relógio do crédito | ordem CA com as PACs no horário do crédito (Brasília rotulado como UTC, e sem fuso na data); depois da PAC aprovada, um `contato-update` de antes dela |
+| EP | 7: eco antes do parcial | ordem CA, mas o celular chega depois do eco, ainda com o prospect da jornada |
+| RL | 8: repostagem em lote | ordem CA completa e, depois, a repostagem do cliente, dos contatos e do endereço com as datas gravadas |
+
+Detalhes que valem para todos:
+
+- **Venda Genérica:** AR, AM e FW não mandam a máquina, porque a Plataforma
+  BFF não publica a jornada genérica nesse ponto.
+- **Origem:** os eventos levam o `subject` real de cada publicador, e o JSONL
+  traz o `publicador` de cada evento.
+- **PAC de quem ainda não existe:** quando o Salesforce não acha a pessoa
+  (sem IdCliente, sem conta pelo CPF e sem prospect, como no TC-040), o
+  código da unificação recusa a PAC em análise com 400 "Cliente(Account) não
+  encontrado". AR, AM e FW tratam essa recusa como esperada: o evento fica
+  marcado com `rejeicaoEsperada` e é reentregue depois da aprovação, como o
+  Event Grid faria. A reentrega tem de voltar 200 sem mudar o status da PAC.
+
+**O que o RUN confere,** além do esperado do TC e dos critérios comuns:
+
+- **AR, AM e FW:** o mesmo que o C1. As PACs em análise chegaram ao
+  Proponente (ou foram recusadas e reentregues), a pendência foi aplicada e X
+  estava intacta antes dela.
+- **FW e EP:** o prospect da Account aprovada não muda, e nenhuma Account ou
+  Lead nasce do evento atrasado. O detalhe lista o que ele alterou. Se Y
+  ainda não tinha Lead antes do evento, não há o que preservar.
+- **RC:** a data da PAC aprovada ficou gravada em UTC, e o contato atrasado
+  foi descartado.
+- **RL:** a repostagem não altera nem cria Account ou Lead.
+
+**Resultado na `mrv-devDan` revertida (11/10):** 237 RUNs, 178 conformes. RC,
+EP e RL só repetem as divergências conhecidas do CA. AR, FW e AM mostram a
+pendência gravando na Account que a PAC em análise achou, e o FW mostra os
+contatos de outra pessoa indo para o Lead novo de Y. A análise está no
+[relatório](docs/resultado-runbook-ordens-reais-2026-10-11.md).
 
 `npm run runbook:relatorio` monta as colunas com os perfis presentes no JSONL.
 
@@ -659,6 +718,11 @@ máquina, eles ficam ao lado deste diretório:
   desde 27/09.
 - [Passagem de contexto do bug 4 do TC-001](docs/handoff-investigacao-tc001-bug4.md) —
   causa, reprodução, estado do harness e da `mrv-devDan` em 02/10.
+- [Resultado do runbook — ordens reais da aprovação, 2026-10-11](docs/resultado-runbook-ordens-reais-2026-10-11.md) —
+  os perfis AR, AM, FW, RC, EP e RL nos 44 TCs, na dev revertida: o bug 4
+  pela pendência, a pendência antes dos eventos de cliente mudando a escolha
+  do Lead, os contatos de X no Lead de Y depois da repetição do WebJob e a PAC
+  em análise recusada para quem ainda não existe.
 - [Estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md) — em que ponto dos
   branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev,
   por que quatro classes estão em 03/09 e o que o simulador achou nesse

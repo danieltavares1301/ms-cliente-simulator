@@ -45,7 +45,7 @@ O código do MS de crédito explica o resto:
   Clientes. Nesse intervalo, o Proponente ainda aponta para a pessoa errada, e
   foi assim que o bug 4 aconteceu (seções 3.7 e 6.2).
 - **Horários:** os dois horários que o crédito manda estão 3h atrás, inclusive
-  o `eventTime` (seção 6.4).
+  o `eventTime`. O código da unificação compensa a data da PAC (seção 6.4).
 - **WebJob:** quem cria o cliente no MS Clientes depois da aprovação é o
   "Análise Crédito Web Job":
   - ele faz as chamadas uma de cada vez e numa ordem fixa: cliente, contatos,
@@ -89,7 +89,7 @@ As consultas estão em `scripts/analise-staging/`. Todas rodam direto no
 | `chamadores-ms-clientes.ts` | quem disparou cada evento do MS Clientes (`UsuarioAlteracao`, `OrigemAlteracao`) | 3.5 |
 | `estado-jornada.ts` | `Estado` da raiz em `jornadausuario-*` contra o primeiro `"Estado"` do texto | 5 |
 | `reentregas.ts` | eventos entregues mais de uma vez: intervalo, erro da 1ª entrega e formas de envelope | 6.1 e 6.3 |
-| `classes-implantadas.ts` | se o código implantado compara a data da PAC com os marcadores de contato (`--org mrv-staging` ou `--org mrv-devDan`) | 6.4 |
+| `classes-implantadas.ts` | se o código implantado compara a data da PAC com os marcadores de contato e se soma as 3h à data sem fuso (`--org mrv-staging` ou `--org mrv-devDan`) | 6.4 |
 | `relogios.ts` | sufixo de fuso do `eventTime` e diferença até a gravação do log, por origem | 4 e 6.4 |
 | `aprovacao-pac.ts` | ordem real dos eventos de uma PAC numa janela (`--pac`, `--de`, `--ate`) | 3.7 e 6.2 |
 
@@ -409,6 +409,14 @@ Detalhes que importam para a ordem dos eventos:
   Na repetição, todas as chamadas são refeitas: o cliente já
   existe, então saem `cliente-update` e `contato-update` em vez de
   `-insert`. Enquanto isso, a PAC aprovada continua retida.
+- **A repetição devolve o prospect da jornada.** Numa atualização, o MS
+  Clientes sobrescreve todo campo que chega preenchido
+  (`ProfileExtensions.DeveMapearCampo`, usado pelo `AtualizaClienteRequestHandler`
+  da V2, no repositório `cliente`). Por isso, quando o WebJob repete o
+  `criarAtualizarCliente`, o `idProspectSalesforce` volta a ser o
+  `idProponente` da PAC (PROS-X), mesmo que o callback do Salesforce já tenha
+  gravado o PROS-Y. Sai um `cliente-update` com PROS-X depois do eco. O mesmo
+  acontece na aprovação de quem já é cliente.
 - **O tempo até a PAC aprovada varia.**
   - No bug 4, foi menos de 1 s, pelos `eventTime` corrigidos das 3h: a
     pendência saiu às 17:52:42,86 e a PAC aprovada às 17:52:43,81.
@@ -672,24 +680,42 @@ como GMT. O resultado depende da origem:
 - **Plataforma BFF:** a `DataAlteracao` vai em horário de Brasília sem fuso
   (3h atrás), e o `EventTime` vai certo, em UTC com `+00:00`.
 
-Isso pesa quando o Salesforce compara datas de origens diferentes:
+Como o Salesforce lida com isso:
 
-- **Onde a comparação acontece:** no código da unificação, implantado na
-  `mrv-devDan` em 27/09 e presente no branch
-  `origin/GV_918914_UnificPosAprovPAC`.
-  `ClienteService.sincronizarContatosAprovadosPac` e
-  `sincronizarContatosContestacao` comparam a data da PAC
-  (`PropostaAnaliseCredito__c.DataAlteracaoEvento__c`) com
-  `Account.DataAlteracaoEventoContatoEmail__c` e `…Celular__c`. Esses
-  marcadores são gravados pelo `/Cliente` com a data do MS Clientes, e depois a
-  PAC grava a própria data neles.
-- **Efeito:** a PAC parece 3h mais velha do que é. Um contato do MS Clientes de
-  até 3h **antes** da aprovação é tratado como mais novo. Ele bloqueia a
-  sincronização da PAC, ou, se chegar depois, sobrescreve o contato aprovado.
-- **Staging:** a `mrv-staging` (implantação de 09/10) não tem esse método hoje.
-  O risco vale para a dev e para quando o código da unificação for promovido.
-- **Simulador:** manda a data e o `eventTime` da PAC em UTC correto, com `Z`,
-  então nunca reproduz esse efeito na dev.
+> **Retificação de 2026-10-11.** A primeira versão desta seção dizia que, no
+> código da unificação, a PAC parecia 3h mais velha do que é. Isso não vale:
+> a `NotificacaoPAC` da unificação compensa o fuso, e a data da PAC só é
+> comparada com a de outra origem num caso, o contato que chega atrasado.
+
+- **Código base:** o `EventGrid` lê a data sem fuso como GMT, e a data do
+  crédito fica 3h atrás. É o código de `mrv-staging` (implantação de 09/10).
+  Lá, a data da PAC não é comparada com a de outras origens.
+- **Código da unificação:** no branch `origin/GV_918914_UnificPosAprovPAC`, a
+  `NotificacaoPAC` sobrescreve o `parseDateTime`. Quando a data chega sem
+  fuso, ela soma 3h (commit `c04b6add92`, de 03/09). Assim,
+  `PropostaAnaliseCredito__c.DataAlteracaoEvento__c` fica em UTC correto. A
+  `mrv-devDan` roda essa versão ([estado da dev](estado-da-mrv-devDan.md)), e
+  `scripts/analise-staging/classes-implantadas.ts` confere a compensação em
+  cada org.
+- **Onde a data da PAC é usada:**
+  - `ClienteService.sincronizarContatosAprovadosPac` e
+    `sincronizarContatosContestacao` recebem a data da PAC.
+  - Na PAC aprovada, a Account do proponente principal recebe os contatos da
+    PAC sem olhar a data (`payloadPertenceAPacVigenteDaConta`). A data só vai
+    para os marcadores `DataAlteracaoEventoContatoEmail__c` e `…Celular__c`.
+- **O que a data ainda decide:** um `contato-update` do MS Clientes, com data
+  anterior à aprovação, pode chegar depois da PAC aprovada. O `/Cliente` o
+  compara com o marcador que a PAC gravou:
+  - com a compensação, o contato antigo é descartado;
+  - sem ela, o marcador ficaria 3h atrás, e o contato antigo sobrescreveria o
+    aprovado.
+- **`eventTime`:** nos endpoints da unificação, ele só vai para o log. A única
+  classe que o usa como data é a `EventGridFila`, que só atende preços.
+- **Risco que sobra:** promover a comparação sem a compensação. As duas estão
+  no mesmo branch.
+- **Teste:** o perfil RC do harness do runbook manda os horários como o
+  crédito manda e confere as duas coisas: a data da PAC gravada em UTC e o
+  contato atrasado descartado (seção 7).
 
 ### 6.5 Prospect misturado nos eventos de Y e o eco do callback
 
@@ -708,6 +734,10 @@ Isso pesa quando o Salesforce compara datas de origens diferentes:
   Clientes, que publica um `cliente-update` de volta para o `/Cliente`, também
   sem esperar o envio. Esse evento pode chegar antes ou depois dos parciais
   que ainda carregam PROS-X.
+- **Depois do eco, o PROS-X pode voltar:** se o WebJob repete as chamadas, ou
+  se a pessoa aprovada já era cliente, o `criarAtualizarCliente` grava de novo
+  o prospect da jornada no MS Clientes (seção 3.8). Aí sai um `cliente-update`
+  com PROS-X depois do eco, e os parciais seguintes também levam PROS-X.
 
 ## 7. O que muda no simulador: plano
 
@@ -715,7 +745,8 @@ Hoje o simulador não consegue reproduzir pela API o caminho real que gerou o
 bug 4. O harness do runbook só aproxima esse caminho, e vários formatos que o
 simulador exige nunca aparecem nos eventos reais. O plano abaixo foi montado
 em 2026-10-11, a partir das seções 3 a 6. Ele tem quatro frentes de mudança,
-em ordem de prioridade, e oito ordens de eventos a adicionar.
+em ordem de prioridade, e oito ordens de eventos a adicionar. A seção 7.4
+registra o que já foi feito e o que falta.
 
 ### 7.1 Mudanças por prioridade
 
@@ -796,7 +827,7 @@ reproduz:
 | 3 | **Dois proponentes:** eventos do primeiro, eventos do segundo e PAC aprovada só com os dois IdClientes | segundo proponente (TCs 030 a 037 do runbook, hoje bloqueados) | não coberta |
 | 4 | **Falha no WebJob:** pendência, parte dos eventos do MS Clientes e, a cada 180 s, a repetição como `cliente-update` e `contato-update`, com a PAC aprovada atrasada minutos | a janela do bug 4 durando minutos | não coberta |
 | 5 | **Pendência por duas rotas:** a mesma pendência chegando duas ou três vezes, em até 1 s, por volta de 11 s e às vezes horas depois | idempotência do `/Pendencia` e do `ProponenteTrigger` | o O14 cobre a reentrega só no `/Cliente` |
-| 6 | **Relógio do crédito:** `contato-update` do MS Clientes de até 3h antes da aprovação e, depois, a PAC aprovada com carimbo 3h atrás | a comparação da seção 6.4 decidindo errado: a PAC parece mais velha e perde para o contato | não coberta. O O13 usa datas UTC certas, e este é o caso concreto do O15 |
+| 6 | **Relógio do crédito:** a PAC aprovada no horário do crédito (Brasília rotulado como UTC, e sem fuso na data) e, depois dela, um `contato-update` do MS Clientes de antes da aprovação | a compensação de 3h da `NotificacaoPAC` e o descarte do contato antigo (seção 6.4). A primeira versão deste plano dizia que a PAC perdia para o contato; a seção 6.4 foi retificada | não coberta. O O13 usa datas UTC certas, e este é o caso concreto do O15 |
 | 7 | **Eco antes do parcial:** `cliente-insert` (PROS-X), eco `cliente-update` (PROS-Y) e um `contato-insert` (PROS-X) atrasado | parcial com prospect velho chegando depois do eco (seção 6.5) | não forçada por nenhum perfil |
 | 8 | **Repostagem em lote do MS Clientes:** `cliente-update`, `contato-update` e `endereco-update` juntos, com a `DataAlteracao` antiga (seção 3.4) | descarte de eventos republicados | não coberta |
 
@@ -804,8 +835,9 @@ reproduz:
 
 - **Ordens 1 e 6 primeiro.**
   - A 1 reproduz o bug 4 exatamente como ele acontece.
-  - A 6 testa um defeito latente do código da unificação, já implantado na
-    `mrv-devDan` (seção 6.4), que hoje nenhum teste alcança.
+  - A 6 testa a compensação de 3h da `NotificacaoPAC`, que nenhum teste
+    alcançava. A primeira versão deste plano a tratava como defeito latente;
+    a seção 6.4 foi retificada.
 - **No harness, já:**
   - as ordens 1, 5, 6 e 7 dão para fazer agora, porque o harness fala com o
     Salesforce por REST direto, sem passar pelos contratos da API;
@@ -814,9 +846,97 @@ reproduz:
     em lote.
 - **Na API, depois.** Para os cenários entrarem no catálogo, os contratos do
   item 1 de 7.1 têm de mudar primeiro.
-- **Cuidado comum:** as ordens que mandam pendência ou contestação disparam
-  automações do Salesforce com callouts externos. Antes de rodar, confira os
-  endpoints, como o README pede para o perfil C4.
+- **Cuidado comum:** só a contestação dispara callout externo; antes de
+  usá-la, confira o endpoint, como o README pede para o perfil C4. A
+  pendência não chama nada fora da org (verificado em 2026-10-11, regra 3 do
+  plano):
+  - o caminho dela é `NotificacaoPendencias`, `ProponenteTrigger` e
+    `ProponenteTriggerHandler`, sem callout, e-mail ou job assíncrono;
+  - o flow ativo `Proponente_1` ("EnvioPendencia") só preenche
+    `Opportunity.ReplyTo__c`;
+  - o workflow de `Proponente__c` está vazio.
+
+### 7.4 O que foi feito em 2026-10-11
+
+**No harness do runbook** (`scripts/runbook/`), seis perfis opcionais com as
+ordens reais. O README descreve cada um e o que o RUN confere.
+
+| Ordem | Perfil | Como o harness reproduz |
+|---|---|---|
+| 1 e 5 | AR | PACs em análise sem IdCliente; pendência na hora, pela 2ª rota (mesmo `id`, sem `metadataVersion`) e de novo no fim; as chamadas do WebJob na ordem fixa; eco; PAC aprovada |
+| 2 | AM | como o AR, com IdCliente nas PACs e a PAC aprovada na hora e de novo depois do WebJob. Só nos TCs com `cliente-update` |
+| 4 | FW | como o AR, com a 1ª tentativa do WebJob caindo depois do celular e a repetição depois do eco, com o prospect da jornada |
+| 6 | RC | ordem CA com as PACs no horário do crédito e um `contato-update` atrasado, de antes da aprovação |
+| 7 | EP | ordem CA com o celular chegando depois do eco, ainda com o prospect da jornada |
+| 8 | RL | ordem CA e, depois, a repostagem em lote com as datas gravadas |
+
+A ordem 3 (dois proponentes) ficou de fora: os TCs dela (030 a 037) estão
+bloqueados no runbook, e o harness só modela um proponente.
+
+Junto com os perfis, entraram no harness:
+
+- o `subject` real de cada publicador e o `publicador` de cada evento no
+  JSONL;
+- o telefone, o endereço `Principal` e o `SistemaOrigem` Crédito nas chamadas
+  do WebJob;
+- a Venda Genérica sem máquina nos perfis do WebJob;
+- a recusa da PAC em análise de quem o Salesforce ainda não acha. O código da
+  unificação responde 400 ("Cliente(Account) não encontrado"); o harness
+  aceita essa resposta e reentrega a PAC depois da aprovação, como o Event
+  Grid faria.
+
+**Nos contratos da API** (`src/contracts/`), ainda sem deploy no Vercel:
+
+- datas dos eventos nos formatos reais: de 0 a 7 casas, com `Z`, com
+  `+00:00` ou sem fuso (`event-datetime.ts`);
+- proponente da PAC sem IdCliente;
+- endereço `Principal` e `Cobranca`, como o MS Clientes publica;
+- `complemento` (DDI) no contato;
+- data de nascimento com hora (`yyyy-MM-ddTHH:mm:ssZ`), que o Apex lê em
+  staging;
+- `metadataVersion` opcional;
+- o evento `notificacaopendencia-insert` e o alvo `PENDENCIA`, que despacha
+  para `/services/apexrest/Pendencia`.
+
+**Ajuste pequeno:** a descrição do cenário
+`maquina-estado-update-estado-nao-reconhecido` não diz mais que o estado de UF
+é real.
+
+**Resultado na `mrv-devDan`:** a campanha dos seis perfis nos 44 TCs, em
+11/10, teve 237 RUNs, com 178 conformes e nenhum erro. A dev estava no estado
+revertido de 27/09 ([estado da dev](estado-da-mrv-devDan.md)). A análise
+completa está no [relatório](resultado-runbook-ordens-reais-2026-10-11.md):
+
+- **RC, EP e RL:** só as divergências já conhecidas do CA (TCs 045, 046 e
+  049). A compensação de 3h funciona na dev.
+- **AR, FW e AM:** a pendência, chegando antes da PAC aprovada, grava na
+  Account que a PAC em análise achou:
+  - em X, nos 19 TCs em que Y não tem Account (bug 4);
+  - na Account duplicada errada (TC-038);
+  - no Lead de outra pessoa, pelo reflexo (TC-021, inclusive no AM).
+- **TC-013:** a pendência antes dos eventos de cliente impede a reutilização
+  do Lead candidato. Isolado com execuções avulsas.
+- **FW:** a repetição do WebJob leva contatos de outra pessoa ao Lead novo de
+  Y em 11 TCs e, no TC-040, cria um segundo Lead para Y.
+- **TC-040:** a PAC em análise de quem ainda não existe é recusada pelo
+  código da unificação. A reentrega depois da aprovação passa.
+
+**O que falta:**
+
+- **Cenários de catálogo com os contratos novos:** pendência, PAC sem
+  IdCliente e datas reais. Pedem deploy no Vercel e validação ao vivo, que
+  dependem de autorização. O adaptador de massa
+  (`src/salesforce/test-data-adapter.ts`) ainda não sabe preparar um passo de
+  pendência.
+- **Jornada em PascalCase, com `IdCorretor`:** antes, é preciso investigar o
+  impacto do `atribuirProprietariosOportunidade` (regra 3 do plano).
+- **Contato sem `numerocpf`:** tirar o campo dos cenários e criar o cenário
+  de DDI.
+- **Relógio do crédito nos cenários da API:** dar a eles a mesma opção.
+- **`subject` real nos cenários da API:** os templates ainda mandam
+  `MS_Clientes` em todos os eventos. É só cosmético, porque o Apex não lê o
+  `subject`.
+- **Ordem 3:** dois proponentes.
 
 ## 8. Limitações
 
