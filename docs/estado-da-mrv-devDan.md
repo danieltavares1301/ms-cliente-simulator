@@ -66,19 +66,34 @@ O que o simulador encontrou nesse estado:
 
 Campanhas do runbook e o estado em que rodaram:
 
-- **11/10, campanha completa** (545 RUNs nos 13 perfis, 331 conformes):
-  depois da reversão ([relatório](resultado-runbook-completo-2026-10-11.md)).
-  Cada bug pego, com a matriz TC × perfil, está no
-  [catálogo de bugs](bugs-pegos-pelo-runbook.md). PA, CA e ME repetem os
-  vereditos de 02/10.
-- **11/10, perfis das ordens reais** (237 RUNs, 178 conformes): depois da
-  reversão ([relatório](resultado-runbook-ordens-reais-2026-10-11.md)). Com a
-  ordem real da aprovação, a pendência grava na Account que a PAC em análise
-  achou: em X nos 19 TCs do bug 4, na Account duplicada errada no TC-038 e,
-  pelo reflexo, no Lead de outra pessoa no TC-021. A repetição do WebJob leva
-  contatos de outra pessoa ao Lead novo de Y em 11 TCs. O guard de parciais
-  do commit 4 não está na dev; o efeito dele nesses casos só se mede com a
-  ponta implantada.
+- **11/10, campanha completa com os commits** (545 RUNs nos 13 perfis, 331
+  conformes): das 20:49 às 21:44 UTC, depois de as quatro classes voltarem à
+  ponta da 2.2 ([relatório](resultado-runbook-completo-com-commits-2026-10-11.md)).
+  Os vereditos são os mesmos da campanha sem os commits, par a par. O que
+  muda é o bug por trás de parte deles:
+  - com o commit 4, a PAC em análise de Y passa a ser recusada nos 19 TCs em
+    que Y não tem Account. No AR e no FW, X não recebe mais o e-mail de Y, mas
+    a pendência ainda grava o carimbo em X pelo Proponente que ficou com os
+    dados de X. No C1, o RUN para na recusa;
+  - no C2 e no C3, com o IdCliente de X na PAC em análise, o bug 4 continua;
+  - efeito novo: a Account Y nasce com os contatos de X, e a PAC aprovada
+    leva os aprovados ao Lead Y reutilizado (B9, nos TCs 047, 055 e 056).
+
+  A comparação completa está no [catálogo de bugs](bugs-pegos-pelo-runbook.md).
+- **11/10, campanha completa sem os commits** (545 RUNs nos 13 perfis, 331
+  conformes): depois da reversão, sem os cinco commits da seção 4.1
+  ([relatório](resultado-runbook-completo-sem-commits-2026-10-11.md)). PA, CA
+  e ME repetem os vereditos de 02/10.
+- **11/10, perfis das ordens reais, sem os commits** (237 RUNs, 178
+  conformes): depois da reversão
+  ([relatório](resultado-runbook-ordens-reais-2026-10-11.md)). Com a ordem
+  real da aprovação, a pendência grava na Account que a PAC em análise achou:
+  - em X, nos 19 TCs do bug 4;
+  - na Account duplicada errada, no TC-038;
+  - pelo reflexo, no Lead de outra pessoa, no TC-021.
+
+  A repetição do WebJob leva contatos de outra pessoa ao Lead novo de Y. O
+  relatório contou 11 TCs; a classificação revista, de 11/10, conta 13.
 - **02/10** (132 RUNs, 121 conformes): depois da reversão
   ([relatório](resultado-runbook-recorte-2.2-2026-10-02.md)).
 - **27/09** (das 16:53 às 18:41 UTC): antes da reversão das quatro classes,
@@ -201,16 +216,17 @@ Nenhum arquivo da 2.1 está na versão da ponta:
 ## 7. O que isso muda nos testes
 
 - **A dev roda a ponta da 2.2 desde 11/10, às 20:43 UTC.** As campanhas de
-  27/09 a 11/10 (a última terminou às 18:11 UTC) rodaram no estado revertido,
-  e o [catálogo de bugs](bugs-pegos-pelo-runbook.md) vale para ele. Para saber
-  quais bugs a ponta corrige, rode a campanha de novo e compare as matrizes
-  com `npm run runbook:bugs`.
+  27/09 a 11/10, até a que terminou às 18:11 UTC, rodaram no estado revertido.
+  A campanha das 20:49 já rodou com a ponta. O
+  [catálogo de bugs](bugs-pegos-pelo-runbook.md) traz as duas e o que mudou
+  entre elas (`npm run runbook:bugs -- --comparar`).
 - **PAC em análise de quem o Salesforce não acha:** com o commit 4, a ponta
   descarta o match por prospect quando o CPF diverge. A PAC em análise de Y
   passa a ser recusada (400, "Cliente(Account) não encontrado") até Y existir,
-  também nos TCs em que antes ela achava X (handoff do bug 4, seção 1.1). Os
-  perfis AR, AM e FW tratam essa recusa como esperada e reentregam a PAC
-  depois; os perfis C1 a C4 não, e o RUN para nela.
+  também nos TCs em que antes ela achava X. A campanha com os commits
+  confirmou isso nos 19 TCs em que Y não tem Account. Os perfis AR, AM e FW
+  tratam essa recusa como esperada e reentregam a PAC depois. Os perfis C1 a
+  C4 não a tratam, e o RUN para nela.
 - **Fila manual e vínculo da Opportunity:** com `9210581ea5` e `7c86318a05`,
   os eventos sem IdCliente seguem a ponta, tanto na PAC quanto na jornada
   (`jornadausuario-*`). Os cenários da API que mandam jornada sem cliente
