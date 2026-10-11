@@ -1,7 +1,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
 import { CENARIOS } from './cenarios.ts';
-import { NOMES_PERFIS, PERFIS, PERFIS_IDENTIDADE, TODOS_PERFIS, type ResultadoRun } from './engine.ts';
+import {
+  NOMES_PERFIS,
+  PERFIS,
+  PERFIS_IDENTIDADE,
+  PERFIS_ORDEM_REAL,
+  TODOS_PERFIS,
+  type ResultadoRun,
+} from './engine.ts';
 import { readCliFlag } from '../stress-o10-concurrent-events-lib.ts';
 
 /**
@@ -65,6 +72,16 @@ async function main(): Promise<void> {
           '> dados da pessoa aprovada e um gatilho (pendência ou contestação). Nos TCs em',
           '> que o caminho alcança X, "Account X intacta" diverge até os guards de',
           '> identidade serem implantados. Veja `docs/handoff-investigacao-tc001-bug4.md`.',
+          '',
+        ]
+      : []),
+    ...(perfis.some((perfil) => PERFIS_ORDEM_REAL.includes(perfil))
+      ? [
+          '> **Perfis AR, AM, FW, RC, EP e RL (ordens reais da aprovação):** a ordem que o',
+          '> MS de crédito, o WebJob e o MS Clientes produzem. "—" no AM é TC em que ele',
+          '> não se aplica (a pessoa aprovada ainda não existe no MS Clientes). Veja a',
+          '> seção 7.2 de `docs/origem-dos-eventos-no-salesforce.md` e o estado da dev em',
+          '> `docs/estado-da-mrv-devDan.md`.',
           '',
         ]
       : []),

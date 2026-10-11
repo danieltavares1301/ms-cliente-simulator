@@ -8,6 +8,7 @@ import {
   FalhaDeEvento,
   mensagem,
   PERFIS,
+  perfilAplicavel,
   resumirEstado,
   TODOS_PERFIS,
   type Perfil,
@@ -43,6 +44,7 @@ import {
  *   npm run runbook -- --tcs TC-005,TC-006 [--perfis PA,CA,ME]
  *   npm run runbook -- --todos [--saida resultados.jsonl]
  *   npm run runbook -- --tcs TC-001,TC-005 --perfis C1,C2,C3,C4
+ *   npm run runbook -- --tcs TC-001,TC-005 --perfis AR,AM,FW,RC,EP,RL
  *   npm run runbook -- --todos --paralelo 6
  *
  * Por padrão os RUNs rodam em sequência, como pede o runbook (§4.1.1).
@@ -50,7 +52,9 @@ import {
  * runbook, e um RUN que acusa job com erro é refeito em sequência antes de
  * virar divergência. Cada resultado vai para um JSONL, que
  * `npm run runbook:relatorio` consolida. Sem `--perfis`, rodam só PA, CA e
- * ME; C1 a C4 (bug 4 do TC-001) são opcionais.
+ * ME. São opcionais os perfis C1 a C4 (bug 4 do TC-001) e os das ordens reais
+ * da aprovação (AR, AM, FW, RC, EP e RL); o AM só roda nos TCs em que a
+ * pessoa aprovada já existe no MS Clientes.
  *
  * Queda de rede: leituras e exclusões tentam de novo; a primeira falha fecha
  * o portão, e nenhum RUN novo começa até a org responder. Um RUN que caiu é
@@ -134,6 +138,7 @@ async function executarRun(
     const { intermediario, final, prospectY, evidencia } = await execucao.executarCadeia(
       aprovacao,
       opcoes.timeoutJobsMs,
+      cenario.fluxo,
     );
     marcas.cadeia = Date.now();
     resultado.prospectY = prospectY;
@@ -259,9 +264,24 @@ async function main(): Promise<void> {
       motivo: `falha de rede (${resultado.falhaDeRede})`,
     });
 
+  // A aprovação só depende dos dados sintéticos do RUN; o construtor não toca a org.
+  const aplicavel = (cenario: Cenario, perfil: Perfil) =>
+    perfilAplicavel(
+      perfil,
+      cenario.aprovacao(new Execucao(conexao, cenario.id, perfil, opcoes.timeoutRequisicaoMs)),
+    );
+  const naoAplicaveis = cenarios.flatMap((cenario) =>
+    perfis.filter((perfil) => !aplicavel(cenario, perfil)).map((perfil) => `${cenario.id}:${perfil}`),
+  );
+  if (naoAplicaveis.length > 0) {
+    logStructured('runbook-perfil-nao-aplicavel', {
+      motivo: 'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update)',
+      pares: naoAplicaveis,
+    });
+  }
   const pendentes = cenarios.flatMap((cenario) =>
     perfis
-      .filter((perfil) => !concluidos.has(`${cenario.id}:${perfil}`))
+      .filter((perfil) => !concluidos.has(`${cenario.id}:${perfil}`) && aplicavel(cenario, perfil))
       .map((perfil) => ({ cenario, perfil })),
   );
   const gravador = criarGravadorSerial((linha) => appendFile(saida, linha, 'utf8'));
