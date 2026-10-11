@@ -5,6 +5,28 @@ a investigação sem acesso à conversa anterior. A seção 10 traz o estado do
 harness do runbook, a campanha de 02/10 e a situação da `mrv-devDan` depois
 dela.
 
+> **Atualização de 2026-10-11.** Leia também
+> [origem dos eventos que o Salesforce recebe](origem-dos-eventos-no-salesforce.md).
+>
+> - **Quem publica cada evento da cadeia abaixo:**
+>   - as PACs e o `notificacaopendencia-insert` vêm do MS de crédito, no
+>     tópico `pacs`;
+>   - os eventos de cliente vêm do MS Clientes;
+>   - a jornada vem da Plataforma BFF.
+>
+>   O efeito entre origens que iniciou o bug 4 está na seção 6.2 daquele doc.
+> - **PROS-X nos primeiros eventos de Y:** o MS Clientes publica contato e
+>   endereço com o prospect que o cliente tem no momento. Por isso os eventos
+>   de Y saem com PROS-X até o callback do Salesforce gravar PROS-Y (seção 6.5
+>   daquele doc).
+> - **Caminhos e arquivos do Windows:** os caminhos `D:\`, `C:\` e `%TEMP%`
+>   deste documento são da máquina Windows onde a investigação começou. A
+>   seção [Repositórios relacionados](../README.md#repositórios-relacionados)
+>   do README dá os caminhos atuais. Também lista o que ficou só no Windows:
+>   - a skill `salesforce-unificacao-clientes`, citada na seção 5;
+>   - o plano de correção do guard, citado na seção 9;
+>   - os logs das seções 8 e 10.
+
 ## 1. Objetivo e estado atual
 
 O usuário quer **reproduzir na sandbox `mrv-devDan`, usando os scripts deste
