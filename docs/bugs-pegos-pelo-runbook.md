@@ -198,9 +198,12 @@ aparece com os commits.
   jornada, que pertence a outra conta. O `NotificacaoCliente` registra
   "IdProspect pertence a outra conta" e roda de novo o `criarLeadDoCliente`,
   que grava no Lead de Y o e-mail e o celular que a primeira tentativa tinha
-  deixado de fora, porque colidem com X ou com Z. Os parciais da repetição são
-  descartados ("prospect divergente de outra conta"). Na primeira tentativa
-  (perfil AR), isso não acontece.
+  deixado de fora, porque colidem com X ou com Z. Pela leitura do código, quem
+  grava é o ramo do `insertLeadQueueable` que reutiliza o Lead do mesmo CPF,
+  agora o Lead novo de Y: ele preenche e-mail e celular vazios sem conferir se
+  pertencem a outra pessoa. Os parciais da repetição são descartados
+  ("prospect divergente de outra conta"). Na primeira tentativa (perfil AR),
+  isso não acontece.
 - **Onde:** FW, em 13 TCs: 001, 007, 010, 016, 017, 018, 025, 038, 041, 042,
   043, 054 e 057.
 - **Evidência:** `TC001-FW-7a35f3` e, com os commits, `TC001-FW-802785`. O
@@ -275,15 +278,22 @@ aparece com os commits.
   2. os parciais do WebJob, com os contatos aprovados e o prospect da jornada,
      são descartados ("prospect divergente de outra conta"). A Account Y fica
      com os contatos de X até a PAC aprovada;
-  3. na PAC aprovada, a sincronização pós-aprovação
-     (`ClienteService.sincronizarContatosAprovadosPac`) troca a Account Y para
-     os contatos aprovados, e eles chegam ao Lead Y, que perde os dele onde
-     não há colisão com outro Lead. No 055 e no 056, o celular aprovado é do
-     Lead Z, e só o e-mail muda.
+  3. na PAC aprovada, o Proponente, com a flag da pendência ligada, é
+     religado à Account Y. A `sincronizarEmailContatoPendencia` grava nela o
+     e-mail aprovado, fora dos escopos de reflexo, e o reflexo da Account para
+     o Lead leva esse e-mail ao Lead Y;
+  4. a sincronização pós-aprovação
+     (`ClienteService.sincronizarContatosAprovadosPac`) troca o celular da
+     Account Y e pede a reconciliação `POS_PAC_APROVADA`. Como agora só o
+     celular diverge, a regra do `d6f147d303` deixa sobrescrevê-lo no Lead Y,
+     a menos que ele colida com outro Lead. No 055 e no 056, o celular
+     aprovado é do Lead Z, a sobrescrita é barrada, e só o e-mail muda.
 
   Sem os commits, a PAC em análise aceita já tinha posto os dados de Y no
   Proponente, e a Account Y nascia com os contatos aprovados. A regra de
-  descarte e a leitura pelo Proponente já existiam em 03/09.
+  descarte e a leitura pelo Proponente já existiam em 03/09. No CA, sem
+  pendência, o e-mail não chega antes ao Lead Y: os dois contatos divergem, e
+  a mesma regra do `d6f147d303` preserva o Lead.
 - **Onde:** AR e FW, nos TCs 047, 055 e 056, só com os commits.
   - Pelo passo 1, a Account Y deve nascer com os contatos de X nos 19 TCs em
     que a PAC em análise é recusada. O harness confere só o estado final, que
@@ -291,10 +301,15 @@ aparece com os commits.
     do Lead Y.
   - No 055 e no 056, o e-mail aprovado só fica livre porque o B8 tira de X o
     e-mail que a massa deu a ela.
+  - O mesmo efeito aparece no TC-044, no AR e no FW: o Lead Y termina com o
+    e-mail e o celular aprovados. Não entra na contagem porque o TC-044 não
+    confere os contatos do Lead Y; o runbook não os define.
 - **Evidência:**
   - na campanha: `TC047-AR-6f8c7a`, `TC047-FW-06cd51` e `TC055-AR-9ae356`;
   - com retratos: `TC047-AR-c90540` e `TC055-AR-6dbf3c`. A Account Y fica com
     o e-mail e o celular de X, e o Lead Y intacto, até a PAC aprovada;
+  - no log da reconciliação do `TC055-AR-6dbf3c`, "sobrescrita barrada por
+    colisao" só com o celular colidindo: o e-mail já tinha chegado ao Lead Y;
   - sem as reentregas: `TC047-AR-512768`, sem a das PACs em análise, e
     `TC047-AR-473a24`, sem a da pendência, divergem do mesmo jeito.
 
@@ -324,6 +339,13 @@ contatos aprovados que o fluxo lê do Proponente, e, com a PAC em análise
 recusada, eles são os de X. Sem os commits, a PAC em análise aceita punha no
 Proponente os contatos de Y, e o AR e o FW achavam o candidato nesses dois
 TCs.
+
+Pela leitura do código, o mesmo passo explicaria o K2 nos perfis de ordem CA
+desde 27/09. Sem PAC em análise de Y, o Proponente achado pelo prospect da
+jornada é o da PAC de X, e o candidato é procurado pelos contatos de X. Isso
+explica também por que o 012 e o 013 passam: o contato que eles compartilham é
+de X. A hipótese não foi reproduzida à parte
+([inventário dos commits da 2.2](inventario-commits-2.2.md), seção 6).
 
 ## 3. Matrizes
 
