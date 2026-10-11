@@ -54,6 +54,14 @@ O que o simulador encontrou nesse estado:
 
 Campanhas do runbook e o estado em que rodaram:
 
+- **11/10, perfis das ordens reais** (237 RUNs, 178 conformes): depois da
+  reversão ([relatório](resultado-runbook-ordens-reais-2026-10-11.md)). Com a
+  ordem real da aprovação, a pendência grava na Account que a PAC em análise
+  achou: em X nos 19 TCs do bug 4, na Account duplicada errada no TC-038 e,
+  pelo reflexo, no Lead de outra pessoa no TC-021. A repetição do WebJob leva
+  contatos de outra pessoa ao Lead novo de Y em 11 TCs. O guard de parciais
+  do commit 4 não está na dev; o efeito dele nesses casos só se mede com a
+  ponta implantada.
 - **02/10** (132 RUNs, 121 conformes): depois da reversão
   ([relatório](resultado-runbook-recorte-2.2-2026-10-02.md)).
 - **27/09** (das 16:53 às 18:41 UTC): antes da reversão das quatro classes,
@@ -181,7 +189,7 @@ Nenhum arquivo da 2.1 está na versão da ponta:
 - **Relógio do crédito:** a `NotificacaoPAC` de `c04b6add92` já soma 3h à
   data que chega sem fuso, então a dev grava a data da PAC em UTC. A seção
   6.4 do [doc de origem dos eventos](origem-dos-eventos-no-salesforce.md)
-  ainda diz o contrário e precisa ser corrigida.
+  explica, e o perfil RC do harness confere.
 - **Para testar a ponta da 2.2,** é preciso implantar as quatro classes da
   ponta, ou da versão em teste. Depois, rode o script e atualize este doc.
 
