@@ -68,6 +68,12 @@ mesmos contatos"):
   reportou que o Lead do cliente Y não foi criado em staging; a causa
   documentada é `UNABLE_TO_LOCK_ROW`.
 
+> **Retificação de 2026-10-11:** a reversão levou `ClienteService`,
+> `NotificacaoCliente`, `NotificacaoMaquinaEstado` e `NotificacaoPAC` à versão
+> de 03/09. Por isso, além dos commits 3 e 4, ficaram fora da dev
+> `9210581ea5`, `7c86318a05` e `3f2919f5e7`. O retrato arquivo por arquivo
+> está em [estado da `mrv-devDan`](estado-da-mrv-devDan.md).
+
 Para investigar, os dois commits foram **revertidos manualmente** na branch
 `GV_918914_UnificPosAprovPAC` em `mrv-devDan`, e este documento registra as
 tentativas de reprodução contra esse estado revertido, usando 4 scripts de
