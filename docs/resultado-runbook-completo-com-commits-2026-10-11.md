@@ -117,13 +117,17 @@ que traz as matrizes das duas campanhas. A comparação sai de
       jornada, são descartados ("prospect divergente de outra conta", regra que
       já existia em 03/09). A Account Y fica com os contatos de X até a PAC
       aprovada;
-   3. na PAC aprovada, a sincronização pós-aprovação troca a Account Y para os
-      contatos aprovados e os leva ao Lead Y, que perde os dele onde não há
-      colisão com outro Lead.
+   3. na PAC aprovada, a pendência grava o e-mail aprovado na Account Y, e o
+      reflexo o leva ao Lead Y. Depois, a reconciliação `POS_PAC_APROVADA`
+      troca o celular do Lead Y, a menos que ele colida com outro Lead. No
+      055, o log da reconciliação mostra a sobrescrita do celular barrada por
+      colisão com o Lead Z.
 
    Sem os commits, a PAC em análise aceita já tinha posto os dados de Y no
    Proponente, e a Account Y nascia com os contatos aprovados. Tirar as
-   reentregas das PACs em análise, ou a da pendência, não muda o resultado.
+   reentregas das PACs em análise, ou a da pendência, não muda o resultado. O
+   mesmo efeito aparece no TC-044, no AR e no FW, mas não é contado: o TC não
+   confere os contatos do Lead Y.
 5. **K2 no AR e no FW (045 e 049).** Vem do passo 1 do B9: a busca do Lead
    candidato usa os contatos aprovados que o fluxo leu do Proponente, e com os
    commits eles são os de X. Sem os commits, o AR e o FW reutilizavam o

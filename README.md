@@ -749,6 +749,10 @@ máquina, eles ficam ao lado deste diretório:
   a mesma campanha com as quatro classes na ponta da 2.2: os mesmos
   vereditos, o bug 4 fora do C1, do AR e do FW, e o efeito novo no Lead Y
   reutilizado.
+- [Inventário dos commits da 2.2](docs/inventario-commits-2.2.md) — os 47
+  commits do branch `GV_918914_UnificPosAprovPAC`, um a um: o que corrigem, se
+  o harness cobre, em que regra da versão enxuta caem e se sobrevivem na
+  ponta. É a base para reescrever a camada de identidade e contatos.
 - [Estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md) — em que ponto dos
   branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev,
   por que quatro classes ficaram em 03/09 de 27/09 a 11/10 e o que o simulador achou nesse
