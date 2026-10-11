@@ -590,7 +590,10 @@ máquina, eles ficam ao lado deste diretório:
   na branch de outra frente. Não troque a branch. Para ler o código da
   unificação, use `git show origin/GV_918914_UnificPosAprovPAC:<arquivo>`.
 - **MS de crédito:** o código dele, que publica `pac-*` e
-  `notificacaopendencia-*`, não está clonado.
+  `notificacaopendencia-*`, não está clonado, e nenhum repositório local cita
+  o nome do repositório. O serviço se identifica como `proponentecredito`, na
+  rota da API (`/v1.0/qualidadedecredito/proponentecredito/...`) e no subject
+  dos eventos.
 - **Caminhos do Windows:** o projeto começou no Windows. O plano, a passagem
   de contexto do bug 4 e outros docs ainda citam caminhos de lá, como
   `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`,

@@ -18,7 +18,7 @@ com seu tópico no mesmo Event Grid Domain:
 | Eventos | Endpoint Apex | Tópico / subject real | Publicador |
 |---|---|---|---|
 | `cliente-*`, `contato-*`, `endereco-*` | `/Cliente` | `clientes` / `cliente` | MS Clientes |
-| `pac-insert`, `pac-update` | `/PAC` | `pacs` / `proponentecredito/PacEventGridDTO` | MS de crédito (proponente-credito) |
+| `pac-insert`, `pac-update` | `/PAC` | `pacs` / `proponentecredito/PacEventGridDTO` | MS de crédito (`proponentecredito`) |
 | `notificacaopendencia-insert` | `/Pendencia` | `pacs` / `proponentecredito/NotificacaoPendenciasProponenteDTO` | MS de crédito |
 | `jornadausuario-insert`, `jornadausuario-update` | `/MaquinaEstado` | `jornadas` / `jornadas` | Plataforma BFF |
 
@@ -130,10 +130,16 @@ Grid com `aeg-sas-key`.
 
 ### 3.3 O que a BFF aciona, mas não publica
 
-A BFF chama o MS de crédito em `.../pacs/analisar-credito`, na contestação e
-em `notificacao-pendencias`. Quem publica os `pac-*` e os
+A BFF chama o MS de crédito pela rota
+`{ApiUrl}/v1.0/qualidadedecredito/proponentecredito/...`
+(`src/Plataforma.DataAccess/CreditoAgent.cs:30-31`): em `pacs/analisar-credito`,
+na contestação e em `notificacao-pendencias`. Quem publica os `pac-*` e os
 `notificacaopendencia-*` resultantes é o MS de crédito, no tópico `pacs`. A
 BFF só consome o status da PAC, pela fila `eg-status-pac`.
+
+O repositório do MS de crédito não está clonado, e nenhum dos repositórios
+locais cita o nome dele. O serviço se identifica como `proponentecredito`,
+tanto na rota da API quanto no prefixo do subject dos eventos.
 
 ### 3.4 O que o MS Clientes publica
 
