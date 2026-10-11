@@ -15,6 +15,8 @@ O simulador devera reproduzir sequencias realistas, incluindo eventos fora de or
 
 A implementacao sera feita em um repositorio separado do Salesforce, em `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`, com TypeScript, Vercel Functions, Neon PostgreSQL e Upstash QStash. O callback usara Named Credential e External Credential dedicados ao simulador; `ServicoClientes` permanece restrito ao provedor de identidade do MS Clientes real.
 
+> **Nota (2026-10-11):** os caminhos `D:\...` deste plano sao da maquina Windows onde o projeto comecou. Os caminhos atuais dos repositorios estao na secao "Repositorios relacionados" do `README.md`.
+
 ### 1.1 Decisoes confirmadas em 2026-08-22
 
 - Nao ha dependencia de reuniao ou alinhamento previo para iniciar; a Fase 0 valida e configura tecnicamente as decisoes ja aprovadas.

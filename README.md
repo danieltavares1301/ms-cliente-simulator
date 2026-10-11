@@ -4,20 +4,40 @@ Projeto independente para simular, de forma controlada, os contratos do MS Clien
 
 ## Estado
 
-Versão **0.5.2**. A Fase 5 entrega a infraestrutura do callback GraphQL
-simulado no lado do simulador: parser com AST oficial (`graphql`), políticas de
-resposta, correlação com runs recentes por `id`/`idProspectSalesforce`,
-persistência sanitizada em `graphql_callback`, feature flag dedicada e endpoint
-interno protegido por autenticação configurável. Esta versão também adiciona um
-endpoint fake de emissão de token OAuth2 para redirecionamento temporário da
-Named Credential compartilhada `ServicoClientes` na sandbox pessoal
-autorizada. O target fake continua default; o dispatch real e o Test Data
-Adapter da Fase 4 permanecem disponíveis.
-Nenhum cenário atual do catálogo dispara esse callback em round-trip real ainda:
-os quatro cenários `CORE` seguem com `expectedCallbacks.max = 0`, então esta
-fase deixa a infraestrutura pronta e testada para expansões futuras das Fases
-6/7. A Tarefa 5.0 (Named Credential/External Credential + alteração
-`MSClienteService.cls`) continua fora de escopo deste commit.
+Versão **0.28.0**, a mesma do deploy no Vercel em 2026-10-11. O projeto tem
+duas partes:
+
+- **API do simulador**, no Vercel. Executa por `POST /api/v1/runs` os 45
+  cenários declarados em `src/scenarios/definitions.ts`, com orquestração por
+  QStash e persistência no Neon. Também recebe os callouts que o Salesforce
+  faz de volta: GraphQL `atualizarCliente`, token, PAC Crédito e Contestação.
+- **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
+  Salesforce CLI:
+  - o harness do runbook da Unificação 2.2, com 44 TCs executáveis nos perfis
+    PA, CA e ME e os perfis opcionais C1 a C4 do bug 4;
+  - as ferramentas das ordens O06, O07, O09, O10 e O12;
+  - os diagnósticos do TC-001;
+  - as consultas somente leitura de `mrv-staging` (`scripts/analise-staging/`).
+
+As fases 0 a 7 estão implementadas, e os itens que ainda faltam estão marcados
+com `[ ]` nos checkpoints do plano. Na Fase 8, com a Tarefa 8.4, todas as
+ordens do catálogo de O01 a O14 ganharam cenário ou script. O O15 segue
+bloqueado, e as tarefas 8.1 a 8.3 seguem abertas.
+
+Os trabalhos mais recentes:
+
+- a investigação do bug 4 do TC-001, reproduzido na `mrv-devDan` em 01/10;
+- a campanha do runbook de 02/10, com 121 de 132 RUNs conformes;
+- a análise de quem publica cada evento que o Salesforce recebe (MS Clientes,
+  MS de crédito e Plataforma BFF).
+
+Para assumir o trabalho sem contexto, leia nesta ordem:
+
+1. a seção "Regras críticas" do [plano técnico](plano-api-simulador-ms-clientes-2.2.md);
+2. a [passagem de contexto do bug 4](docs/handoff-investigacao-tc001-bug4.md);
+3. a [origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md);
+4. a seção [Repositórios relacionados](#repositórios-relacionados), para achar
+   o código dos outros sistemas.
 
 ## Quick Start
 
@@ -515,6 +535,30 @@ reproduzido (incluindo um achado novo — corrida silenciosa de Leads
 duplicados órfãos, sem nenhum erro visível):
 [`docs/tc-001-diagnostico-corridas-commits-3-4.md`](docs/tc-001-diagnostico-corridas-commits-3-4.md).
 
+### Consultas somente leitura em `mrv-staging`
+
+`scripts/analise-staging/` reúne as consultas que sustentam a
+[análise de origem dos eventos](docs/origem-dos-eventos-no-salesforce.md). Elas
+mostram, por exemplo:
+
+- quem publica cada evento;
+- o formato real de cada origem;
+- quem dispara os eventos do MS Clientes;
+- as reentregas;
+- o `Estado` das jornadas;
+- se o código implantado compara datas de origens diferentes.
+
+Rodam direto no `node`, sem `npm install`, com a Salesforce CLI autenticada
+como `mrv-staging`. Exemplo:
+
+```bash
+node scripts/analise-staging/origem-eventos.ts
+```
+
+A seção 2 do doc lista os seis scripts. Eles só aceitam SELECT, só falam com
+`mrv-staging` ou `mrv-devDan` e mascaram valores com cara de dado pessoal,
+então nunca alteram nada em staging.
+
 ## Schema e migrations
 
 O schema tipado está em `src/db/schema.ts` e as migrations geradas ficam em
@@ -530,6 +574,35 @@ npm run db:check
 oferece `db:push` intencionalmente: migrations devem ser revisadas e aplicadas
 por um fluxo controlado de CI/Neon. `db:migrate` exige `DATABASE_URL` e nunca
 roda automaticamente no build/deploy.
+
+## Repositórios relacionados
+
+O simulador imita sistemas cujo código está em outros repositórios. Nesta
+máquina, eles ficam ao lado deste diretório:
+
+| Repositório | Caminho | O que é |
+|---|---|---|
+| `com_salesforce_mrv` | `../com_salesforce_mrv` | Apex e metadados da org. As regras críticas do plano valem aqui: nada de commit, e mudança na org só com aprovação |
+| `com_plataforma_bff` | `../com_plataforma_bff` | Plataforma BFF: publica `jornadausuario-*` e chama `POST /apexrest/Lead` |
+| `cliente` | `../cliente` | MS Clientes real: publica `cliente-*`, `contato-*` e `endereco-*` |
+
+- **Branch do Salesforce:** o checkout local do `com_salesforce_mrv` pode estar
+  na branch de outra frente. Não troque a branch. Para ler o código da
+  unificação, use `git show origin/GV_918914_UnificPosAprovPAC:<arquivo>`.
+- **MS de crédito:** o código dele, que publica `pac-*` e
+  `notificacaopendencia-*`, não está clonado.
+- **Caminhos do Windows:** o projeto começou no Windows. O plano, a passagem
+  de contexto do bug 4 e outros docs ainda citam caminhos de lá, como
+  `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`,
+  `C:\Users\preda\...\com_salesforce_mrv` e `%TEMP%\claude\...`, e comandos
+  `sf.cmd`/`npm.cmd`. Use os caminhos relativos acima, e `sf`/`npm` no lugar
+  dos `.cmd`.
+- **Arquivos que ficaram no Windows:** a skill `salesforce-unificacao-clientes`,
+  citada como fonte normativa pelo plano e pelo runbook, não está em nenhum
+  ref git do `com_salesforce_mrv`. O mesmo vale para
+  `docs/plano-correcao-guard-identidade-email-pendencia-proponente.md` e para
+  as evidências brutas citadas nas seções 8 e 10 da passagem do bug 4. Quem
+  precisar delas tem que pedir uma cópia ao dono do projeto.
 
 ## Documentação
 

@@ -46,8 +46,7 @@ cada contato e cada endereço chega por uma chamada separada (seções 3.4 e
 - **Envelope real em `mrv-staging`:** consultas somente leitura em
   `LogIntegracao__c.BodyRequest__c`. As consultas imprimiram só tópico,
   subject, forma do envelope, formato de data e contagens. Nenhum dado de
-  negócio saiu da org nem entrou neste documento. Os scripts ficaram fora do
-  repositório.
+  negócio saiu da org nem entrou neste documento.
 - **Apex:**
   - o checkout local do `com_salesforce_mrv`;
   - o branch `origin/GV_918914_UnificPosAprovPAC`, lido sem checkout;
@@ -57,6 +56,26 @@ cada contato e cada endereço chega por uma chamada separada (seções 3.4 e
 As amostras de staging são as mais recentes de cada tipo, limitadas a algumas
 centenas de logs. Servem para atribuir a origem e o formato, não para medir
 volume.
+
+As consultas estão em `scripts/analise-staging/`. Todas rodam direto no
+`node`, sem `npm install`, desde que a Salesforce CLI esteja autenticada como
+`mrv-staging`:
+
+| Script | O que mede | Seções |
+|---|---|---|
+| `origem-eventos.ts` | tópico, subject, versões, chaves do envelope e formato das datas, por tipo de evento | 1 e 4 |
+| `payload-ms-clientes.ts` | chaves do `data` do MS Clientes, telefone, DDI e tipo de endereço | 4 |
+| `chamadores-ms-clientes.ts` | quem disparou cada evento do MS Clientes (`UsuarioAlteracao`, `OrigemAlteracao`) | 3.5 |
+| `estado-jornada.ts` | `Estado` da raiz em `jornadausuario-*` contra o primeiro `"Estado"` do texto | 5 |
+| `reentregas.ts` | eventos entregues mais de uma vez: intervalo, erro da 1ª entrega e formas de envelope | 6.1 e 6.3 |
+| `classes-implantadas.ts` | se o código implantado compara a data da PAC com os marcadores de contato (`--org mrv-staging` ou `--org mrv-devDan`) | 6.4 |
+
+Exemplo: `node scripts/analise-staging/estado-jornada.ts --dias 45`.
+
+Os scripts só aceitam SELECT, só falam com `mrv-staging` ou `mrv-devDan` e
+mascaram qualquer valor com cara de dado pessoal. As janelas são relativas ao
+dia em que rodam, então os números mudam de uma execução para outra. As
+contagens deste documento são de 2026-10-11.
 
 ## 3. O que a Plataforma BFF e o MS Clientes enviam ao Salesforce
 
@@ -195,7 +214,7 @@ dos últimos 30 dias, com até 600 logs por tipo:
 | `metadataVersion` | ausente | ausente, exceto parte das pendências (seção 6.3) | `"1"` | presente |
 | `dataVersion` | `1.0` | `1.0` | vazio | presente |
 | `eventTime` | UTC com `Z`, 7 casas | UTC com `Z`, 7 casas | UTC com `+00:00`, 7 casas | UTC com `Z`, sem fração ou `.000` |
-| `dataAlteracao` | UTC com `Z`, 4 a 7 casas | horário local **sem fuso** | horário de Brasília **sem fuso** | UTC com `Z` |
+| `dataAlteracao` | UTC com `Z`, 2 a 7 casas | horário local **sem fuso** | horário de Brasília **sem fuso** | UTC com `Z` |
 | Eventos por request | 1 | 1 | 1 | 1 |
 
 No `jornadausuario-*` real, `EventTime` menos `DataAlteracao` lida como UTC dá
@@ -241,13 +260,23 @@ O caminho Apex de `Estado` não reconhecido existe e o cenário continua válido
 como teste desse ramo. O que cai é a premissa de que esse é o padrão real mais
 comum.
 
+A medição se refaz com `node scripts/analise-staging/estado-jornada.ts`. Uma
+segunda execução no mesmo dia, com a janela deslocada, contou 1.211 eventos
+distintos e também nenhuma UF na raiz.
+
 ## 6. Por que a ordem dos eventos varia no Salesforce
 
 ### 6.1 Dentro de um mesmo publicador: a separação não explica
 
 A inversão que o runbook cobre com os perfis PA, CA e ME (contato ou endereço
 antes de `cliente-*`) envolve só eventos do MS Clientes, no mesmo tópico.
-As causas são outras. As três primeiras estão no código do MS Clientes:
+Entre o MS Clientes e o dado gravado, a ordem pode se perder em três trechos:
+
+```
+MS Clientes ──(1) publicar──► Event Grid ──(2) entregar──► Salesforce ──(3) processar──► dado gravado
+```
+
+**(1) Publicar.** O código do MS Clientes não preserva a ordem:
 
 - **Publicação sem espera:** com `AddAgents(true)`
   (`src/Cliente.API/Startup.cs:92`), `EventGridAgent.Publicar` dispara o envio
@@ -259,27 +288,39 @@ As causas são outras. As três primeiras estão no código do MS Clientes:
   para quem chamou, porque a mutation já respondeu.
 - **Uma chamada por parcial:** cada contato e cada endereço chega ao MS
   Clientes numa mutation própria e vira um evento independente desde a origem.
-- **Um evento por request:** cada evento é entregue sozinho, nunca em lote
-  (confirmado em staging para todos os tipos).
-- **Sem ordem garantida:** o Event Grid não garante ordem de entrega.
-- **Concorrência no Apex:** cada request é uma transação própria, e várias
-  rodam em paralelo. No incidente do bug 4, o MS Clientes emitiu cliente,
-  celular, e-mail e endereços nessa ordem, mas todos foram gravados no mesmo
-  segundo ([passagem de contexto](handoff-investigacao-tc001-bug4.md), seção 4).
-- **Falha e reentrega:** quando a resposta é erro, o Event Grid entrega de novo
-  segundos depois, já atrás de eventos mais novos. Amostra dos últimos 7 dias
-  em staging:
 
-  | Evento | Distintos | Repetidos | Erro na 1ª entrega | Intervalo até a 2ª | Resultado final |
-  |---|---:|---:|---|---|---|
-  | `cliente-insert` | 106 | 55 | `DUPLICATE_VALUE` em todos | 1 a 60 s | sucesso em todos |
-  | `pac-update` | 270 | 29 | `UNABLE_TO_LOCK_ROW` em 23 | 10 a 60 s na maioria | sucesso em todos |
+**(2) Entregar.** O Event Grid entrega cada evento numa chamada HTTP própria,
+nunca em lote (confirmado em staging para todos os tipos). As entregas rodam em
+paralelo, sem fila por cliente, e cada uma leva um tempo diferente, conforme a
+rede e a carga do Salesforce. Quando uma entrega falha, o Event Grid tenta de
+novo mais tarde, sem segurar os eventos seguintes. A documentação do Event Grid
+avisa que a ordem de entrega não é garantida. O `CLAUDE.md` da Plataforma BFF
+registra a mesma lição: para ter ordem por jornada, quem produz os eventos
+precisa ser código próprio.
 
-  O `DUPLICATE_VALUE` na primeira tentativa indica corrida com outro evento
-  do mesmo cliente processado em paralelo. O par exato não foi identificado.
-  Na prática, metade dos `cliente-insert` só é aplicada depois dos eventos que
-  chegaram junto com ele: é a ordem "parciais antes" produzida pela
-  infraestrutura, dentro de um único publicador.
+**(3) Processar.** Cada request vira uma transação própria no Salesforce, e
+várias rodam em paralelo. No incidente do bug 4, o MS Clientes emitiu cliente,
+celular, e-mail e endereços nessa ordem, mas todos foram gravados no mesmo
+segundo ([passagem de contexto](handoff-investigacao-tc001-bug4.md), seção 4).
+Quando o processamento dá erro, o Event Grid entrega o evento de novo segundos
+depois, já atrás dos mais novos. Amostra dos últimos 7 dias em staging
+(`reentregas.ts`):
+
+| Evento | Distintos | Repetidos | Erro na 1ª entrega | Intervalo até a 2ª | Resultado final |
+|---|---:|---:|---|---|---|
+| `cliente-insert` | 106 | 55 | `DUPLICATE_VALUE` em todos | 1 a 60 s | sucesso em todos |
+| `contato-insert` | 212 | 0 | — | — | — |
+| `pac-update` | 270 | 29 | `UNABLE_TO_LOCK_ROW` em 23 | 10 a 60 s na maioria | sucesso em todos |
+
+O `DUPLICATE_VALUE` na primeira tentativa indica corrida com outro evento do
+mesmo cliente processado em paralelo. O par exato não foi identificado, mas
+quem perde a corrida é sempre o `cliente-insert`: nenhum `contato-insert` da
+mesma amostra precisou de reentrega. Na prática, metade dos `cliente-insert`
+só é aplicada depois dos eventos que chegaram junto com ele. É a ordem
+"parciais antes" produzida dentro de um único publicador.
+
+Esperar a confirmação de cada evento no MS Clientes resolveria só o trecho 1:
+a entrega e o processamento continuariam podendo trocar a ordem.
 
 ### 6.2 Entre publicadores: a separação explica
 
@@ -307,14 +348,16 @@ nessa janela.
 
 ### 6.3 A pendência chega por duas rotas
 
-Nos últimos 7 dias:
+Nos últimos 7 dias (`reentregas.ts`):
 
 - todos os 43 `notificacaopendencia-insert` distintos chegaram duas vezes ou
   mais;
 - 42 deles chegaram nas duas formas de envelope: com `metadataVersion`, que é
   o formato de entrega do Event Grid, e sem;
-- a mediana entre a primeira e a última entrega foi de 11 s, e o máximo de
-  43 s.
+- nenhum teve erro na primeira entrega, e 33 chegaram pela segunda vez em até
+  1 s. Ou seja, a repetição não é reentrega por falha;
+- a mediana entre a primeira e a última entrega foi de 11 s, mas alguns
+  eventos continuaram chegando por horas.
 
 Isso indica duas assinaturas ou rotas para o mesmo evento, mas a rota exata não
 foi confirmada. A [passagem de contexto do bug 4](handoff-investigacao-tc001-bug4.md)
