@@ -546,7 +546,9 @@ mostram, por exemplo:
 - quem dispara os eventos do MS Clientes;
 - as reentregas;
 - o `Estado` das jornadas;
-- se o código implantado compara datas de origens diferentes.
+- se o código implantado compara datas de origens diferentes;
+- o fuso do `eventTime` de cada origem;
+- a ordem real dos eventos na aprovação de uma PAC.
 
 Rodam direto no `node`, sem `npm install`, com a Salesforce CLI autenticada
 como `mrv-staging`. Exemplo:
@@ -555,7 +557,7 @@ como `mrv-staging`. Exemplo:
 node scripts/analise-staging/origem-eventos.ts
 ```
 
-A seção 2 do doc lista os seis scripts. Eles só aceitam SELECT, só falam com
+A seção 2 do doc lista os oito scripts. Eles só aceitam SELECT, só falam com
 `mrv-staging` ou `mrv-devDan` e mascaram valores com cara de dado pessoal,
 então nunca alteram nada em staging.
 
@@ -595,6 +597,10 @@ máquina, eles ficam ao lado deste diretório:
   `proponentecredito` na rota da API
   (`/v1.0/qualidadedecredito/proponentecredito/...`) e no prefixo do subject
   dos eventos (`EventGridPublisher.java:41`).
+- **WebJob do crédito:** quem chama o MS Clientes depois da aprovação de uma
+  PAC é o "Análise Crédito Web Job", que consome uma fila do Service Bus
+  alimentada pelo MS de crédito. O código dele não está clonado. O fluxo está
+  na seção 3.7 do [doc de origem dos eventos](docs/origem-dos-eventos-no-salesforce.md).
 - **Caminhos do Windows:** o projeto começou no Windows. O plano, a passagem
   de contexto do bug 4 e outros docs ainda citam caminhos de lá, como
   `D:\Documentos\Trabalho\Ambientes\MRV\MS Cliente`,
