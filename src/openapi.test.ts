@@ -135,9 +135,11 @@ describe('OpenAPI document', () => {
     expect(JSON.stringify(envelopeSchema)).toContain('idcliente');
     expect(JSON.stringify(envelopeSchema)).toContain('cliente-insert');
     expect(JSON.stringify(envelopeSchema)).toContain('endereco-update');
+    // Date only or the yyyy-MM-ddTHH:mm:ssZ form published by MS Clientes.
     expect(JSON.stringify(envelopeSchema)).toContain(
-      '"datanascimento":{"type":"string","format":"date"',
+      '"datanascimento":{"type":"string","pattern":',
     );
+    expect(JSON.stringify(envelopeSchema)).toContain('notificacaopendencia-insert');
     expect(schemas.ScenarioMetadata.additionalProperties).toBe(false);
     expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('CONTRACT_ONLY');
     expect(JSON.stringify(schemas.ScenarioMetadata)).toContain('READY');

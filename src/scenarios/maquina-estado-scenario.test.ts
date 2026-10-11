@@ -52,6 +52,48 @@ describe('MaquinaEstado scenario definitions', () => {
     });
   });
 
+  it('only lets PENDENCIA steps dispatch notificacaopendencia-insert events', () => {
+    const fixture = renderScenarioFixture({
+      scenarioKey: 'maquina-estado-insert-minimo',
+      version: 1,
+      seed: 'phase-seven-seed',
+      runId: 'run_phase_seven_pendencia_rules',
+      eventStartAt: '2026-09-22T00:00:00.000Z',
+    });
+    const [passo] = fixture.steps;
+    const pendencia = {
+      ...passo!.envelope[0]!,
+      eventType: 'notificacaopendencia-insert' as const,
+      data: {
+        proponente: { id: 'PROP-SIM-001', email: 'cliente@example.invalid' },
+        tipoNotificacao: 'DESLIGAMENTO',
+      },
+    };
+    const comPasso = (mudanca: object) => ({
+      ...fixture,
+      steps: [{ ...passo!, ...mudanca }, ...fixture.steps.slice(1)],
+    });
+
+    // Trocar o passo quebra outras amarrações da fixture de máquina (cleanup da
+    // Opportunity); aqui só importa que o alvo PENDENCIA aceite a pendência.
+    const aceita = renderedScenarioFixtureSchema.safeParse(
+      comPasso({ target: 'PENDENCIA', eventType: pendencia.eventType, envelope: [pendencia] }),
+    );
+    expect(
+      aceita.success
+        ? []
+        : aceita.error.issues.filter(({ path }) => path.join('.') === 'steps.0.target'),
+    ).toEqual([]);
+    expect(() =>
+      renderedScenarioFixtureSchema.parse(comPasso({ target: 'PENDENCIA' })),
+    ).toThrow(/PENDENCIA steps only accept notificacaopendencia-insert/);
+    expect(() =>
+      renderedScenarioFixtureSchema.parse(
+        comPasso({ target: 'CLIENTE', eventType: pendencia.eventType, envelope: [pendencia] }),
+      ),
+    ).toThrow(/CLIENTE steps cannot dispatch Pendencia events/);
+  });
+
   it('renders a MaquinaEstado fixture with a synthetic Account and cleanup ownership', () => {
     const fixture = renderScenarioFixture({
       scenarioKey: 'maquina-estado-insert-minimo',
@@ -335,12 +377,12 @@ describe('MaquinaEstado scenario definitions', () => {
       idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
     });
     expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'Documentacao',
       idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
     });
     expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'troca_unidade',
       idunidade: '6eeda6b4-1ee9-48a2-a5db-123044783c25',
       dataalteracao: fixture.steps[2]!.envelope[0]!.eventTime,
@@ -387,7 +429,7 @@ describe('MaquinaEstado scenario definitions', () => {
         idCliente: fixture.identifiers.accountIdCliente,
         idProspectSalesforce: fixture.identifiers.accountIdProspect,
       },
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'Documentacao',
       idunidade: '37dd20e6-4b3c-ea11-801d-005056856875',
     });
@@ -471,7 +513,7 @@ describe('MaquinaEstado scenario definitions', () => {
       estado: 'SIMULACAO',
     });
     expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'Documentacao',
     });
     expect(fixture.steps[2]).toMatchObject({
@@ -480,7 +522,7 @@ describe('MaquinaEstado scenario definitions', () => {
       delayMs: 6_000,
     });
     expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'SP',
       dataalteracao: fixture.steps[2]!.envelope[0]!.eventTime,
     });
@@ -571,7 +613,7 @@ describe('MaquinaEstado scenario definitions', () => {
       '2026-09-22T00:19:59.000Z',
     );
     expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'Documentacao',
       dataalteracao: '2026-09-22T00:20:03.000Z',
     });
@@ -584,7 +626,7 @@ describe('MaquinaEstado scenario definitions', () => {
       delayMs: 6_000,
     });
     expect(fixture.steps[2]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'CONTRATO',
       dataalteracao: '2026-09-22T00:20:00.000Z',
     });
@@ -679,7 +721,7 @@ describe('MaquinaEstado scenario definitions', () => {
       estado: 'SIMULACAO',
     });
     expect(fixture.steps[1]!.envelope[0]!.data).toMatchObject({
-      id: fixture.steps[0]!.envelope[0]!.data.id,
+      id: (fixture.steps[0]!.envelope[0]!.data as { id: string }).id,
       estado: 'Documentacao',
       dataalteracao: fixture.steps[1]!.envelope[0]!.eventTime,
     });

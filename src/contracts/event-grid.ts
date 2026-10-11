@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { birthDateSchema, eventDateTimeSchema } from './event-datetime.ts';
 import {
   jornadaUsuarioInsertEventSchema,
   jornadaUsuarioUpdateEventSchema,
@@ -33,7 +34,7 @@ const commonEventDataShape = {
   idcliente: z.string().min(1),
   idprospectsalesforce: optionalText,
   numerocpf: optionalText,
-  dataalteracao: apexCompatibleUtcDateTimeSchema.optional(),
+  dataalteracao: eventDateTimeSchema.optional(),
 };
 
 function forbidDataId<T extends z.ZodObject<z.ZodRawShape>>(schema: T) {
@@ -58,7 +59,7 @@ const clienteDataSchema = forbidDataId(
       ...commonEventDataShape,
       categoria: optionalText,
       codsap: optionalText,
-      datanascimento: z.iso.date().optional(),
+      datanascimento: birthDateSchema.optional(),
       escolaridade: optionalText,
       estadocivil: optionalText,
       naturalidade: optionalText,
@@ -83,6 +84,8 @@ const contatoDataSchema = forbidDataId(
       ...commonEventDataShape,
       tipocontato: z.enum(['Email', 'Celular', 'Telefone']),
       descricao: z.string().min(1),
+      // DDI of the phone (MS Clientes ADR-001); Apex ignores it today.
+      complemento: optionalText,
     })
     .strict(),
 );
@@ -91,7 +94,9 @@ const enderecoDataSchema = forbidDataId(
   z
     .object({
       ...commonEventDataShape,
-      tipoendereco: z.literal('COBRANCA'),
+      // MS Clientes publishes Cobranca and Principal; Apex compares
+      // case-insensitively and only maps COBRANCA.
+      tipoendereco: z.enum(['COBRANCA', 'Cobranca', 'PRINCIPAL', 'Principal']),
       idcidade: optionalText,
       logradouro: optionalText,
       numerocep: optionalText,
@@ -119,7 +124,8 @@ const pacProponenteDataSchema = z
     grauInstrucao: optionalText,
     id: z.string().min(1),
     idPac: z.string().min(1),
-    idCliente: z.string().min(1),
+    // Absent while the person does not exist in MS Clientes yet (PAC under analysis).
+    idCliente: optionalText,
     idProponente: optionalText,
     nomeCompleto: optionalText,
     nomeConjuge: optionalText,
@@ -134,7 +140,7 @@ const pacProponenteDataSchema = z
     tipoClassificacao: z.string().min(1),
     rendaTotal: z.number().finite().optional(),
     dataNascimento: z.iso.date().optional(),
-    dataAlteracao: apexCompatibleUtcDateTimeSchema,
+    dataAlteracao: eventDateTimeSchema,
   })
   .strict();
 
@@ -144,18 +150,48 @@ const pacDataSchema = z
     idjornadapac: z.string().min(1),
     status: optionalText,
     datavalidade: z.iso.date().optional(),
-    dataaprovacao: apexCompatibleUtcDateTimeSchema.optional(),
-    dataalteracao: apexCompatibleUtcDateTimeSchema.optional(),
+    dataaprovacao: eventDateTimeSchema.optional(),
+    dataalteracao: eventDateTimeSchema.optional(),
     proponentes: z.array(pacProponenteDataSchema).max(100).optional(),
+  })
+  .strict();
+
+/**
+ * notificacaopendencia-insert (endpoint /Pendencia), published by MS de
+ * crédito on approval. Shape of the staging log a0dHZ00000NAQVTYA5; Apex maps
+ * proponente.id, replyTo, the pendency texts and tipoNotificacao
+ * (MapaProponentePendencia__mdt).
+ */
+const pendenciaProponenteDataSchema = z
+  .object({
+    id: z.string().min(1),
+    idProponente: optionalText,
+    nome: optionalText,
+    email: optionalText,
+    textoPendencias: optionalText,
+    textoPendenciasSemDescricao: optionalText,
+  })
+  .strict();
+
+const pendenciaDataSchema = z
+  .object({
+    idPac: optionalText,
+    idJornada: optionalText,
+    replyTo: optionalText,
+    descricaoCentral: optionalText,
+    proponente: pendenciaProponenteDataSchema,
+    idProcessoProduto: optionalText,
+    tipoNotificacao: z.string().min(1),
   })
   .strict();
 
 const eventGridEnvelopeItemShape = {
   id: z.string().min(1),
   subject: z.string(),
-  eventTime: apexCompatibleUtcDateTimeSchema,
+  eventTime: eventDateTimeSchema,
   dataVersion: z.string(),
-  metadataVersion: z.string(),
+  // Absent in the real clientes and pacs deliveries (section 4 of the origin doc).
+  metadataVersion: z.string().optional(),
   topic: z.string(),
 };
 
@@ -181,6 +217,7 @@ export const eventTypeSchema = z.enum([
   'endereco-update',
   'pac-insert',
   'pac-update',
+  'notificacaopendencia-insert',
   'jornadausuario-insert',
   'jornadausuario-update',
 ]);
@@ -211,6 +248,10 @@ export const enderecoUpdateEventSchema = eventVariant(
 );
 export const pacInsertEventSchema = eventVariant('pac-insert', pacDataSchema);
 export const pacUpdateEventSchema = eventVariant('pac-update', pacDataSchema);
+export const notificacaoPendenciaInsertEventSchema = eventVariant(
+  'notificacaopendencia-insert',
+  pendenciaDataSchema,
+);
 export { maquinaEstadoDataSchema };
 
 export const eventGridEventSchema = z.discriminatedUnion('eventType', [
@@ -222,6 +263,7 @@ export const eventGridEventSchema = z.discriminatedUnion('eventType', [
   enderecoUpdateEventSchema,
   pacInsertEventSchema,
   pacUpdateEventSchema,
+  notificacaoPendenciaInsertEventSchema,
   jornadaUsuarioInsertEventSchema,
   jornadaUsuarioUpdateEventSchema,
 ]);

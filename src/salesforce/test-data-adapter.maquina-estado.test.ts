@@ -635,7 +635,7 @@ describe('Salesforce test data adapter for MaquinaEstado smoke scenario', () => 
           records: [
             {
               Id: opportunityId,
-              Id__c: rendered.steps[0]!.envelope[0]!.data.id,
+              Id__c: (rendered.steps[0]!.envelope[0]!.data as { id: string }).id,
               AccountId: accountId,
               Name: 'Opportunity Sintética MaquinaEstado',
               StageName: 'Qualificação de Documentos',
@@ -757,7 +757,7 @@ describe('Salesforce test data adapter for MaquinaEstado smoke scenario', () => 
           records: [
             {
               Id: opportunityId,
-              Id__c: rendered.steps[0]!.envelope[0]!.data.id,
+              Id__c: (rendered.steps[0]!.envelope[0]!.data as { id: string }).id,
               AccountId: accountId,
               Name: 'Opportunity Sintética MaquinaEstado',
               StageName: 'Qualificação de Documentos',

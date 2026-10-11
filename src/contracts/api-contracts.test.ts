@@ -400,7 +400,7 @@ describe('Event Grid contracts', () => {
     ).toThrow();
   });
 
-  it('accepts only Apex-compatible UTC timestamps and strict public fields', () => {
+  it('rejects timestamps outside the real publisher formats and unknown fields', () => {
     expect(() =>
       eventGridEnvelopeSchema.parse([
         {
@@ -426,7 +426,8 @@ describe('Event Grid contracts', () => {
           ...variants[0],
           data: {
             ...variants[0].data,
-            dataalteracao: '2026-08-21T10:00:00.123Z',
+            // Eight fraction digits: no publisher sends that.
+            dataalteracao: '2026-08-21T10:00:00.12345678Z',
           },
         },
       ]),
@@ -438,10 +439,17 @@ describe('Event Grid contracts', () => {
     ).toThrow();
   });
 
-  it('accepts the two UTC timestamp variants verified in Apex', () => {
+  it('accepts the timestamp formats of the real publishers, all read by Apex', () => {
     for (const timestamp of [
       '2026-08-21T10:00:00Z',
       '2026-08-21T10:00:00.000Z',
+      // MS Clientes: Z with 2 to 7 fraction digits.
+      '2026-08-21T10:00:00.12Z',
+      '2026-08-21T10:00:00.1234567Z',
+      // Plataforma BFF EventTime.
+      '2026-08-21T10:00:00.1234567+00:00',
+      // MS de crédito and BFF dataAlteracao: Brasília time without offset.
+      '2026-08-21T07:00:00.123',
     ]) {
       expect(() =>
         eventGridEnvelopeSchema.parse([
@@ -456,20 +464,23 @@ describe('Event Grid contracts', () => {
     }
   });
 
-  it('accepts only Apex parseDate-compatible client birth dates', () => {
-    expect(() =>
-      eventGridEnvelopeSchema.parse([
-        {
-          ...commonEvent,
-          ...variants[0],
-          data: { ...variants[0].data, datanascimento: '1990-02-28' },
-        },
-      ]),
-    ).not.toThrow();
+  it('accepts the client birth dates that Apex parseDate reads', () => {
+    // The second form is the one MS Clientes publishes (processed in staging).
+    for (const datanascimento of ['1990-02-28', '1990-02-28T00:00:00Z']) {
+      expect(() =>
+        eventGridEnvelopeSchema.parse([
+          {
+            ...commonEvent,
+            ...variants[0],
+            data: { ...variants[0].data, datanascimento },
+          },
+        ]),
+      ).not.toThrow();
+    }
 
     for (const datanascimento of [
       'texto-arbitrario',
-      '1990-02-28T00:00:00Z',
+      '1990-02-28T00:00:00.000Z',
       '1990-02-31',
       '28/02/1990',
     ]) {
@@ -483,6 +494,109 @@ describe('Event Grid contracts', () => {
         ]),
       ).toThrow();
     }
+  });
+
+  it('accepts the real shapes of MS Clientes, MS de crédito and BFF deliveries', () => {
+    const semMetadataVersion: Record<string, unknown> = { ...commonEvent };
+    delete semMetadataVersion.metadataVersion;
+    // clientes and pacs deliveries arrive without metadataVersion.
+    expect(() =>
+      eventGridEnvelopeSchema.parse([{ ...semMetadataVersion, ...variants[0] }]),
+    ).not.toThrow();
+    // Phone with the DDI in complemento (MS Clientes ADR-001).
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'contato-insert',
+          data: {
+            ...commonData,
+            tipocontato: 'Telefone',
+            descricao: '3132345678',
+            complemento: '55',
+          },
+        },
+      ]),
+    ).not.toThrow();
+    // Both address types, as MS Clientes publishes them.
+    for (const tipoendereco of ['Principal', 'Cobranca', 'PRINCIPAL']) {
+      expect(() =>
+        eventGridEnvelopeSchema.parse([
+          {
+            ...commonEvent,
+            eventType: 'endereco-insert',
+            data: { ...commonData, tipoendereco },
+          },
+        ]),
+      ).not.toThrow();
+    }
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'endereco-insert',
+          data: { ...commonData, tipoendereco: 'RESIDENCIAL' },
+        },
+      ]),
+    ).toThrow();
+    // PAC under analysis of someone who does not exist in MS Clientes yet.
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        {
+          ...commonEvent,
+          eventType: 'pac-update',
+          data: {
+            id: 'PAC-SIM-020',
+            idjornadapac: 'OPP-SIM-020',
+            status: 'EM_ANALISE_CREDITO',
+            dataalteracao: '2026-08-21T07:00:00.123',
+            proponentes: [
+              {
+                id: 'PROP-SIM-020',
+                idPac: 'PAC-SIM-020',
+                cpf: '00000000000',
+                idProponente: 'PRO-SIM-001',
+                tipoClassificacao: 'Principal',
+                dataAlteracao: '2026-08-21T07:00:00.123',
+              },
+            ],
+          },
+        },
+      ]),
+    ).not.toThrow();
+  });
+
+  it('accepts notificacaopendencia-insert as MS de crédito publishes it', () => {
+    const pendencia = {
+      ...commonEvent,
+      subject: 'proponentecredito/NotificacaoPendenciasProponenteDTO',
+      eventType: 'notificacaopendencia-insert',
+      data: {
+        idPac: 'PAC-SIM-030',
+        idJornada: 'OPP-SIM-030',
+        replyTo: 'central@example.invalid',
+        descricaoCentral: 'CENTRAL SINTETICA',
+        proponente: {
+          id: 'PROP-SIM-030',
+          idProponente: 'PRO-SIM-001',
+          nome: 'Cliente Sintético',
+          email: 'cliente@example.invalid',
+          textoPendencias: 'Pendência sintética',
+          textoPendenciasSemDescricao: 'Pendência',
+        },
+        idProcessoProduto: '1000001',
+        tipoNotificacao: 'DESLIGAMENTO',
+      },
+    };
+    expect(eventGridEnvelopeSchema.parse([pendencia])).toHaveLength(1);
+    expect(() =>
+      eventGridEnvelopeSchema.parse([
+        { ...pendencia, data: { ...pendencia.data, proponente: { nome: 'Sem id' } } },
+      ]),
+    ).toThrow();
+    const semTipo: Record<string, unknown> = { ...pendencia.data };
+    delete semTipo.tipoNotificacao;
+    expect(() => eventGridEnvelopeSchema.parse([{ ...pendencia, data: semTipo }])).toThrow();
   });
 
   it('accepts payloads sem data.id e usa apenas idcliente como identificador de negócio', () => {
