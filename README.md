@@ -33,6 +33,8 @@ Os trabalhos mais recentes:
   MS de crédito e Plataforma BFF);
 - os perfis do harness com as ordens reais da aprovação e a campanha deles
   de 11/10 ([relatório](docs/resultado-runbook-ordens-reais-2026-10-11.md));
+- a campanha completa de 11/10, com os 44 TCs nos 13 perfis (545 RUNs), e o
+  [catálogo de bugs pegos pelo runbook](docs/bugs-pegos-pelo-runbook.md);
 - os contratos da API alargados para os formatos reais, no Vercel desde
   11/10 (seção 7.4 do doc de origem dos eventos).
 
@@ -560,6 +562,9 @@ contatos de outra pessoa indo para o Lead novo de Y. A análise está no
 [relatório](docs/resultado-runbook-ordens-reais-2026-10-11.md).
 
 `npm run runbook:relatorio` monta as colunas com os perfis presentes no JSONL.
+`npm run runbook:bugs -- --entrada resultados.jsonl` liga cada divergência a um
+bug do [catálogo](docs/bugs-pegos-pelo-runbook.md) e imprime a matriz TC ×
+perfil; o que sai como `?` ainda não tem bug atribuído.
 
 ### Diagnósticos TC-001 (commits 3 e 4 revertidos, `GV_918914_UnificPosAprovPAC`)
 
@@ -723,9 +728,16 @@ máquina, eles ficam ao lado deste diretório:
   pela pendência, a pendência antes dos eventos de cliente mudando a escolha
   do Lead, os contatos de X no Lead de Y depois da repetição do WebJob e a PAC
   em análise recusada para quem ainda não existe.
+- [Bugs pegos pelo runbook](docs/bugs-pegos-pelo-runbook.md) — cada bug que o
+  harness pega na `mrv-devDan`, com causa, evidência, o que se sabe da ponta
+  da 2.2 e a matriz TC × perfil. É atualizado a cada campanha, com
+  `npm run runbook:bugs`.
+- [Resultado do runbook — campanha completa, 2026-10-11](docs/resultado-runbook-completo-2026-10-11.md) —
+  os 44 TCs nos 13 perfis (545 RUNs, 331 conformes), com o detalhe de cada
+  divergência.
 - [Estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md) — em que ponto dos
   branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev,
-  por que quatro classes estão em 03/09 e o que o simulador achou nesse
+  por que quatro classes ficaram em 03/09 de 27/09 a 11/10 e o que o simulador achou nesse
   estado. É atualizado a cada mudança na dev.
 - [Origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md) —
   quem publica cada evento (MS Clientes, MS de crédito, Plataforma BFF), o
