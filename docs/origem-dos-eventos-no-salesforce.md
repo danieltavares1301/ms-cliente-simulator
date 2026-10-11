@@ -921,6 +921,10 @@ completa está no [relatório](resultado-runbook-ordens-reais-2026-10-11.md):
 - **TC-040:** a PAC em análise de quem ainda não existe é recusada pelo
   código da unificação. A reentrega depois da aprovação passa.
 
+Depois, a campanha completa rodou os 44 TCs nos 13 perfis (545 RUNs). O
+[catálogo de bugs](bugs-pegos-pelo-runbook.md) liga cada divergência a um bug
+e traz a matriz TC × perfil.
+
 **O que falta:**
 
 - **Cenários de catálogo com os contratos novos:** pendência, PAC sem

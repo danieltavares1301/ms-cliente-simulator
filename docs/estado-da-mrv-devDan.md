@@ -1,8 +1,9 @@
 # Estado do código da unificação na `mrv-devDan`
 
-Retrato de **2026-10-11**. Mostra, arquivo por arquivo, em que ponto dos
-branches da unificação está o código implantado na sandbox de dev. Os testes
-do simulador valem para esse código, não para a ponta dos branches.
+Retrato de **2026-10-11**, atualizado às 20:43 UTC, depois do deploy que
+recolocou a ponta da 2.2 nas quatro classes revertidas. Mostra, arquivo por
+arquivo, em que ponto dos branches da unificação está o código implantado na
+sandbox de dev. Os testes do simulador valem para esse código.
 
 > **Como manter este doc.** Quando a dev mudar (deploy, reversão ou refresh),
 > o usuário avisa. Aí:
@@ -19,24 +20,35 @@ do simulador valem para esse código, não para a ponta dos branches.
 
 ## 1. Resumo
 
-- **A dev não está em nenhum commit.** O código da unificação veio de dois
-  deploys de 27/09:
-  - **15:20 UTC:** 19 classes, 19 classes de teste, o `ProponenteTrigger`,
-    os flows `AlterarDadosLead` e `PermutaCadastroCliente` e o LWC
-    `iniciarJornadaLead`. As classes e o trigger são os do `develop` de 21/09
-    em diante, quando ele já tinha recebido a 2.2, a 2.1 e a 1.3 (seção 3).
-  - **21:28 a 21:31 UTC:** `ClienteService`, `NotificacaoCliente`,
-    `NotificacaoMaquinaEstado` e `NotificacaoPAC`, de volta à versão de 03/09.
-    É a "reversão dos commits 3 e 4".
-- **Na 2.2, só essas quatro classes estão atrás da ponta** (`3f2919f5e7`,
-  21/09). Nelas faltam cinco commits, e não só os commits 3 e 4 (seção 4.1).
+- **A dev não está em nenhum commit.** O código da unificação veio de três
+  deploys:
+  - **27/09, 15:20 UTC:** 19 classes, 19 classes de teste, o
+    `ProponenteTrigger`, os flows `AlterarDadosLead` e
+    `PermutaCadastroCliente` e o LWC `iniciarJornadaLead`. As classes e o
+    trigger são os do `develop` de 21/09 em diante, quando ele já tinha
+    recebido a 2.2, a 2.1 e a 1.3 (seção 3).
+  - **27/09, 21:28 a 21:31 UTC:** `ClienteService`, `NotificacaoCliente`,
+    `NotificacaoMaquinaEstado` e `NotificacaoPAC`, de volta à versão de
+    03/09. É a "reversão dos commits 3 e 4" (seção 2).
+  - **11/10, 20:43 UTC:** as mesmas quatro classes de volta à ponta da 2.2
+    (`3f2919f5e7`, 21/09), a pedido do usuário (deploy
+    `0AfHZ00000QmDjx0AF`). Os cinco commits que faltavam estão na dev.
+- **Na 2.2, nada mais está atrás da ponta por reversão.** Quatro classes que a
+  2.2 também mudou (`AccountRepository`, `ClienteSelector`, `LeadSelector` e
+  `OportunidadeSelector`) estão na versão do `develop` (seção 4.2). Os testes
+  `ClienteServiceTest` e `NotificacaoMaquinaEstadoTest` também seguem na
+  versão do `develop`; não fizeram parte da reversão nem mudam o
+  comportamento.
 - **O resto da 2.2 é igual à ponta**, incluindo `ProponenteTrigger`,
   `ProponenteTriggerHandler`, `ReconciliacaoContatosLeadQueueable` e
   `MSClienteService`.
 - **1.3 e 2.1:** a dev tem a versão que o `develop` tinha depois de receber
   esses branches, e não a ponta deles (seções 5 e 6).
 
-## 2. Por que a dev está assim
+## 2. A reversão de 27/09 a 11/10
+
+Desde 11/10, às 20:43 UTC, a dev não está mais revertida. Esta seção registra
+por que ela esteve e o que o simulador achou nesse estado.
 
 As quatro classes foram levadas de volta a 03/09 de propósito, para ver se o
 simulador pegaria os bugs que os commits 3 e 4 corrigem. O texto original dos
@@ -54,6 +66,11 @@ O que o simulador encontrou nesse estado:
 
 Campanhas do runbook e o estado em que rodaram:
 
+- **11/10, campanha completa** (545 RUNs nos 13 perfis, 331 conformes):
+  depois da reversão ([relatório](resultado-runbook-completo-2026-10-11.md)).
+  Cada bug pego, com a matriz TC × perfil, está no
+  [catálogo de bugs](bugs-pegos-pelo-runbook.md). PA, CA e ME repetem os
+  vereditos de 02/10.
 - **11/10, perfis das ordens reais** (237 RUNs, 178 conformes): depois da
   reversão ([relatório](resultado-runbook-ordens-reais-2026-10-11.md)). Com a
   ordem real da aprovação, a pendência grava na Account que a PAC em análise
@@ -89,6 +106,7 @@ branches mudaram. Horários em UTC:
 | 29/09 06:33 | `OwnBackup_*` e `ArchiverConfigurationsGetter` | fora da unificação |
 | 29/09 17:04 | `LeadEventGrid*`, `GES_LeadTriggerHandler`, `MudancaProprietarioLeadService`, `SObjectRetornoSeguro` e o trigger `LeadEventGridTrigger` | fora da unificação. Não enfileira jobs nos fluxos do runbook ([handoff, seção 10](handoff-investigacao-tc001-bug4.md#10-estado-do-harness-do-runbook-e-da-dev-em-0210)) |
 | 07/10 18:49 | `ConsultarEstoqueLeadController` | fora da unificação |
+| **11/10 20:43** | `ClienteService`, `NotificacaoCliente`, `NotificacaoMaquinaEstado` e `NotificacaoPAC` | ponta da 2.2 (seção 4.1); deploy `0AfHZ00000QmDjx0AF` |
 
 Fora do Apex, a dev mudou também em 01/10: o permission set `AcessoDeAPI`
 ganhou leitura de `Contact.DataHoraAtualizacaoEmailPendencia__c` (deploy
@@ -112,16 +130,20 @@ ganhou leitura de `Contact.DataHoraAtualizacaoEmailPendencia__c` (deploy
 
 ## 4. Branch 2.2 (`GV_918914_UnificPosAprovPAC`, ponta `3f2919f5e7`, 21/09)
 
-### 4.1 As quatro classes revertidas
+### 4.1 As quatro classes revertidas, de volta à ponta
 
-| Classe | Na dev desde | Igual a | Commits da 2.2 que faltam |
+Desde 11/10, às 20:43 UTC, as quatro estão iguais à ponta da 2.2 (deploy
+`0AfHZ00000QmDjx0AF`, feito do branch local `GV_918914_UnificPosAprovPAC`
+do `com_salesforce_mrv`, sem commit). De 27/09 a 11/10, estavam assim:
+
+| Classe | Revertida em | Igual a | Commits da 2.2 que faltavam |
 |---|---|---|---|
 | `ClienteService` | 27/09 21:28 | `c04b6add92` (03/09) | `1f6844e910`, `9210581ea5`, `3f2919f5e7` |
 | `NotificacaoCliente` | 27/09 21:29 | `c04b6add92` (03/09) | `1f6844e910`, `72cbd884f6`, `3f2919f5e7` |
 | `NotificacaoMaquinaEstado` | 27/09 21:30 | `9f0ba21f38` (03/09) | `9210581ea5`, `7c86318a05` |
 | `NotificacaoPAC` | 27/09 21:31 | `c04b6add92` (03/09) | `1f6844e910` |
 
-Os cinco commits que faltam:
+Os cinco commits que faltavam:
 
 | Commit | Data | O que é | O que muda no código |
 |---|---|---|---|
@@ -178,20 +200,26 @@ Nenhum arquivo da 2.1 está na versão da ponta:
 
 ## 7. O que isso muda nos testes
 
-- **Bugs dos commits 3 e 4:** aparecem na dev de propósito. Um teste que os
-  pegue aqui não diz nada sobre a ponta da 2.2.
-- **Fila manual e vínculo da Opportunity:** sem `9210581ea5` e `7c86318a05`,
-  os eventos sem IdCliente rodam como em 03/09, tanto na PAC quanto na
-  jornada (`jornadausuario-*`). Os cenários da API que mandam jornada sem
-  cliente (`maquina-estado-insert-sem-cliente` e
-  `maquina-estado-update-obsoleto-sem-cliente`) podem passar por esses
-  caminhos.
+- **A dev roda a ponta da 2.2 desde 11/10, às 20:43 UTC.** As campanhas de
+  27/09 a 11/10 (a última terminou às 18:11 UTC) rodaram no estado revertido,
+  e o [catálogo de bugs](bugs-pegos-pelo-runbook.md) vale para ele. Para saber
+  quais bugs a ponta corrige, rode a campanha de novo e compare as matrizes
+  com `npm run runbook:bugs`.
+- **PAC em análise de quem o Salesforce não acha:** com o commit 4, a ponta
+  descarta o match por prospect quando o CPF diverge. A PAC em análise de Y
+  passa a ser recusada (400, "Cliente(Account) não encontrado") até Y existir,
+  também nos TCs em que antes ela achava X (handoff do bug 4, seção 1.1). Os
+  perfis AR, AM e FW tratam essa recusa como esperada e reentregam a PAC
+  depois; os perfis C1 a C4 não, e o RUN para nela.
+- **Fila manual e vínculo da Opportunity:** com `9210581ea5` e `7c86318a05`,
+  os eventos sem IdCliente seguem a ponta, tanto na PAC quanto na jornada
+  (`jornadausuario-*`). Os cenários da API que mandam jornada sem cliente
+  (`maquina-estado-insert-sem-cliente` e
+  `maquina-estado-update-obsoleto-sem-cliente`) passam por esses caminhos.
 - **Relógio do crédito:** a `NotificacaoPAC` de `c04b6add92` já soma 3h à
   data que chega sem fuso, então a dev grava a data da PAC em UTC. A seção
   6.4 do [doc de origem dos eventos](origem-dos-eventos-no-salesforce.md)
   explica, e o perfil RC do harness confere.
-- **Para testar a ponta da 2.2,** é preciso implantar as quatro classes da
-  ponta, ou da versão em teste. Depois, rode o script e atualize este doc.
 
 ## 8. Limitações
 
@@ -220,3 +248,4 @@ Nenhum arquivo da 2.1 está na versão da ponta:
 | 01/10 | Permission set `AcessoDeAPI` | handoff do bug 4, seção 1.1 |
 | 07/10 | `ConsultarEstoqueLeadController` | em 11/10, pelo script |
 | 11/10 | Primeira versão deste doc | `versao-implantada.ts` |
+| 11/10 20:43 | As quatro classes revertidas voltam à ponta da 2.2 (deploy `0AfHZ00000QmDjx0AF`) | em 11/10, pelo script |

@@ -269,7 +269,8 @@ Consultas devem comparar relações/igualdades e mostrar somente rótulos X/Y.
 - Ausência de esses métodos não prova equivalência completa ao código histórico
   de staging em 08/09. Outras correções continuaram presentes.
 - **Retrato exato, de 11/10:** [estado da `mrv-devDan`](estado-da-mrv-devDan.md),
-  arquivo por arquivo. A reversão levou as quatro classes à versão de 03/09.
+  arquivo por arquivo. A reversão levou as quatro classes à versão de 03/09
+  e foi desfeita em 11/10, às 20:43 UTC, quando elas voltaram à ponta da 2.2.
   Além dos commits 3 e 4, ficaram fora `9210581ea5`, `7c86318a05` e
   `3f2919f5e7`.
 
