@@ -22,10 +22,13 @@ dela.
 >   aprovada, enquanto o Proponente ainda aponta para X (seções 3.7 e 6.2
 >   daquele doc). A sequência real da PAC do incidente se refaz com
 >   `scripts/analise-staging/aprovacao-pac.ts`.
-> - **PROS-X nos primeiros eventos de Y:** o MS Clientes publica contato e
->   endereço com o prospect que o cliente tem no momento. Por isso os eventos
->   de Y saem com PROS-X até o callback do Salesforce gravar PROS-Y (seção 6.5
->   daquele doc).
+> - **PROS-X nos primeiros eventos de Y:** depois da aprovação, o WebJob do
+>   crédito (`com_analise_credito_web_job`) cria Y no MS Clientes usando o
+>   `idProponente` da PAC, que é o prospect da jornada (PROS-X), como
+>   `idProspectSalesforce`. Isso foi conferido em staging na PAC deste
+>   incidente. O MS Clientes publica contato e endereço com o prospect que o
+>   cliente tem no momento. Por isso todos os eventos de Y saem com PROS-X até
+>   o callback do Salesforce gravar PROS-Y (seções 3.8 e 6.5 daquele doc).
 > - **Caminhos e arquivos do Windows:** os caminhos `D:\`, `C:\` e `%TEMP%`
 >   deste documento são da máquina Windows onde a investigação começou. A
 >   seção [Repositórios relacionados](../README.md#repositórios-relacionados)
