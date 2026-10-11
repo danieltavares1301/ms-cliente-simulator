@@ -2539,7 +2539,7 @@ export const basicScenarioDefinitions = [
     version: 1,
     name: 'MaquinaEstado update com estado não reconhecido',
     description:
-      'Cria a Opportunity, fixa a fase em Qualificação de Documentos e depois reproduz um jornadausuario-update real com estado de UF (SP), comprovando que o Apex preserva o StageName atual e ainda responde HTTP 200.',
+      'Cria a Opportunity, fixa a fase em Qualificação de Documentos e depois manda um jornadausuario-update com um estado fora do mapeamento (SP), comprovando que o Apex preserva o StageName atual e ainda responde HTTP 200. O Estado da raiz dos eventos reais nunca vem como UF: a sigla só aparece dentro de PropostaDetalhes, que o Apex não lê.',
     scope: 'EXTENDED',
     tags: [
       'regression',
