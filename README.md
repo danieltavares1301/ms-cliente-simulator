@@ -644,7 +644,8 @@ máquina, eles ficam ao lado deste diretório:
   quem publica cada evento (MS Clientes, MS de crédito, Plataforma BFF), o
   que o código do MS Clientes publica e quem dispara cada evento, o formato
   real de cada origem, por que a ordem varia no Salesforce e a correção do
-  `Estado` = UF do §9 da análise de staging.
+  `Estado` = UF do §9 da análise de staging. A seção 7 traz o plano de
+  mudanças no simulador e as ordens de eventos que ainda faltam.
 
 ### Fase 0 — Validação e configuração técnica
 
