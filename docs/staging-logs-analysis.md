@@ -333,6 +333,10 @@ customizado específico de algum fluxo não mapeado — não investigado a
 fundo). Confirma, mais uma vez, que o operador `==` case-insensitive do Apex
 absorve variações de capitalização sem problema.
 
+> **Retificação (2026-10-11):** o `"MG"` não estava no `Estado` da raiz do
+> evento. Era a UF de `data.PropostaDetalhes.UnidadeInfos.Endereco.Estado`,
+> que vem antes da raiz no texto do JSON. Ver a retificação da seção 9.
+
 **Decisão de escopo**: reproduzir deterministicamente a contenção de lock
 real (43% dos erros) exigiria dispatch verdadeiramente concorrente para a
 MESMA Opportunity — a mesma classe de infraestrutura construída para o O10
@@ -476,6 +480,16 @@ quando o existente é **estritamente mais novo**; eventos com o MESMO
 `maquina-estado-update-evento-obsoleto` (Tarefa 7.2, incremento 5).
 
 ### 9. Valores de `Estado` não reconhecidos são majoritários em `update` real (informa o incremento 6 da Tarefa 7.2)
+
+> **Retificação (2026-10-11): o achado desta seção não se confirma.** A
+> contagem pegou o primeiro `"Estado"` do texto do JSON, que é
+> `data.PropostaDetalhes.UnidadeInfos.Endereco.Estado`, a UF do endereço da
+> unidade. O `Estado` da raiz é outro, e é ele que o Apex lê. Em 1.250
+> `jornadausuario-update` distintos de 40 dias, a raiz nunca trouxe UF:
+> trouxe `Documentacao`, `Proposta`, `Unidades`, `Contrato`,
+> `PropostaGenericaFinalizada` e `TrocarUnidade`. O texto abaixo fica como
+> registro histórico. Detalhes na seção 5 de
+> [`origem-dos-eventos-no-salesforce.md`](origem-dos-eventos-no-salesforce.md).
 
 Amostra de 150 eventos reais bem-sucedidos (`jornadausuario-insert` +
 `jornadausuario-update` combinados) revelou a distribuição real de

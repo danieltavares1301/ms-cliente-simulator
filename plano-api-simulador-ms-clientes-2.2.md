@@ -2373,7 +2373,11 @@ Pronto para iniciar a Tarefa 7.2 (`/MaquinaEstado`).
 - [x] Incremento 6 implementado no simulador: cenario
   `maquina-estado-update-estado-nao-reconhecido`, cobrindo o update real em
   que `Estado` vem como sigla de UF (`SP`) e nao corresponde a nenhum branch
-  conhecido de `retornaValorFase`.
+  conhecido de `retornaValorFase`. **Retificacao (2026-10-11):** o `Estado` da
+  raiz dos updates reais nunca e UF; a UF vinha de
+  `data.PropostaDetalhes.UnidadeInfos.Endereco.Estado`. O cenario segue valido
+  como teste do ramo Apex, mas nao reproduz um padrao real. Ver
+  `docs/origem-dos-eventos-no-salesforce.md`, secao 5.
 - [x] Execucao real do cenario validada em `mrv-devDan`, com o passo 3
   retornando **HTTP 200**, a `Opportunity` permanecendo em
   **`Qualificacao de Documentos`** e `EventTime__c` avancando para o carimbo
@@ -2467,6 +2471,11 @@ silencioso por obsolescencia.
   esperado em `mrv-devDan`: `HTTP 200`, `StageName` preservado em
   **`Qualificacao de Documentos`** e `EventTime__c` atualizado para o carimbo
   mais novo do evento, caracterizando um **no-op de fase** e nao descarte.
+  **Retificacao (2026-10-11):** os 55% nao se confirmam. A contagem pegou o
+  primeiro `"Estado"` do texto do JSON
+  (`data.PropostaDetalhes.UnidadeInfos.Endereco.Estado`); em 1.250 updates
+  reais distintos, o `Estado` da raiz, que o Apex le, nunca foi UF. Ver
+  `docs/origem-dos-eventos-no-salesforce.md`, secao 5.
 - **Correcao de rota durante a analise**: uma afirmacao inicial de que
   `NotificacaoMaquinaEstado.cls` nao teria nenhuma logica de retry para
   `UNABLE_TO_LOCK_ROW` estava **errada** - baseava-se apenas na leitura do
