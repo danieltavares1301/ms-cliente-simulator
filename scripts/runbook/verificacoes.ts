@@ -1,15 +1,15 @@
 import {
   contaDaPessoa,
-  ehPerfilIdentidade,
   type AccountRegistro,
   type Aprovacao,
   type Assercao,
-  type EvidenciaIdentidade,
+  type EvidenciaDoPerfil,
   type Execucao,
   type LeadRegistro,
   type Perfil,
   type Snapshot,
 } from './engine.ts';
+import { parseSalesforceDateTime } from '../stress-o10-concurrent-events-lib.ts';
 
 // Marcadores de contato e o carimbo de pendência pegam escritas indevidas mesmo
 // quando o valor gravado coincide (ex.: TC-001, Y com os contatos de X).
@@ -53,6 +53,45 @@ function mesmoCelular(atual: string, esperado: string): boolean {
   // O celular pode voltar com DDI (55) na frente.
   return atual === esperado || atual === `55${esperado}`;
 }
+
+/**
+ * O que mudou de um estado para o outro: registros novos (Account ou Lead) e,
+ * nos que já existiam, os campos funcionais que mudaram.
+ */
+export function mudancasEntre(
+  antes: Snapshot,
+  depois: Snapshot,
+): { novos: string[]; alterados: Array<{ Id: string; campos: string[] }> } {
+  const anteriores = new Map<string, Record<string, unknown>>([
+    ...antes.accounts.map((conta) => [conta.Id, conta] as const),
+    ...antes.leads.map((lead) => [lead.Id, lead] as const),
+  ]);
+  const comparar = (registro: { Id: string }, campos: readonly string[]) => {
+    const anterior = anteriores.get(registro.Id)!;
+    const mudaram = campos.filter(
+      (campo) =>
+        (anterior[campo] ?? null) !== ((registro as Record<string, unknown>)[campo] ?? null),
+    );
+    return mudaram.length ? [{ Id: registro.Id, campos: mudaram }] : [];
+  };
+  const todos = [...depois.accounts, ...depois.leads];
+  return {
+    novos: todos.filter(({ Id }) => !anteriores.has(Id)).map(({ Id }) => Id),
+    alterados: [
+      ...depois.accounts
+        .filter(({ Id }) => anteriores.has(Id))
+        .flatMap((conta) => comparar(conta, camposAccount)),
+      ...depois.leads
+        .filter(({ Id }) => anteriores.has(Id))
+        .flatMap((lead) => comparar(lead, camposLead)),
+    ],
+  };
+}
+
+/** Perfis que mandam PACs em análise com os dados da pessoa aprovada antes do gatilho. */
+const PERFIS_COM_PAC_EM_ANALISE: readonly Perfil[] = ['C1', 'C2', 'C3', 'C4', 'AR', 'AM', 'FW'];
+/** Perfis em que X tem de estar intacta antes da pendência. */
+const PERFIS_X_ANTES_DA_PENDENCIA: readonly Perfil[] = ['C1', 'C2', 'AR', 'AM', 'FW'];
 
 /** Asserções sobre o estado final de um RUN, na linguagem do runbook. */
 export class Verificador {
@@ -336,16 +375,32 @@ export class Verificador {
   }
 
   /**
-   * Perfis C1 a C4: o RUN só vale se as PACs em análise chegaram ao Proponente
-   * e o gatilho aconteceu. Em C1 e C2, X também tem que estar intacta antes da
-   * pendência, o que atribui a ela qualquer mudança posterior.
+   * Asserções próprias de cada perfil opcional:
+   *
+   * - C1 a C4, AR, AM e FW: o RUN só vale se as PACs em análise chegaram ao
+   *   Proponente e o gatilho aconteceu. Em C1, C2, AR, AM e FW, X também tem
+   *   que estar intacta antes da pendência, o que atribui a ela qualquer
+   *   mudança posterior.
+   * - FW, EP, RL e RC: o efeito do evento que o perfil testa.
    */
   evidenciasDoPerfil(
     perfil: Perfil,
-    evidencia: EvidenciaIdentidade | null,
+    evidencia: EvidenciaDoPerfil | null,
     xAlteravel: boolean,
   ): Assercao[] {
-    if (!ehPerfilIdentidade(perfil)) return [];
+    return [
+      ...(PERFIS_COM_PAC_EM_ANALISE.includes(perfil)
+        ? this.evidenciasDaPacEmAnalise(perfil, evidencia, xAlteravel)
+        : []),
+      ...this.evidenciasDoGatilho(perfil, evidencia),
+    ];
+  }
+
+  private evidenciasDaPacEmAnalise(
+    perfil: Perfil,
+    evidencia: EvidenciaDoPerfil | null,
+    xAlteravel: boolean,
+  ): Assercao[] {
     const proponente = evidencia?.precondicao?.proponente ?? null;
     const contaX = this.execucao.fixtures.get('accountX')?.registro.Id;
     const contaDoProponente =
@@ -356,16 +411,25 @@ export class Verificador {
           : proponente.Proponente__c === this.conta()?.Id
             ? 'aprovada'
             : 'outra';
+    const rejeitadas = evidencia?.pacsEmAnaliseRejeitadas ?? 0;
     const assercoes: Assercao[] = [
-      {
-        nome: `${perfil}: PACs em análise aplicadas ao Proponente`,
-        ok:
-          proponente !== null &&
-          digitos(proponente.CpfProponente__c) === digitos(this.pessoa.cpf) &&
-          (proponente.EmailAtualizado__c ?? '').toLowerCase() === this.aprovacao.email.toLowerCase(),
-        // Onde o Proponente ficou diz se o caminho alcançou X neste TC.
-        detalhe: { contaDoProponente },
-      },
+      rejeitadas > 0
+        ? {
+            // A reentrega depois da aprovação respondeu 200, senão o RUN
+            // teria parado; o Proponente ficou com os dados da 1ª PAC.
+            nome: `${perfil}: PACs em análise rejeitadas (a pessoa ainda não existia) e reentregues depois da aprovação`,
+            ok: true,
+            detalhe: { rejeitadas, contaDoProponente },
+          }
+        : {
+            nome: `${perfil}: PACs em análise aplicadas ao Proponente`,
+            ok:
+              proponente !== null &&
+              digitos(proponente.CpfProponente__c) === digitos(this.pessoa.cpf) &&
+              (proponente.EmailAtualizado__c ?? '').toLowerCase() === this.aprovacao.email.toLowerCase(),
+            // Onde o Proponente ficou diz se o caminho alcançou X neste TC.
+            detalhe: { contaDoProponente },
+          },
       perfil === 'C4'
         ? {
             nome: 'C4: contestação pendente antes das PACs em análise',
@@ -377,7 +441,7 @@ export class Verificador {
             ok: this.final.proponente?.EnviarNotificacaoPendencia__c === true,
           },
     ];
-    if ((perfil === 'C1' || perfil === 'C2') && !xAlteravel) {
+    if (PERFIS_X_ANTES_DA_PENDENCIA.includes(perfil) && !xAlteravel) {
       assercoes.push(
         evidencia?.precondicao
           ? {
@@ -394,6 +458,93 @@ export class Verificador {
       );
     }
     return assercoes;
+  }
+
+  private evidenciasDoGatilho(perfil: Perfil, evidencia: EvidenciaDoPerfil | null): Assercao[] {
+    const antes = evidencia?.antesDoGatilho ?? null;
+    const depois = evidencia?.depoisDoGatilho ?? null;
+    const semSnapshot = (nome: string): Assercao => ({ nome, ok: false, detalhe: 'sem snapshot' });
+    const prospectDa = (estado: Snapshot) =>
+      contaDaPessoa(estado, this.pessoa, this.aprovacao.idClienteEvento)?.IdProspectSalesforce__c ?? null;
+
+    if (perfil === 'FW' || perfil === 'EP') {
+      const gatilho =
+        perfil === 'FW'
+          ? 'a repetição do WebJob (cliente-update com o prospect da jornada)'
+          : 'o parcial atrasado (com o prospect da jornada)';
+      const nomeProspect = `${perfil}: ${gatilho} não troca o prospect da Account aprovada`;
+      const nomeNovos = `${perfil}: ${gatilho} não cria Account nem Lead`;
+      if (antes === null || depois === null) return [semSnapshot(nomeProspect), semSnapshot(nomeNovos)];
+      if (prospectDa(antes) === null) {
+        // Sem Lead antes do gatilho (ex.: TC-040, em que o Lead de Y depende
+        // dos contatos), o vínculo pode nascer agora: não há o que preservar.
+        return [
+          {
+            nome: `${perfil}: sem Lead de Y antes de ${gatilho}; nada a preservar`,
+            ok: true,
+            detalhe: { depois: prospectDa(depois), ...mudancasEntre(antes, depois) },
+          },
+        ];
+      }
+      // No FW, o que vale é o prospect do fim, depois do eco e da PAC aprovada.
+      const prospectFinal = perfil === 'FW' ? prospectDa(this.final) : prospectDa(depois);
+      const { novos, alterados } = mudancasEntre(antes, depois);
+      return [
+        {
+          nome: nomeProspect,
+          ok: this.prospectY !== null && prospectFinal === this.prospectY,
+          detalhe: { esperado: this.prospectY, antes: prospectDa(antes), depois: prospectFinal },
+        },
+        {
+          nome: nomeNovos,
+          ok: novos.length === 0,
+          // As alterações não reprovam (o parcial pode ser legítimo), mas
+          // mostram o que o evento atrasado mexeu.
+          ...(novos.length || alterados.length ? { detalhe: { novos, alterados } } : {}),
+        },
+      ];
+    }
+
+    if (perfil === 'RL') {
+      const nome = 'RL: a repostagem em lote não altera nem cria Account ou Lead';
+      if (antes === null) return [semSnapshot(nome)];
+      const { novos, alterados } = mudancasEntre(antes, this.final);
+      return [
+        {
+          nome,
+          ok: novos.length === 0 && alterados.length === 0,
+          ...(novos.length || alterados.length ? { detalhe: { novos, alterados } } : {}),
+        },
+      ];
+    }
+
+    if (perfil === 'RC') {
+      const conta = this.conta();
+      const gravada = this.final.pac?.DataAlteracaoEvento__c ?? null;
+      const esperada = evidencia?.dataPacAprovada ?? null;
+      const emailFinal = (conta?.PersonEmail ?? '').toLowerCase();
+      return [
+        {
+          nome: 'RC: data da PAC aprovada gravada em UTC (o Apex somou as 3h do horário de Brasília)',
+          ok:
+            gravada !== null &&
+            esperada !== null &&
+            parseSalesforceDateTime(gravada) === Date.parse(esperada),
+          detalhe: { gravada, esperada },
+        },
+        {
+          nome: 'RC: contato-update atrasado, de antes da aprovação, descartado',
+          ok:
+            evidencia?.emailAtrasado !== undefined &&
+            emailFinal === this.aprovacao.email.toLowerCase(),
+          detalhe: {
+            email: conta?.PersonEmail ?? null,
+            marcador: conta?.DataAlteracaoEventoContatoEmail__c ?? null,
+          },
+        },
+      ];
+    }
+    return [];
   }
 
   /**

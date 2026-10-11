@@ -38,7 +38,20 @@ import {
  * final com o esperado do TC e limpa só o que o RUN criou (§6.5).
  */
 
-export type Perfil = 'PA' | 'CA' | 'ME' | 'C1' | 'C2' | 'C3' | 'C4';
+export type Perfil =
+  | 'PA'
+  | 'CA'
+  | 'ME'
+  | 'C1'
+  | 'C2'
+  | 'C3'
+  | 'C4'
+  | 'AR'
+  | 'AM'
+  | 'FW'
+  | 'RC'
+  | 'EP'
+  | 'RL';
 /** Perfis obrigatórios do runbook (§4.1.1): a campanha padrão roda só estes. */
 export const PERFIS: readonly Perfil[] = ['PA', 'CA', 'ME'];
 /**
@@ -47,7 +60,18 @@ export const PERFIS: readonly Perfil[] = ['PA', 'CA', 'ME'];
  * e um gatilho que projeta o contato do Proponente na Account.
  */
 export const PERFIS_IDENTIDADE: readonly Perfil[] = ['C1', 'C2', 'C3', 'C4'];
-export const TODOS_PERFIS: readonly Perfil[] = [...PERFIS, ...PERFIS_IDENTIDADE];
+/**
+ * Perfis opcionais com as ordens reais da aprovação, tiradas do código do MS
+ * de crédito, do WebJob dele e do MS Clientes (seção 7.2 de
+ * `docs/origem-dos-eventos-no-salesforce.md`). AR, AM e FW seguem o WebJob;
+ * RC, EP e RL partem da ordem CA.
+ */
+export const PERFIS_ORDEM_REAL: readonly Perfil[] = ['AR', 'AM', 'FW', 'RC', 'EP', 'RL'];
+export const TODOS_PERFIS: readonly Perfil[] = [
+  ...PERFIS,
+  ...PERFIS_IDENTIDADE,
+  ...PERFIS_ORDEM_REAL,
+];
 export const NOMES_PERFIS: Record<Perfil, string> = {
   PA: 'ORDEM-PARCIAIS-ANTES',
   CA: 'ORDEM-CLIENTE-ANTES',
@@ -56,19 +80,84 @@ export const NOMES_PERFIS: Record<Perfil, string> = {
   C2: 'CAMINHO-2-PAC-COM-IDCLIENTE-DA-JORNADA-E-PENDENCIA',
   C3: 'CAMINHO-3-PENDENCIA-ANTES-DA-PAC',
   C4: 'CAMINHO-4-CONTESTACAO-PENDENTE',
+  AR: 'APROVACAO-REAL-PESSOA-NOVA',
+  AM: 'APROVACAO-REAL-PESSOA-EXISTENTE',
+  FW: 'FALHA-E-REPETICAO-DO-WEBJOB',
+  RC: 'RELOGIO-DO-CREDITO',
+  EP: 'ECO-ANTES-DO-PARCIAL',
+  RL: 'REPOSTAGEM-EM-LOTE',
 };
 
 export function ehPerfilIdentidade(perfil: Perfil): boolean {
   return PERFIS_IDENTIDADE.includes(perfil);
 }
 
-/** Evidências do perfil de identidade, para as asserções de validade do RUN. */
-export type EvidenciaIdentidade = {
-  /** Estado logo depois das PACs em análise, antes do gatilho dos perfis C1/C2. */
+export function ehPerfilOrdemReal(perfil: Perfil): boolean {
+  return PERFIS_ORDEM_REAL.includes(perfil);
+}
+
+/**
+ * O AM só vale quando a pessoa aprovada já existe no MS Clientes: só aí o
+ * crédito conhece o IdCliente dela antes da aprovação.
+ */
+export function perfilAplicavel(perfil: Perfil, aprovacao: Aprovacao): boolean {
+  return perfil !== 'AM' || aprovacao.tipoEventoCliente === 'cliente-update';
+}
+
+/** Evidências do perfil, para as asserções de validade do RUN. */
+export type EvidenciaDoPerfil = {
+  /** Estado logo depois das PACs em análise, antes do gatilho (C1 a C4, AR, AM e FW). */
   precondicao: Snapshot | null;
   /** Contestações pendentes antes das PACs em análise (perfil C4). */
   contestacoesAntes: number | null;
+  /** Estado antes e depois do evento que o perfil testa (FW, EP e RL). */
+  antesDoGatilho?: Snapshot | null;
+  depoisDoGatilho?: Snapshot | null;
+  /** RC: instante UTC da PAC aprovada e e-mail do contato que chega atrasado. */
+  dataPacAprovada?: string;
+  emailAtrasado?: string;
+  /** AR, AM e FW: PACs em análise rejeitadas porque a pessoa ainda não existia. */
+  pacsEmAnaliseRejeitadas?: number;
 };
+
+/**
+ * Resposta do código da unificação para a PAC de quem ele ainda não acha
+ * (`NotificacaoPAC.criarInstanciaProponente`). A org devolve o "não" com a
+ * codificação quebrada, então o padrão aceita as duas formas.
+ */
+const CLIENTE_NAO_ENCONTRADO = /Cliente\(Account\) n\S{1,4}o encontrado/;
+
+export type Fluxo = 'JORNADA_UNIDADE' | 'VENDA_GENERICA';
+
+/**
+ * Horários como o MS de crédito manda (seção 6.4 do doc de origem dos
+ * eventos): a JVM roda no horário de Brasília, o `eventTime` sai com esse
+ * horário rotulado como UTC (7 casas) e a `dataAlteracao`, sem fuso (3 casas).
+ */
+export function relogioDoCredito(utc: string): { eventTime: string; dataAlteracao: string } {
+  const brasilia = new Date(Date.parse(utc) - 3 * 3_600_000).toISOString();
+  return {
+    eventTime: brasilia.replace(/Z$/, '0000Z'),
+    dataAlteracao: brasilia.replace(/Z$/, ''),
+  };
+}
+
+/** Quem publica cada evento e com que subject (seção 1 do doc de origem). */
+export function origemDoEvento(eventType: string): { publicador: string; subject: string } {
+  if (eventType.startsWith('pac-')) {
+    return { publicador: 'MS de crédito', subject: 'proponentecredito/PacEventGridDTO' };
+  }
+  if (eventType.startsWith('notificacaopendencia-')) {
+    return {
+      publicador: 'MS de crédito',
+      subject: 'proponentecredito/NotificacaoPendenciasProponenteDTO',
+    };
+  }
+  if (eventType.startsWith('jornadausuario-')) {
+    return { publicador: 'Plataforma BFF', subject: 'jornadas' };
+  }
+  return { publicador: 'MS Clientes', subject: 'cliente' };
+}
 
 export type Pessoa = {
   papel: string;
@@ -90,6 +179,8 @@ export type Contatos = {
   celularF: string;
   /** Celular G: celular próprio de um Lead candidato. */
   celularG: string;
+  /** Telefone residencial que o WebJob manda junto com os contatos da PAC. */
+  telefone: string;
 };
 
 export type Aprovacao = {
@@ -121,6 +212,10 @@ export type ResultadoRun = {
     rotulo: string;
     eventType: string;
     eventTime: string;
+    /** Sistema que publica esse evento na produção (MS Clientes, MS de crédito ou BFF). */
+    publicador?: string;
+    /** Rejeição que a produção também teria e o Event Grid reentregaria (PAC em análise de quem ainda não existe). */
+    rejeicaoEsperada?: boolean;
     httpStatus: number | null;
     ok: boolean;
     resposta: string;
@@ -259,6 +354,37 @@ function isoSegundos(ms: number): string {
 function lista(valores: readonly string[]): string {
   return [...new Set(valores)].map(literal).join(', ');
 }
+
+/**
+ * O mesmo evento pela outra rota de entrega da pendência: mesmo `id` e sem
+ * `metadataVersion` (seção 6.3 do doc de origem dos eventos).
+ */
+function semMetadataVersion(envelope: EventGridEnvelope): EventGridEnvelope {
+  return envelope.map((evento) => {
+    const copia: Record<string, unknown> = { ...evento };
+    delete copia.metadataVersion;
+    return copia;
+  }) as unknown as EventGridEnvelope;
+}
+
+/** Identificação do cliente nos eventos do MS Clientes. */
+type Identidade = { idCliente: string; prospect: string | null };
+
+type ContextoCadeia = {
+  aprovacao: Aprovacao;
+  pessoa: Pessoa;
+  idClienteEvento: string;
+  prospectJornada: string | null;
+  timeoutJobsMs: number;
+  fluxo: Fluxo;
+};
+
+export type ResultadoCadeia = {
+  intermediario: Snapshot | null;
+  final: Snapshot;
+  prospectY: string | null;
+  evidencia: EvidenciaDoPerfil | null;
+};
 
 // Espera de jobs: o HTTP de um evento só volta depois do commit, então os jobs
 // que ele enfileirou já estão no AsyncApexJob; um job encadeado nasce no mesmo
@@ -419,6 +545,8 @@ export class Execucao {
       celularD: `3197${aleatorio}`,
       celularF: `3196${aleatorio}`,
       celularG: `3195${aleatorio}`,
+      // Fixo de BH: DDD 31 e 8 dígitos, os 6 últimos do sorteio do RUN.
+      telefone: `3132${aleatorio.slice(1)}`,
     };
     this.x = this.novaPessoa('X');
     this.y = this.novaPessoa('Y');
@@ -845,7 +973,8 @@ export class Execucao {
     return [
       {
         id: `EVT-${this.run}-${this.eventos.length + 1}-${rotulo}`,
-        subject: 'MS_Clientes',
+        // O Apex não lê o subject; o real só deixa claro quem publica o evento.
+        subject: origemDoEvento(eventType).subject,
         eventType,
         eventTime,
         dataVersion: '1.0',
@@ -856,11 +985,17 @@ export class Execucao {
     ] as unknown as EventGridEnvelope;
   }
 
+  /**
+   * Manda um evento e confere a resposta. Devolve `false` só quando o evento
+   * volta 4xx com a rejeição esperada (`opcoes.rejeicaoEsperada`), que a
+   * produção também teria; qualquer outra resposta diferente de 200 é falha.
+   */
   private async enviar(
     alvo: 'Cliente' | 'PAC' | 'MaquinaEstado' | 'Pendencia',
     envelope: EventGridEnvelope,
     rotulo: string,
-  ): Promise<void> {
+    opcoes: { rejeicaoEsperada?: RegExp } = {},
+  ): Promise<boolean> {
     const evento = envelope[0]!;
     const access = await this.acesso();
     const resultado = await dispatchConcurrentRequest(
@@ -876,10 +1011,18 @@ export class Execucao {
       this.timeoutRequisicaoMs,
       alvo,
     );
+    const rejeitado =
+      !resultado.ok &&
+      resultado.httpStatus !== null &&
+      resultado.httpStatus >= 400 &&
+      resultado.httpStatus < 500 &&
+      opcoes.rejeicaoEsperada?.test(resultado.responseText) === true;
     this.eventos.push({
       rotulo,
       eventType: evento.eventType,
       eventTime: evento.eventTime,
+      publicador: origemDoEvento(evento.eventType).publicador,
+      ...(rejeitado ? { rejeicaoEsperada: true } : {}),
       httpStatus: resultado.httpStatus,
       ok: resultado.ok,
       resposta: resultado.responseText.slice(0, resultado.ok ? 300 : 1_000),
@@ -891,12 +1034,14 @@ export class Execucao {
       this.rede.aoFalhar?.(falha.causa);
       throw falha;
     }
+    if (rejeitado) return false;
     // Runbook §5: HTTP 4xx/5xx é falha no escopo CLI.
     if (!resultado.ok) {
       throw new FalhaDeEvento(
         `${rotulo} respondeu ${resultado.httpStatus ?? resultado.transportError}: ${resultado.responseText.slice(0, 200)}`,
       );
     }
+    return true;
   }
 
   private pacEnvelope(
@@ -913,11 +1058,16 @@ export class Execucao {
       idProponente: string | null;
     },
   ): EventGridEnvelope {
-    return this.envelope(tipo, tipo, quando, {
+    // No RC, os horários saem como o MS de crédito manda; nos outros, em UTC.
+    const { eventTime, dataAlteracao } =
+      this.perfil === 'RC'
+        ? relogioDoCredito(quando)
+        : { eventTime: quando, dataAlteracao: quando };
+    return this.envelope(tipo, tipo, eventTime, {
       id: this.pacExterno,
       idjornadapac: this.oportunidadeExterna,
       status,
-      dataalteracao: quando,
+      dataalteracao: dataAlteracao,
       proponentes: [
         {
           id: this.proponenteExterno,
@@ -925,7 +1075,7 @@ export class Execucao {
           ...(proponente.idCliente === null ? {} : { idCliente: proponente.idCliente }),
           cpf: proponente.cpf,
           tipoClassificacao: 'Principal',
-          dataAlteracao: quando,
+          dataAlteracao,
           nomeCompleto: proponente.nome,
           email: proponente.email,
           telefoneCelular: proponente.celular,
@@ -1090,27 +1240,39 @@ export class Execucao {
    * principal, no formato do log de staging `a0dHZ00000NAQVTYA5`. Liga
    * `EnviarNotificacaoPendencia__c`; o mapeamento não grava o e-mail.
    */
-  private async enviarPendencia(rotulo: string, segundos: number, pessoa: Pessoa, email: string): Promise<void> {
-    await this.enviar(
-      'Pendencia',
-      this.envelope('notificacaopendencia-insert', rotulo, this.t(segundos), {
-        idPac: this.pacExterno,
-        idJornada: this.oportunidadeExterna,
-        replyTo: this.emailExtra('replyto'),
-        descricaoCentral: 'QA UNIF22 CENTRAL',
-        proponente: {
-          id: this.proponenteExterno,
-          idProponente: this.x.idProspect,
-          nome: pessoa.nome,
-          email,
-          textoPendencias: `QA UNIF22 pendencia sintetica ${this.run}`,
-          textoPendenciasSemDescricao: 'QA UNIF22 pendencia sintetica',
-        },
-        idProcessoProduto: '1000001',
-        tipoNotificacao: 'DESLIGAMENTO',
-      }),
-      rotulo,
-    );
+  private pendenciaEnvelope(
+    rotulo: string,
+    segundos: number,
+    pessoa: Pessoa,
+    email: string,
+  ): EventGridEnvelope {
+    return this.envelope('notificacaopendencia-insert', rotulo, this.t(segundos), {
+      idPac: this.pacExterno,
+      idJornada: this.oportunidadeExterna,
+      replyTo: this.emailExtra('replyto'),
+      descricaoCentral: 'QA UNIF22 CENTRAL',
+      proponente: {
+        id: this.proponenteExterno,
+        idProponente: this.x.idProspect,
+        nome: pessoa.nome,
+        email,
+        textoPendencias: `QA UNIF22 pendencia sintetica ${this.run}`,
+        textoPendenciasSemDescricao: 'QA UNIF22 pendencia sintetica',
+      },
+      idProcessoProduto: '1000001',
+      tipoNotificacao: 'DESLIGAMENTO',
+    });
+  }
+
+  private async enviarPendencia(
+    rotulo: string,
+    segundos: number,
+    pessoa: Pessoa,
+    email: string,
+  ): Promise<EventGridEnvelope> {
+    const envelope = this.pendenciaEnvelope(rotulo, segundos, pessoa, email);
+    await this.enviar('Pendencia', envelope, rotulo);
+    return envelope;
   }
 
   /**
@@ -1172,7 +1334,7 @@ export class Execucao {
     aprovacao: Aprovacao,
     prospectJornada: string | null,
     timeoutJobsMs: number,
-  ): Promise<EvidenciaIdentidade> {
+  ): Promise<EvidenciaDoPerfil> {
     let contestacoesAntes: number | null = null;
     if (this.perfil === 'C3') {
       // O Proponente ainda é de X: a sincronização só regrava o e-mail de X e
@@ -1196,61 +1358,172 @@ export class Execucao {
     return { precondicao: await this.snapshot(), contestacoesAntes };
   }
 
+  /** `cliente-insert` ou `cliente-update`, com o prospect que o cliente tem no MS Clientes. */
+  private eventoCliente(
+    tipo: 'cliente-insert' | 'cliente-update',
+    rotulo: string,
+    quando: string,
+    identidade: Identidade,
+    pessoa: Pessoa,
+    extras: Record<string, unknown> = {},
+  ): EventGridEnvelope {
+    return this.envelope(tipo, rotulo, quando, {
+      idcliente: identidade.idCliente,
+      ...(identidade.prospect === null ? {} : { idprospectsalesforce: identidade.prospect }),
+      numerocpf: pessoa.cpf,
+      nomecompleto: pessoa.nome,
+      ...extras,
+      dataalteracao: quando,
+    });
+  }
+
+  private eventoContato(
+    tipoEvento: 'contato-insert' | 'contato-update',
+    tipo: 'Email' | 'Celular' | 'Telefone',
+    descricao: string,
+    quando: string,
+    identidade: Identidade,
+  ): EventGridEnvelope {
+    return this.envelope(tipoEvento, `contato-${tipo}`, quando, {
+      idcliente: identidade.idCliente,
+      ...(identidade.prospect === null ? {} : { idprospectsalesforce: identidade.prospect }),
+      tipocontato: tipo,
+      descricao,
+      dataalteracao: quando,
+    });
+  }
+
+  /** Endereço sintético. O Apex só grava o de cobrança (`COBRANCA`, em qualquer caixa). */
+  private eventoEndereco(
+    tipoEvento: 'endereco-insert' | 'endereco-update',
+    tipoEndereco: string,
+    rotulo: string,
+    quando: string,
+    identidade: Identidade,
+  ): EventGridEnvelope {
+    return this.envelope(tipoEvento, rotulo, quando, {
+      idcliente: identidade.idCliente,
+      ...(identidade.prospect === null ? {} : { idprospectsalesforce: identidade.prospect }),
+      tipoendereco: tipoEndereco,
+      logradouro: `Rua QA UNIF22 ${this.run}`,
+      numero: '100',
+      bairro: 'Centro',
+      numerocep: '30110000',
+      dataalteracao: quando,
+    });
+  }
+
+  /** `cliente-update` com o prospect gravado pelo callback do Salesforce: o eco (seção 6.5 do doc de origem). */
+  private async enviarEco(
+    contexto: ContextoCadeia,
+    prospect: string | null,
+    segundos: number,
+  ): Promise<void> {
+    await this.enviar(
+      'Cliente',
+      this.eventoCliente(
+        'cliente-update',
+        'cliente-update-retorno',
+        this.t(segundos),
+        { idCliente: contexto.idClienteEvento, prospect },
+        contexto.pessoa,
+      ),
+      'cliente-update-retorno',
+    );
+  }
+
+  /** PAC aprovada com o IdCliente da pessoa aprovada. Mantém o prospect original no Proponente (runbook §4.6.4). */
+  private async enviarPacAprovada(
+    contexto: ContextoCadeia,
+    segundos: number,
+    rotulo = 'pac-update',
+  ): Promise<void> {
+    const { aprovacao, pessoa } = contexto;
+    await this.enviar(
+      'PAC',
+      this.pacEnvelope('pac-update', 'CREDITO_APROVADO_CONDICIONADO', this.t(segundos), {
+        idCliente: contexto.idClienteEvento,
+        cpf: pessoa.cpf,
+        nome: pessoa.nome,
+        email: aprovacao.email,
+        celular: aprovacao.celular,
+        idProponente: contexto.prospectJornada,
+      }),
+      rotulo,
+    );
+  }
+
+  /** `jornadausuario-update` da Plataforma BFF, que leva a jornada para Documentação. */
+  private async enviarMaquina(
+    contexto: ContextoCadeia,
+    prospectY: string | null,
+    segundos: number,
+  ): Promise<void> {
+    await this.enviar(
+      'MaquinaEstado',
+      this.envelope('jornadausuario-update', 'maquina', this.t(segundos), {
+        cliente: {
+          idCliente: contexto.idClienteEvento,
+          idProspectSalesforce:
+            prospectY ?? contexto.prospectJornada ?? contexto.pessoa.idProspect,
+        },
+        id: this.oportunidadeExterna,
+        dataalteracao: this.t(segundos),
+        estado: 'Documentacao',
+        idunidade: PRODUTO_UNIDADE_ATIVA,
+      }),
+      'jornadausuario-update',
+    );
+  }
+
   /**
    * Executa a cadeia 2.2 no perfil do RUN (runbook §4.1.1) e devolve o
-   * snapshot intermediário (depois dos parciais, só no PA) e o final.
+   * snapshot intermediário (depois dos parciais, só no PA) e o final. Os
+   * perfis AR, AM e FW seguem a cadeia do WebJob do crédito.
    */
   async executarCadeia(
     aprovacao: Aprovacao,
     timeoutJobsMs: number,
-  ): Promise<{
-    intermediario: Snapshot | null;
-    final: Snapshot;
-    prospectY: string | null;
-    evidencia: EvidenciaIdentidade | null;
-  }> {
+    fluxo: Fluxo = 'JORNADA_UNIDADE',
+  ): Promise<ResultadoCadeia> {
     const pessoa = aprovacao.pessoa;
-    const idClienteEvento = aprovacao.idClienteEvento ?? pessoa.idCliente;
-    const prospectJornada =
-      aprovacao.prospectDaJornada === undefined
-        ? this.x.idProspect
-        : aprovacao.prospectDaJornada;
+    const contexto: ContextoCadeia = {
+      aprovacao,
+      pessoa,
+      idClienteEvento: aprovacao.idClienteEvento ?? pessoa.idCliente,
+      prospectJornada:
+        aprovacao.prospectDaJornada === undefined
+          ? this.x.idProspect
+          : aprovacao.prospectDaJornada,
+      timeoutJobsMs,
+      fluxo,
+    };
+    const { idClienteEvento, prospectJornada } = contexto;
 
     await this.iniciarJornada(prospectJornada);
-    const evidencia = ehPerfilIdentidade(this.perfil)
+    if (this.perfil === 'AR' || this.perfil === 'AM' || this.perfil === 'FW') {
+      return this.cadeiaDoWebJob(contexto);
+    }
+    let evidencia = ehPerfilIdentidade(this.perfil)
       ? await this.prepararCaminhoIdentidade(aprovacao, prospectJornada, timeoutJobsMs)
       : null;
-    // Os perfis de identidade usam a ordem do CA nos eventos de cliente.
-    const ordem = ehPerfilIdentidade(this.perfil) ? 'CA' : this.perfil;
+    // Os perfis de identidade, RC, EP e RL usam a ordem do CA nos eventos de cliente.
+    const ordem = this.perfil === 'PA' || this.perfil === 'ME' ? this.perfil : 'CA';
 
+    const identidade = { idCliente: idClienteEvento, prospect: prospectJornada };
     const cliente = (quando: string) =>
-      this.envelope(aprovacao.tipoEventoCliente, 'cliente', quando, {
-        idcliente: idClienteEvento,
-        ...(prospectJornada === null ? {} : { idprospectsalesforce: prospectJornada }),
-        numerocpf: pessoa.cpf,
-        nomecompleto: pessoa.nome,
-        dataalteracao: quando,
-      });
+      this.eventoCliente(aprovacao.tipoEventoCliente, 'cliente', quando, identidade, pessoa);
     const sufixoParcial = aprovacao.match ? 'update' : 'insert';
     const contato = (tipo: 'Email' | 'Celular', quando: string) =>
-      this.envelope(`contato-${sufixoParcial}`, `contato-${tipo}`, quando, {
-        idcliente: idClienteEvento,
-        ...(prospectJornada === null ? {} : { idprospectsalesforce: prospectJornada }),
-        tipocontato: tipo,
-        descricao: tipo === 'Email' ? aprovacao.email : aprovacao.celular,
-        dataalteracao: quando,
-      });
+      this.eventoContato(
+        `contato-${sufixoParcial}`,
+        tipo,
+        tipo === 'Email' ? aprovacao.email : aprovacao.celular,
+        quando,
+        identidade,
+      );
     const endereco = (quando: string) =>
-      this.envelope(`endereco-${sufixoParcial}`, 'endereco', quando, {
-        idcliente: idClienteEvento,
-        ...(prospectJornada === null ? {} : { idprospectsalesforce: prospectJornada }),
-        tipoendereco: 'COBRANCA',
-        logradouro: `Rua QA UNIF22 ${this.run}`,
-        numero: '100',
-        bairro: 'Centro',
-        numerocep: '30110000',
-        dataalteracao: quando,
-      });
+      this.eventoEndereco(`endereco-${sufixoParcial}`, 'COBRANCA', 'endereco', quando, identidade);
 
     let intermediario: Snapshot | null = null;
     if (ordem === 'PA') {
@@ -1262,10 +1535,13 @@ export class Execucao {
       intermediario = await this.snapshot();
       await this.enviar('Cliente', cliente(this.t(5)), aprovacao.tipoEventoCliente);
     } else if (ordem === 'CA') {
-      // Cliente primeiro; parciais durante o Queueable.
+      // Cliente primeiro; parciais durante o Queueable. No EP, o celular fica
+      // para depois do eco.
       await this.enviar('Cliente', cliente(this.t(0)), aprovacao.tipoEventoCliente);
       await this.enviar('Cliente', contato('Email', this.t(5)), 'contato-email');
-      await this.enviar('Cliente', contato('Celular', this.t(5)), 'contato-celular');
+      if (this.perfil !== 'EP') {
+        await this.enviar('Cliente', contato('Celular', this.t(5)), 'contato-celular');
+      }
       await this.enviar('Cliente', endereco(this.t(5)), 'endereco');
     } else {
       // Mesmo EventTime, ordem física alternada (catálogo O03, 2ª permutação).
@@ -1285,48 +1561,246 @@ export class Execucao {
 
     // PROS-Y é sempre lido na Account resultante (runbook §4.6.2).
     const prospectY = await this.prospectDaContaAprovada(pessoa, idClienteEvento);
+    await this.enviarEco(contexto, prospectY, 20);
 
-    await this.enviar(
-      'Cliente',
-      this.envelope('cliente-update', 'cliente-update-retorno', this.t(20), {
-        idcliente: idClienteEvento,
-        ...(prospectY === null ? {} : { idprospectsalesforce: prospectY }),
-        numerocpf: pessoa.cpf,
-        nomecompleto: pessoa.nome,
-        dataalteracao: this.t(20),
-      }),
-      'cliente-update-retorno',
-    );
-    // pac-update mantém o prospect original no Proponente (runbook §4.6.4).
-    await this.enviar(
-      'PAC',
-      this.pacEnvelope('pac-update', 'CREDITO_APROVADO_CONDICIONADO', this.t(25), {
-        idCliente: idClienteEvento,
+    if (this.perfil === 'EP') {
+      // O celular foi publicado antes do callback e chega depois do eco, ainda
+      // com o prospect da jornada (seção 6.5 do doc de origem dos eventos).
+      const antesDoGatilho = await this.snapshot();
+      await this.enviar('Cliente', contato('Celular', this.t(5)), 'contato-celular-atrasado');
+      await this.aguardarJobs(timeoutJobsMs);
+      evidencia = {
+        precondicao: null,
+        contestacoesAntes: null,
+        antesDoGatilho,
+        depoisDoGatilho: await this.snapshot(),
+      };
+    }
+
+    await this.enviarPacAprovada(contexto, 25);
+
+    if (this.perfil === 'RC') {
+      // Um contato-update do MS Clientes, de antes da aprovação, chega depois
+      // da PAC aprovada. Com a data da PAC gravada em UTC, ele é descartado
+      // (seção 6.4 do doc de origem dos eventos).
+      const emailAtrasado = this.emailExtra('atrasado');
+      await this.enviar(
+        'Cliente',
+        this.eventoContato('contato-update', 'Email', emailAtrasado, this.t(15), {
+          idCliente: idClienteEvento,
+          prospect: prospectY ?? prospectJornada,
+        }),
+        'contato-email-atrasado',
+      );
+      evidencia = {
+        precondicao: null,
+        contestacoesAntes: null,
+        dataPacAprovada: this.t(25),
+        emailAtrasado,
+      };
+    }
+
+    await this.enviarMaquina(contexto, prospectY, 30);
+    await this.aguardarJobs(timeoutJobsMs);
+
+    if (this.perfil === 'RL') {
+      // O MS Clientes reposta o cliente, os contatos e o endereço, cada um com
+      // a DataAlteracao que tem gravada (seção 3.4 do doc de origem).
+      const antesDoGatilho = await this.snapshot();
+      const atual = { idCliente: idClienteEvento, prospect: prospectY ?? prospectJornada };
+      await this.enviar(
+        'Cliente',
+        this.eventoCliente('cliente-update', 'repostagem-cliente', this.t(20), atual, pessoa),
+        'repostagem-cliente',
+      );
+      await this.enviar(
+        'Cliente',
+        this.eventoContato('contato-update', 'Email', aprovacao.email, this.t(5), atual),
+        'repostagem-contato-email',
+      );
+      await this.enviar(
+        'Cliente',
+        this.eventoContato('contato-update', 'Celular', aprovacao.celular, this.t(5), atual),
+        'repostagem-contato-celular',
+      );
+      await this.enviar(
+        'Cliente',
+        this.eventoEndereco('endereco-update', 'COBRANCA', 'repostagem-endereco', this.t(5), atual),
+        'repostagem-endereco',
+      );
+      await this.aguardarJobs(timeoutJobsMs);
+      evidencia = { precondicao: null, contestacoesAntes: null, antesDoGatilho };
+    }
+
+    this.cadeiaConcluida = true;
+    return { intermediario, final: await this.snapshot(), prospectY, evidencia };
+  }
+
+  /**
+   * AR, AM e FW: a aprovação como o MS de crédito e o WebJob dele fazem
+   * (seções 3.7 e 3.8 do doc de origem dos eventos).
+   *
+   * - A pendência sai na hora da aprovação. Chega de novo pela segunda rota e,
+   *   mais tarde, mais uma vez (seção 6.3).
+   * - O WebJob cria ou atualiza o cliente com o prospect da jornada e manda os
+   *   parciais numa ordem fixa.
+   * - No AR e no FW, a PAC aprovada só sai quando o IdCliente existe. No AM, a
+   *   pessoa já tem IdCliente: a PAC aprovada sai na hora e de novo depois do
+   *   WebJob.
+   * - No FW, a primeira tentativa do WebJob cai depois do celular. Enquanto ele
+   *   espera para repetir, o Salesforce devolve o PROS-Y. Na repetição, o
+   *   `criarAtualizarCliente` volta o prospect do cliente para o da jornada,
+   *   porque o MS Clientes sobrescreve todo campo que vem preenchido.
+   * - Na Venda Genérica, a Plataforma BFF não publica a jornada nesse ponto
+   *   (seção 3.1), então não há máquina.
+   */
+  private async cadeiaDoWebJob(contexto: ContextoCadeia): Promise<ResultadoCadeia> {
+    const { aprovacao, pessoa, idClienteEvento, prospectJornada, timeoutJobsMs } = contexto;
+    // Quem o Salesforce ainda não acha (sem IdCliente, sem conta pelo CPF e sem
+    // prospect) tem a PAC em análise rejeitada pelo código da unificação. O
+    // Event Grid a entrega de novo mais tarde, já depois da aprovação.
+    const rejeitadas: Array<{ envelope: EventGridEnvelope; rotulo: string }> = [];
+    for (const [rotulo, segundos] of [
+      ['pac-analise-1', -50],
+      ['pac-analise-2', -45],
+    ] as const) {
+      const envelope = this.pacEnvelope('pac-update', 'EM_ANALISE_CREDITO', this.t(segundos), {
+        idCliente: this.perfil === 'AM' ? idClienteEvento : null,
         cpf: pessoa.cpf,
         nome: pessoa.nome,
         email: aprovacao.email,
         celular: aprovacao.celular,
         idProponente: prospectJornada,
-      }),
-      'pac-update',
+      });
+      const aceita = await this.enviar('PAC', envelope, rotulo, {
+        rejeicaoEsperada: CLIENTE_NAO_ENCONTRADO,
+      });
+      if (!aceita) rejeitadas.push({ envelope, rotulo });
+    }
+    const precondicao = await this.snapshot();
+
+    const pendencia = await this.enviarPendencia(
+      'notificacaopendencia',
+      -1,
+      pessoa,
+      aprovacao.email,
     );
-    await this.enviar(
-      'MaquinaEstado',
-      this.envelope('jornadausuario-update', 'maquina', this.t(30), {
-        cliente: {
-          idCliente: idClienteEvento,
-          idProspectSalesforce: prospectY ?? prospectJornada ?? pessoa.idProspect,
-        },
-        id: this.oportunidadeExterna,
-        dataalteracao: this.t(30),
-        estado: 'Documentacao',
-        idunidade: PRODUTO_UNIDADE_ATIVA,
-      }),
-      'jornadausuario-update',
-    );
+    if (this.perfil === 'AM') await this.enviarPacAprovada(contexto, 0, 'pac-update-na-hora');
+
+    const parciais = aprovacao.match || this.perfil === 'AM' ? 'update' : 'insert';
+    await this.chamadasDoWebJob(contexto, {
+      inicio: 1,
+      cliente: this.perfil === 'AM' ? 'cliente-update' : aprovacao.tipoEventoCliente,
+      celular: parciais,
+      demais: this.perfil === 'FW' ? null : parciais,
+    });
+    await this.enviar('Pendencia', semMetadataVersion(pendencia), 'notificacaopendencia-2a-rota');
+    await this.aguardarJobs(timeoutJobsMs);
+
+    // PROS-Y é sempre lido na Account resultante (runbook §4.6.2).
+    const prospectY = await this.prospectDaContaAprovada(pessoa, idClienteEvento);
+    await this.enviarEco(contexto, prospectY, 20);
+
+    let antesDoGatilho: Snapshot | null = null;
+    let depoisDoGatilho: Snapshot | null = null;
+    if (this.perfil === 'FW') {
+      // A repetição do WebJob, comprimida: os 180 s viram a espera dos jobs.
+      antesDoGatilho = await this.snapshot();
+      await this.chamadasDoWebJob(contexto, {
+        inicio: 40,
+        cliente: 'cliente-update',
+        celular: 'update',
+        demais: parciais,
+      });
+      await this.aguardarJobs(timeoutJobsMs);
+      depoisDoGatilho = await this.snapshot();
+      // Se o Salesforce chamou o MS Clientes de novo, o eco traz o prospect da Account.
+      await this.enviarEco(
+        contexto,
+        await this.prospectDaContaAprovada(pessoa, idClienteEvento),
+        48,
+      );
+    }
+
+    await this.enviarPacAprovada(contexto, this.perfil === 'FW' ? 50 : 25);
+    // A reentrega das PACs em análise rejeitadas chega depois da aprovação, com
+    // data mais antiga: tem de ser aceita sem voltar o status.
+    for (const { envelope, rotulo } of rejeitadas) {
+      await this.enviar('PAC', envelope, `${rotulo}-reentrega`);
+    }
+    await this.enviar('Pendencia', pendencia, 'notificacaopendencia-reentrega');
+    if (contexto.fluxo === 'JORNADA_UNIDADE') {
+      await this.enviarMaquina(contexto, prospectY, this.perfil === 'FW' ? 55 : 30);
+    }
     await this.aguardarJobs(timeoutJobsMs);
     this.cadeiaConcluida = true;
-    return { intermediario, final: await this.snapshot(), prospectY, evidencia };
+    return {
+      intermediario: null,
+      final: await this.snapshot(),
+      prospectY,
+      evidencia: {
+        precondicao,
+        contestacoesAntes: null,
+        antesDoGatilho,
+        depoisDoGatilho,
+        pacsEmAnaliseRejeitadas: rejeitadas.length,
+      },
+    };
+  }
+
+  /**
+   * As chamadas do WebJob ao MS Clientes, uma de cada vez e na ordem fixa da
+   * seção 3.8: o cliente, com `SistemaOrigem` Crédito, o celular, o e-mail, o
+   * telefone e os endereços Principal e Cobrança. O MS Clientes publica tudo
+   * com o prospect que o cliente tem, que é o da jornada. Sem `demais`, a
+   * tentativa cai depois do celular.
+   */
+  private async chamadasDoWebJob(
+    contexto: ContextoCadeia,
+    chamadas: {
+      inicio: number;
+      cliente: 'cliente-insert' | 'cliente-update';
+      celular: 'insert' | 'update';
+      demais: 'insert' | 'update' | null;
+    },
+  ): Promise<void> {
+    const { aprovacao, pessoa } = contexto;
+    const identidade = { idCliente: contexto.idClienteEvento, prospect: contexto.prospectJornada };
+    const quando = (ordem: number) => this.t(chamadas.inicio + ordem);
+    await this.enviar(
+      'Cliente',
+      this.eventoCliente(chamadas.cliente, 'cliente', quando(0), identidade, pessoa, {
+        sistemaorigem: 'Crédito',
+      }),
+      chamadas.cliente,
+    );
+    await this.enviar(
+      'Cliente',
+      this.eventoContato(`contato-${chamadas.celular}`, 'Celular', aprovacao.celular, quando(1), identidade),
+      'contato-celular',
+    );
+    const parcial = chamadas.demais;
+    if (parcial === null) return;
+    await this.enviar(
+      'Cliente',
+      this.eventoContato(`contato-${parcial}`, 'Email', aprovacao.email, quando(2), identidade),
+      'contato-email',
+    );
+    await this.enviar(
+      'Cliente',
+      this.eventoContato(`contato-${parcial}`, 'Telefone', this.contatos.telefone, quando(3), identidade),
+      'contato-telefone',
+    );
+    await this.enviar(
+      'Cliente',
+      this.eventoEndereco(`endereco-${parcial}`, 'Principal', 'endereco-principal', quando(4), identidade),
+      'endereco-principal',
+    );
+    await this.enviar(
+      'Cliente',
+      this.eventoEndereco(`endereco-${parcial}`, 'Cobranca', 'endereco-cobranca', quando(5), identidade),
+      'endereco-cobranca',
+    );
   }
 
   /** Jobs com erro e logs `error` na janela do RUN (runbook §4.6.5). */
