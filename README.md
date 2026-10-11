@@ -556,6 +556,11 @@ roda automaticamente no build/deploy.
   desde 27/09.
 - [Passagem de contexto do bug 4 do TC-001](docs/handoff-investigacao-tc001-bug4.md) —
   causa, reprodução, estado do harness e da `mrv-devDan` em 02/10.
+- [Origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md) —
+  quem publica cada evento (MS Clientes, MS de crédito, Plataforma BFF), o
+  que o código do MS Clientes publica e quem dispara cada evento, o formato
+  real de cada origem, por que a ordem varia no Salesforce e a correção do
+  `Estado` = UF do §9 da análise de staging.
 
 ### Fase 0 — Validação e configuração técnica
 

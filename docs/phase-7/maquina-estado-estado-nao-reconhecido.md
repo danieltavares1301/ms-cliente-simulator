@@ -1,5 +1,17 @@
 # Tarefa 7.2 — `/MaquinaEstado` (incremento 6: `Estado` não reconhecido em `jornadausuario-update`)
 
+> **Retificação (2026-10-11): a premissa deste cenário não se confirma.** Os
+> updates reais não chegam com `Estado` = sigla de UF. A contagem da seção 9
+> da análise de staging pegou `data.PropostaDetalhes.UnidadeInfos.Endereco.Estado`
+> (a UF do endereço da unidade), e não o `Estado` da raiz, que é o que o Apex
+> lê. Em 1.250 `jornadausuario-update` distintos de 40 dias, a raiz nunca
+> trouxe UF. A Plataforma BFF, que publica esses eventos, serializa o `Estado`
+> como nome de enum.
+>
+> O cenário continua válido como teste do ramo de `retornaValorFase` para um
+> valor desconhecido. Ele só não reproduz um padrão real. Detalhes na seção 5
+> de [`origem-dos-eventos-no-salesforce.md`](../origem-dos-eventos-no-salesforce.md).
+
 ## Escopo deste incremento
 
 Este incremento cobre o padrão real majoritário documentado na seção 9 de
@@ -305,3 +317,7 @@ amostra separada de `insert` mostrou **100% `Estado="Unidades"`**. O cenário
 `maquina-estado-update-estado-nao-reconhecido` fixa exatamente esse padrão
 real majoritário em `update` e comprova ao vivo, em `mrv-devDan`, que o
 resultado líquido esperado é **preservação do `StageName` atual com HTTP 200**.
+
+> **Retificação (2026-10-11):** o "padrão real majoritário" acima não existe;
+> ver a nota no topo deste documento. A validação ao vivo do ramo Apex
+> continua correta.
