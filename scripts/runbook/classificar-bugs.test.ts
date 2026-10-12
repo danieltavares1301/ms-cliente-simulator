@@ -83,6 +83,14 @@ describe('bugsDoRun', () => {
     expect(ids(comDetalhe('Lead vinculado 00QA ≠ leadY 00QB'))).toEqual(['?']);
   });
 
+  it('liga ao B10 os contatos alterados do Lead Y2 reutilizado (TC-026)', () => {
+    const nome = 'Lead leadY2 reutilizado e vinculado (contatos preservados)';
+    const resultado = run('TC-026', 'CA', [nome], {
+      assercoes: [{ nome, ok: false, detalhe: ['contatos alterados: qa@example.com / 31980155773'] }],
+    });
+    expect(ids(resultado)).toEqual(['B10']);
+  });
+
   it('separa o Lead candidato já conhecido (K2) do que a pendência causa (B5)', () => {
     const candidato = 'Lead leadCandidato reutilizado e vinculado (CPF preenchido)';
     expect(ids(run('TC-046', 'CA', [candidato]))).toEqual(['K2']);

@@ -232,6 +232,45 @@ export class Verificador {
     };
   }
 
+  /** Toda Account com o CPF aprovado é da massa ou a própria Account aprovada. */
+  nenhumaContaAMais(): Assercao {
+    const conta = this.conta();
+    const fixtures = this.idsFixture('Account');
+    const amais = this.final.accounts.filter(
+      ({ Id, CPF__pc }) =>
+        digitos(CPF__pc) === digitos(this.pessoa.cpf) && Id !== conta?.Id && !fixtures.has(Id),
+    );
+    return {
+      nome: 'Nenhuma Account a mais com o CPF aprovado',
+      ok: amais.length === 0,
+      ...(amais.length ? { detalhe: amais.map(({ Id, Id__c }) => ({ Id, Id__c })) } : {}),
+    };
+  }
+
+  /** O Proponente principal guarda o CPF e os contatos aprovados na PAC. */
+  proponenteComDadosDaPac(): Assercao {
+    const proponente = this.final.proponente;
+    const problemas: string[] = [];
+    if (proponente === null) {
+      problemas.push('Proponente não encontrado');
+    } else {
+      if (digitos(proponente.CpfProponente__c) !== digitos(this.pessoa.cpf)) {
+        problemas.push(`CPF ${proponente.CpfProponente__c ?? 'vazio'}`);
+      }
+      if ((proponente.EmailAtualizado__c ?? '').toLowerCase() !== this.aprovacao.email.toLowerCase()) {
+        problemas.push(`e-mail ${proponente.EmailAtualizado__c ?? 'vazio'}`);
+      }
+      if (!mesmoCelular(digitos(proponente.Celular__c), this.aprovacao.celular)) {
+        problemas.push(`celular ${proponente.Celular__c ?? 'vazio'}`);
+      }
+    }
+    return {
+      nome: 'Proponente principal com o CPF e os contatos da PAC',
+      ok: problemas.length === 0,
+      ...(problemas.length ? { detalhe: problemas } : {}),
+    };
+  }
+
   vinculo(): Assercao {
     const conta = this.conta();
     const lead = this.leadVinculado(conta);
@@ -289,7 +328,7 @@ export class Verificador {
   /** O Lead vinculado à Account aprovada é o da massa (mesmo Salesforce Id). */
   leadReutilizado(
     ref: string,
-    opcoes: { cpfPreenchido?: boolean; contatosPreservados?: boolean } = {},
+    opcoes: { cpfPreenchido?: boolean; contatosPreservados?: boolean; contatosAprovados?: boolean } = {},
   ): Assercao {
     const lead = this.leadVinculado();
     const fixture = this.execucao.fixtures.get(ref)?.registro as LeadRegistro | undefined;
@@ -311,10 +350,20 @@ export class Verificador {
           `contatos alterados: ${lead.Email ?? 'vazio'} / ${celularDoLead(lead) || 'vazio'}`,
         );
       }
+      if (
+        opcoes.contatosAprovados &&
+        ((lead.Email ?? '').toLowerCase() !== this.aprovacao.email.toLowerCase() ||
+          !mesmoCelular(celularDoLead(lead), this.aprovacao.celular))
+      ) {
+        problemas.push(
+          `contatos diferentes dos aprovados: ${lead.Email ?? 'vazio'} / ${celularDoLead(lead) || 'vazio'}`,
+        );
+      }
     }
     const extras = [
       ...(opcoes.cpfPreenchido ? ['CPF preenchido'] : []),
       ...(opcoes.contatosPreservados ? ['contatos preservados'] : []),
+      ...(opcoes.contatosAprovados ? ['com os contatos aprovados'] : []),
     ];
     return {
       nome: `Lead ${ref} reutilizado e vinculado${extras.length ? ` (${extras.join(', ')})` : ''}`,
@@ -357,6 +406,14 @@ export class Verificador {
         oportunidade: this.final.oportunidade?.AccountId ?? null,
       },
     });
+    // A planilha pede, em todos os TCs, a Account e o Proponente refletindo a
+    // PAC, o IdCliente vinculado e nenhuma Account duplicada para a pessoa.
+    assercoes.push(
+      this.contaComContatos(this.aprovacao.email, this.aprovacao.celular),
+      this.contaComIdCliente(),
+      this.nenhumaContaAMais(),
+      this.proponenteComDadosDaPac(),
+    );
     // Nos MATCH, X é a própria pessoa aprovada e os parciais são dela.
     if (this.intermediario !== null && !opcoes.xAlteravel) {
       assercoes.push(...this.parciaisSemEfeito(this.intermediario));
