@@ -43,7 +43,7 @@ harness codifica (`scripts/runbook/cenarios.ts` e `verificacoes.ts`).
 | 029 | executável: a Account X, incompleta, passa a representar Y | `BLOCKED-FUNCIONAL` por conflito com a regra mestra | fica sem teste até a decisão |
 | 044 | o Lead Y já tem os contatos aprovados (C/D) | o harness dá ao Lead Y os contatos E/F, como no 047 | não há o que preservar na planilha |
 | 046 | aprova Y com o celular B, o mesmo de X, e reutiliza o Lead que tem B | o runbook trocou B por D sem registrar | **o K2 do 046 é artefato** (seção 4) |
-| 047 | não fala dos contatos do Lead Y; só manda a Account Y refletir a PAC | o harness exige o Lead Y com os contatos E/F preservados | **o B9 do 047 não tem base** |
+| 047 | não fala dos contatos do Lead Y; só manda a Account Y refletir a PAC | o harness exige o Lead Y com os contatos E/F preservados | a exigência não vem da planilha, e sim da regra da 2.2 (`d6f147d303`) e do teste da QA; **foi mantida** |
 | 053 | inclusão de proponente adicional, sem troca do principal | o harness troca o principal na aprovação e exige a Opportunity em Y | o cenário da planilha não roda |
 | 055 | inclusão de proponente adicional; o Lead Y não pode mudar os contatos | o harness troca o principal, e a 1ª PAC de X sai com o e-mail A, embora X tenha o C | **o B9 do 055 é artefato** (seção 4) |
 | 056 | igual ao 055 | igual ao 055 | **o B9 do 056 é artefato** |
@@ -60,7 +60,7 @@ harness codifica (`scripts/runbook/cenarios.ts` e `verificacoes.ts`).
 | Nenhum job ou log com erro | runbook §4.6.5 | |
 | Lead novo com origem `InsertClientePAC` | 001, 016, 036, 041, 057 | a planilha pede só o Lead com CPF, sem contatos |
 | "Account X intacta" inclui o carimbo da pendência e os marcadores de evento | harness | a planilha proíbe qualquer mudança na Account X no 038 e no 040; nos 041 a 049, protege os dados cadastrais e o Lead X |
-| Lead Y com os contatos preservados | 047 | sem base na planilha (o 019, o 048, o 055 e o 056 pedem isso; o 047 não) |
+| Lead Y com os contatos preservados | 047 | a planilha não pede (o 019, o 048, o 055 e o 056 pedem; o 047 não); vem da regra do commit `d6f147d303` e do teste da QA de 29/08, e foi mantida |
 | Uma Account Z de terceira pessoa | 007 | a planilha não diz de quem é o Lead com C/D |
 | Um X que muda para Y | 062 | a planilha só tem a Account Y; as células do B1 (C2, C3) e do B2 (C4) no 062 vêm desse X |
 
@@ -80,8 +80,10 @@ Conferido por mim nos dados das campanhas de 11/10 e com execuções avulsas
   Pela leitura do código, deve ser o mesmo ramo de escrita do B6: o reuso do
   Lead do mesmo CPF preenche contatos vazios sem checar colisão. Isso não foi
   isolado à parte.
-- **B9 sem base.** No 047, a planilha não pede preservar os contatos do Lead Y.
-  No 055 e no 056, o efeito vinha da massa incoerente do harness: com a 1ª PAC
+- **B9.** No 047, a planilha não pede preservar os contatos do Lead Y; a
+  exigência vem da regra da 2.2 (commit `d6f147d303`) e do teste da QA de
+  29/08, e o B9 continua valendo ali. No 055 e no 056, o efeito vinha da massa
+  incoerente do harness: com a 1ª PAC
   de X levando os contatos que X tem, o AR e o FW só acusam o carimbo do B8, e
   o Lead Y fica intacto (`TC055-AR-31fa8e`, `TC056-FW-ef2334`). O mecanismo do
   B9 continua: a Account Y nasce com os contatos de X, e a PAC aprovada os
@@ -137,28 +139,49 @@ e `ORDEM-PARCIAIS-ANTES-IDENTIDADE-ANTIGA`, e registra resultados de agosto que
 a cópia do projeto não tem. Nenhuma das duas versões tira os perfis da
 planilha, que não trata de ordem de eventos.
 
-## 7. Como alinhar
+## 7. Alinhamento feito em 12/10
 
-1. **Massa e execução como na planilha:** 019 (aprovar com A/B), 044 (Lead Y
-   com os contatos aprovados), 046 (candidato com o celular B) e a 1ª PAC de X
-   com os contatos que X tem (055 e 056).
-2. **Asserções que faltam:**
-   - contatos e unicidade da Account Y, na maioria dos TCs;
-   - IdCliente da Account nova;
-   - CPF e contatos do Proponente;
-   - CPF no Lead do 004 e contatos do Lead no 039;
-   - contatos do Lead Y2 no 026, que revelam o B10.
-3. **Extras a decidir com PO/QA:** a origem `InsertClientePAC`, o carimbo de
-   pendência em X, os contatos do Lead Y no 047 e a Opportunity nos TCs de
-   proponente adicional.
-4. **TCs de proponente adicional:** marcar 053 a 057 como fora do modelo do
-   harness até ele saber incluir um proponente, ou modelá-los.
-5. **Escolher a versão do runbook** que vale: três ou seis perfis.
+O harness foi alinhado à planilha em 12/10 e medido na
+[campanha alinhada](resultado-runbook-completo-alinhado-2026-10-12.md):
+
+1. **Massa e execução como na planilha:**
+   - o 019 aprova Y com A/B;
+   - no 044, o Lead Y tem os contatos aprovados;
+   - no 046, o candidato tem o celular B;
+   - a 1ª PAC de X sai com os contatos que X tem.
+2. **Verificações que a planilha pede, comuns a todos os TCs:**
+   - contatos e IdCliente da Account aprovada;
+   - nenhuma Account a mais com o CPF aprovado;
+   - CPF e contatos do Proponente.
+
+   Passaram nos 466 RUNs em que rodaram.
+3. **Verificações por TC:** o CPF e os contatos do Lead no 004, os contatos do
+   Lead no 039 e os contatos do Lead Y2 no 026. Esta última acusa o B10 em 11
+   perfis.
+4. **O 047** mantém a exigência de preservar os contatos do Lead Y, que vem da
+   regra da 2.2 e do teste da QA, e não da planilha. Ela chegou a ser tirada e
+   voltou no mesmo dia; com ela, o B9 aparece no 047, no AR e no FW.
+5. **Os 053 a 057**, de proponente adicional, saíram do `--todos`
+   (`foraDoModelo` em `scripts/runbook/cenarios.ts`).
+
+Pendente:
+
+- **Extras a decidir com PO/QA:** a origem `InsertClientePAC` do Lead novo e
+  o carimbo da pendência na Account X.
+- **Leituras do runbook que seguem como estão:**
+  - a Account Z do 007;
+  - o candidato sem CPF do 012 e do 013;
+  - a caixa do IdCliente no 014 e no 015;
+  - o critério de "mais recente" do 025;
+  - o X a mais do 062.
+- **Versão do runbook:** escolher a que vale, com três ou seis perfis.
 
 ## 8. Os 70 TCs
 
 "Fora" é TC que o harness não roda (bloqueado na planilha ou
-`BLOCKED-FUNCIONAL`).
+`BLOCKED-FUNCIONAL`). A tabela mostra a situação antes do alinhamento de
+12/10: depois dele, o 019, o 026, o 044 e o 046 seguem a planilha, o 047 mantém
+a exigência da 2.2 e os 053 a 057 saíram do `--todos`.
 
 | TC | Convergência | Ponto principal |
 |---|---|---|

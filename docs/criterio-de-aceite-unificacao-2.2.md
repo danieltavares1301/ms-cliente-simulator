@@ -100,17 +100,18 @@ em `scripts/runbook/cenarios.ts`, com as verificações de
 |---|---|
 | X e Z preservados | "Account X intacta", "Lead X intacto", "Lead Z intacto", "Account Y2 intacta" |
 | Account de Y | "Account aprovada é nova", "Account aprovada é a … (mesmo Salesforce Id)", "Account aprovada com o IdCliente aprovado", "Account aprovada com os contatos da PAC", "Caso C: Account aprovada sem IdProspect" |
-| Lead de Y | "Lead novo vinculado, …" (com ou sem e-mail e celular aprovados, origem `InsertClientePAC`), "Lead … reutilizado e vinculado" (CPF preenchido, contatos preservados) |
+| Lead de Y | "Lead novo vinculado, …" (com ou sem e-mail e celular aprovados, origem `InsertClientePAC`), "Lead … reutilizado e vinculado" (CPF preenchido, contatos preservados, com os contatos aprovados) |
 | Vínculo e duplicidade | "Account aprovada → Lead (IdProspectSalesforce__c == Lead.Id__c)", "N Lead(s) com o CPF aprovado", "N Account(s) com o CPF aprovado" |
-| Comuns | "PAC no status aprovado", "Proponente principal na Account aprovada com PROS-Y", "Opportunity na Account aprovada", "Nenhum job assíncrono com erro na janela do RUN", "Nenhum LogIntegracao__c error correlacionado", "Todos os eventos responderam HTTP 200" |
+| Comuns | "PAC no status aprovado", "Proponente principal na Account aprovada com PROS-Y", "Opportunity na Account aprovada", "Account aprovada com os contatos da PAC", "Account aprovada com o IdCliente aprovado", "Nenhuma Account a mais com o CPF aprovado", "Proponente principal com o CPF e os contatos da PAC", "Nenhum job assíncrono com erro na janela do RUN", "Nenhum LogIntegracao__c error correlacionado", "Todos os eventos responderam HTTP 200" |
 | Descarte defensivo (PA) | "PA: Account X intacta depois dos parciais", "PA: nenhuma Account/Lead criada pelos parciais" |
 
 ## 3. Escopo dos TCs
 
 Dos 70 TCs da planilha:
 
-- **44 executáveis:** 001 a 007, 009 a 027, 038 a 049, 053 a 057 e 062. São
-  os que o harness roda.
+- **44 executáveis:** 001 a 007, 009 a 027, 038 a 049, 053 a 057 e 062. O
+  harness roda 39: os 053 a 057 descrevem a inclusão de um proponente
+  adicional, que ele não modela, e ficam fora do `--todos` desde 12/10.
 - **17 bloqueados na planilha:** os do segundo proponente (030 a 037, 051 e
   063), as priorizações de 066 a 070, a alteração cadastral pós-PAC na Venda de
   Unidade (059) e a reemissão de contrato (061).
@@ -145,34 +146,37 @@ Dos 70 TCs da planilha:
 ### 4.2 O harness
 
 O harness monta a 2.1 e a 1.3 por DML, então dá só `DIAGNOSTICO` do recorte da
-2.2, nunca `PASS-CLI`. Na campanha de 11/10 com a ponta da 2.2:
+2.2, nunca `PASS-CLI`. Na campanha de 12/10, com a ponta da 2.2 e o harness já
+alinhado à planilha
+([relatório](resultado-runbook-completo-alinhado-2026-10-12.md)):
 
 | Perfil | Conformes | Divergências |
 |---|---:|---|
-| PA | 40 de 44 | K1 (040), K2 (045, 046, 049) |
-| CA | 41 de 44 | K2 (045, 046, 049) |
-| ME | 40 de 44 | K1 (040), K2 (045, 046, 049) |
-| C1 a C4 | 23, 3, 3 e 3 de 44 | B1, B2, B3, B8 |
-| AR | 21 de 44 | B3, B4, B5, B8, B9, K2 |
-| AM | 16 de 17 | B4 |
-| FW | 18 de 44 | B3 a B9, K2 |
-| RC, EP e RL | 41 de 44 cada | K2 |
+| PA | 35 de 39 | K1 (040), K2 (045, 049), B10 (026) |
+| CA | 36 de 39 | K2 (045, 049), B10 (026) |
+| ME | 35 de 39 | K1 (040), K2 (045, 049), B10 (026) |
+| C1 a C4 | 21, 3, 3 e 3 de 39 | B1, B2, B3, B8, B10 |
+| AR | 20 de 39 | B3, B4, B5, B8, B9, K2 |
+| AM | 14 de 16 | B4, B10 |
+| FW | 17 de 39 | B3, B4, B5, B6, B8, B9, K2 |
+| RC, EP e RL | 36 de 39 cada | K2, B10 |
 
-- **Nos perfis obrigatórios, o harness só acusa K1 e K2**, conhecidos desde
-  27/09. Frente à planilha, o quadro muda
-  ([convergência](convergencia-planilha-runbook-2.2.md), seção 4):
-  - o K1 é regra do runbook; a planilha não fala de HTTP nem de descarte;
-  - o K2 do 046 é artefato da massa: com o celular B da planilha, o candidato é
-    reutilizado. O K2 do 045 e do 049 tem base;
-  - **o TC-026 esconde um bug nos perfis obrigatórios (B10):** o Lead Y2
-    reutilizado recebe o celular de X, o que a planilha proíbe. O harness não
-    confere os contatos do Y2.
-- **Os B1 a B9 só aparecem nos perfis acrescentados** (seção 5), que ainda não
-  fazem parte do critério formal. B3, B4, B6 e B7 violam a planilha e a regra
-  mestra. B1 e B8 que só mudam carimbos em X violam a planilha no 038 e no 040;
-  nos 041 a 049, depende de o carimbo contar como alteração de X. O B9 não tem
-  base na planilha: no 047 ela não pede preservar os contatos do Lead Y, e no
-  055 e no 056 ele vinha de uma massa incoerente do harness.
+- **Nos perfis obrigatórios, divergem o K1, o K2 e o B10.**
+  - O K1 é regra do runbook: a planilha não fala de HTTP nem de descarte.
+  - O K2, no 045 e no 049, tem base na planilha. O do 046 era artefato da
+    massa, e o 046 agora passa.
+  - O B10 (TC-026) viola a planilha e a regra mestra: o Lead Y2 reutilizado
+    recebe o celular de X. Até 11/10, o harness não conferia isso.
+- **As verificações que a planilha pede em todos os TCs passaram:** contatos e
+  IdCliente da Account aprovada, nenhuma Account a mais e CPF e contatos do
+  Proponente, nos 466 RUNs em que rodaram.
+- **Os outros B só aparecem nos perfis acrescentados** (seção 5), que ainda não
+  fazem parte do critério formal. B3, B4 e B6 violam a planilha e a regra
+  mestra; o B7, também, quando a corrida acontece (não aconteceu em 12/10). B1
+  e B8 que só mudam carimbos em X violam a planilha no 038 e no 040; nos 041 a
+  049, depende de o carimbo contar como alteração de X. O B9 ficou só no 047,
+  no AR e no FW: a preservação dos contatos do Lead Y ali é regra da 2.2 e da
+  QA, não da planilha.
 
 ## 5. Perfis além do runbook
 
@@ -199,12 +203,12 @@ seção 7.2). Cada um roda o "Esperado" do TC mais as asserções próprias:
 |---|---|---|---|---|
 | 1 | Os perfis das ordens reais entram no critério? | só PA, CA e ME são obrigatórios, e eles não pegam nenhum B | tornar obrigatórios AR, AM, FW, RC, EP e RL, que são a ordem da produção, e manter C1 a C4 como regressão do bug 4 | time e PO/QA |
 | 2 | K1: contato antes do cliente, sem prospect, no TC-040 | o runbook espera descarte com 200; o Apex devolve 400 (`REQUIRED_FIELD_MISSING`). É regra do runbook: a planilha não fala de HTTP | manter a expectativa: a seção 4.2 do runbook exige 200 nos parciais que chegam antes | PO/QA |
-| 3 | K2: Lead candidato sem CPF nos TCs 045, 046 e 049 | a planilha manda reutilizar o candidato no 045 (pelo e-mail) e no 049 (e-mail e celular), e o Apex cria um Lead novo. No 046, com a massa da planilha (celular B), o Apex reutiliza | manter a expectativa no 045 e no 049 e tratar como bug; corrigir a massa do 046 | PO/QA |
-| 4 | Contatos do Lead Y reutilizado | a planilha manda preservar no 019, no 026, no 048, no 055 e no 056; no 044, o Lead Y já tem os aprovados; no 047, ela não diz nada, e o harness exige preservar | seguir a planilha: preservar onde ela manda e tirar a exigência do 047, ou pedir a PO/QA uma regra única | PO/QA |
+| 3 | K2: Lead candidato sem CPF nos TCs 045 e 049 | a planilha manda reutilizar o candidato no 045 (pelo e-mail) e no 049 (e-mail e celular), e o Apex cria um Lead novo. No 046, com a massa da planilha (celular B), o Apex reutiliza; a massa foi corrigida em 12/10 | manter a expectativa no 045 e no 049 e tratar como bug | PO/QA |
+| 4 | Contatos do Lead Y reutilizado | a planilha manda preservar no 019, no 026, no 048, no 055 e no 056; no 044, o Lead Y já tem os aprovados; no 047, ela não diz nada, e o harness exige preservar pela regra do commit `d6f147d303` e pelo teste da QA de 29/08 | confirmar com PO/QA que a regra da 2.2 (o Lead reutilizado mantém os próprios contatos) vale também onde a planilha é omissa | PO/QA |
 | 5 | Os 9 `BLOCKED-FUNCIONAL` | parados até a escolha de topologia ou regra (seção 3) | decidir antes da reescrita: quase todos mexem na regra de identidade, como a mutação Y→Z de registros sem IdCliente (029, 052, 058 e 060), a chave de localização (050) e a correção de identificadores (064 e 065) | PO/QA |
 | 6 | Comportamentos que a planilha não cobre | dez commits da 2.2 corrigem algo que nenhum TC exercita ([inventário](inventario-commits-2.2.md), seção 5) | escrever critério e teste para cada um (lista abaixo) | time |
 | 7 | Aceite final pela cadeia real | o harness não chama a 2.1 nem a 1.3; o `PASS-CLI` exige as duas | uma rodada pela cadeia real numa amostra de TCs nos perfis obrigatórios, como em agosto | time e PO/QA |
-| 8 | Alinhar o harness com a planilha | em 11 TCs ele executa outro cenário ou cobra o que ela não pede, e não confere parte do que ela pede (o TC-026 esconde o B10) | alinhar massa, execução e asserções antes de usar a matriz como aceite ([convergência](convergencia-planilha-runbook-2.2.md), seção 7); os TCs de proponente adicional (053 a 057) ficam fora até o harness saber incluir proponente | time |
+| 8 | Alinhar o harness com a planilha | **feito em 12/10** ([convergência](convergencia-planilha-runbook-2.2.md), seção 7): massa do 019, do 044, do 046 e da 1ª PAC de X; verificações da Account aprovada, do Proponente e dos Leads do 004, do 026 e do 039; os 053 a 057 fora do `--todos`. O 047 mantém a exigência de preservar, que vem da 2.2 e da QA | decidir com PO/QA os extras que restam (origem `InsertClientePAC`, carimbo em X) e modelar o proponente adicional para trazer de volta os 053 a 057 | time e PO/QA |
 | 9 | Versão do runbook | a do projeto pede três perfis; a do `com_salesforce_mrv`, seis, mais dois condicionais | escolher uma; a planilha não trata de ordem de eventos | time e PO/QA |
 
 Os comportamentos da decisão 6, com o cenário de catálogo da API que já os
