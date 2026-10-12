@@ -11,6 +11,9 @@ a 21/09/2026. Para cada commit:
 - em que regra da versão enxuta ele cai;
 - se a mudança sobrevive na ponta (`3f2919f5e7`).
 
+O alvo da reescrita está no
+[critério de aceite da Unificação 2.2](criterio-de-aceite-unificacao-2.2.md).
+
 > **Como foi feito.** Em 11/10, lendo os diffs no `com_salesforce_mrv`, só com
 > comandos git de leitura, e cruzando com os TCs e as verificações do harness
 > (`scripts/runbook/`). "Harness" diz se algum dos 44 TCs, em algum dos 13
