@@ -66,6 +66,12 @@ O que o simulador encontrou nesse estado:
 
 Campanhas do runbook e o estado em que rodaram:
 
+- **12/10, campanha completa alinhada à planilha** (484 RUNs nos 39 TCs que o
+  harness modela, 295 conformes): o mesmo estado da campanha com os commits,
+  com o harness alinhado à planilha oficial
+  ([relatório](resultado-runbook-completo-alinhado-2026-10-12.md)). Trouxe o
+  B10 para a matriz e tirou o B9 e o K2 do 046
+  ([convergência](convergencia-planilha-runbook-2.2.md)).
 - **11/10, campanha completa com os commits** (545 RUNs nos 13 perfis, 331
   conformes): das 20:49 às 21:44 UTC, depois de as quatro classes voltarem à
   ponta da 2.2 ([relatório](resultado-runbook-completo-com-commits-2026-10-11.md)).

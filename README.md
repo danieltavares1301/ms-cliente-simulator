@@ -13,9 +13,11 @@ duas partes:
   faz de volta: GraphQL `atualizarCliente`, token, PAC Crédito e Contestação.
 - **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
   Salesforce CLI:
-  - o harness do runbook da Unificação 2.2, com 44 TCs executáveis nos perfis
-    PA, CA e ME, os perfis opcionais C1 a C4 do bug 4 e os perfis opcionais
-    AR, AM, FW, RC, EP e RL, com as ordens reais da aprovação;
+  - o harness do runbook da Unificação 2.2, com 44 TCs executáveis (39 no
+    `--todos`; os 053 a 057, de proponente adicional, ficam fora do modelo)
+    nos perfis PA, CA e ME, os perfis opcionais C1 a C4 do bug 4 e os perfis
+    opcionais AR, AM, FW, RC, EP e RL, com as ordens reais da aprovação. O
+    esperado segue a planilha oficial;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
   - as consultas somente leitura de `mrv-staging` (`scripts/analise-staging/`).
@@ -37,6 +39,9 @@ Os trabalhos mais recentes:
   RUNs cada): uma sem e outra com os cinco commits da 2.2 que a dev revertida
   não tinha. O que mudou entre elas está no
   [catálogo de bugs pegos pelo runbook](docs/bugs-pegos-pelo-runbook.md);
+- a comparação com a planilha oficial, o harness alinhado a ela e a campanha
+  alinhada de 12/10 (484 RUNs), que trouxe o B10 para a matriz
+  ([convergência](docs/convergencia-planilha-runbook-2.2.md));
 - os contratos da API alargados para os formatos reais, no Vercel desde
   11/10 (seção 7.4 do doc de origem dos eventos).
 
@@ -396,11 +401,12 @@ do catálogo copiado para a decisão de arquitetura pendente.
 ### Runbook da Unificação 2.2 (recorte 2.2)
 
 `npm run runbook -- --tcs TC-005,TC-006 [--perfis PA,CA,ME] [--saida resultados.jsonl]`
-(ou `--todos`) roda os **44 TCs executáveis** do
+(ou `--todos`) roda os **TCs executáveis** do
 [runbook](docs/runbook-testes-manuais-unificacao-2.2.md) na `mrv-devDan`, cada
 um nos três perfis obrigatórios (`ORDEM-PARCIAIS-ANTES`, `ORDEM-CLIENTE-ANTES`
-e `ORDEM-MESMO-EVENTTIME`), com massa nova por RUN. Os TCs bloqueados e os
-`BLOCKED-FUNCIONAL` ficam de fora. Requer o mesmo ambiente local autenticado
+e `ORDEM-MESMO-EVENTTIME`), com massa nova por RUN. Os TCs bloqueados, os
+`BLOCKED-FUNCIONAL` e os de proponente adicional (053 a 057, fora do modelo do
+harness) ficam de fora. Requer o mesmo ambiente local autenticado
 descrito acima.
 
 - **Massa:** entra como fixture, e a cadeia 2.2 roda inteira (PAC, eventos na
@@ -567,6 +573,12 @@ contatos de outra pessoa indo para o Lead novo de Y. A análise está no
 no FW, X não recebe mais o e-mail de Y, mas ainda recebe o carimbo da
 pendência. Nos TCs 047, 055 e 056, o Lead Y reutilizado perde os contatos dele
 ([relatório](docs/resultado-runbook-completo-com-commits-2026-10-11.md)).
+
+**Alinhado à planilha (12/10):** com o esperado da planilha oficial, divergem
+nos perfis obrigatórios o K1, o K2 (045 e 049) e o B10 (026, o Lead Y
+reutilizado recebe o celular de X). O K2 do 046 saiu, por ser artefato de massa,
+e o B9 ficou só no 047, no AR e no FW
+([relatório](docs/resultado-runbook-completo-alinhado-2026-10-12.md)).
 
 `npm run runbook:relatorio` monta as colunas com os perfis presentes no JSONL.
 `npm run runbook:bugs -- --entrada resultados.jsonl` liga cada divergência a um
@@ -757,6 +769,10 @@ máquina, eles ficam ao lado deste diretório:
   o que o runbook e a planilha definem como aprovado, onde a ponta da 2.2 está
   frente a isso, as decisões pendentes e a proposta de critério para a
   reescrita.
+- [Resultado do runbook — campanha completa alinhada à planilha, 2026-10-12](docs/resultado-runbook-completo-alinhado-2026-10-12.md) —
+  os 39 TCs no modelo do harness, nos 13 perfis (484 RUNs, 295 conformes),
+  com o esperado da planilha oficial: o B10 na matriz e as verificações da
+  Account aprovada e do Proponente passando em todos os RUNs.
 - [Convergência entre a planilha e o runbook da 2.2](docs/convergencia-planilha-runbook-2.2.md) —
   a planilha oficial (70 TCs) comparada com o runbook e com o harness: o que
   converge, os 11 TCs que divergem, o bug que o harness não confere (B10) e o

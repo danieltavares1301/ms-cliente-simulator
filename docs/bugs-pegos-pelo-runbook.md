@@ -1,24 +1,32 @@
 # Bugs pegos pelo runbook na `mrv-devDan`
 
 Catálogo dos bugs que o harness do runbook pega, com cada TC e cada perfil em
-que ele aparece. Versão de **2026-10-11**, com duas campanhas completas dos 44
-TCs executáveis nos 13 perfis: uma sem e outra com os cinco commits da 2.2 que
-a dev revertida não tinha (lista abaixo).
+que ele aparece. Versão de **2026-10-12**, com três campanhas completas nos 13
+perfis: sem e com os cinco commits da 2.2 que a dev revertida não tinha (lista
+abaixo), nos 44 TCs executáveis, e a com o harness alinhado à planilha oficial,
+nos 39 TCs que ele modela.
 
 | Campanha | Estado da dev | Execução (UTC) | RUNs | Relatório |
 |---|---|---|---|---|
 | Sem os commits | 27/09 a 11/10: quatro classes centrais da 2.2 na versão de 03/09 | 11/10, 16:48 a 18:11 | 545: 331 conformes, 214 divergentes | [sem os commits](resultado-runbook-completo-sem-commits-2026-10-11.md) |
 | Com os commits | desde 11/10, 20:43: as quatro na ponta da 2.2 (`3f2919f5e7`) | 11/10, 20:49 a 21:44 | 545: 331 conformes, 214 divergentes | [com os commits](resultado-runbook-completo-com-commits-2026-10-11.md) |
+| Alinhada à planilha | a mesma, com o harness alinhado à planilha | 12/10, 11:01 a 11:49 | 484: 295 conformes, 189 divergentes | [alinhada](resultado-runbook-completo-alinhado-2026-10-12.md) |
 
-- **Os vereditos são os mesmos, par a par.** Os 214 pares divergentes são os
-  mesmos nas duas campanhas; o que os commits mudam é o bug por trás de parte
-  deles (seção 1).
+- **Sem e com os commits, os vereditos são os mesmos, par a par.** Os 214 pares
+  divergentes são os mesmos nas duas campanhas; o que os commits mudam é o bug
+  por trás de parte deles (seção 1).
+- **A campanha alinhada mede o mesmo código com o critério da planilha.** As
+  mudanças em relação à com os commits vêm do harness
+  ([relatório da alinhada](resultado-runbook-completo-alinhado-2026-10-12.md)).
 - **Outros relatórios:** [ordens reais, sem os commits](resultado-runbook-ordens-reais-2026-10-11.md)
   e, para os bugs já conhecidos, [27/09](resultado-runbook-recorte-2.2-2026-09-27.md).
 - **Estado da dev:** [estado da dev](estado-da-mrv-devDan.md).
-- **Revisão pela planilha (11/10):** a comparação com a planilha oficial achou
-  um bug que o harness não confere (B10) e tirou a base do B9 e do K2 do TC-046
+- **Revisão pela planilha (11/10 e 12/10):** a comparação com a planilha
+  oficial achou um bug que o harness não conferia (B10), mostrou que o B9 do
+  055 e do 056 era artefato e que o do 047 vem da regra da 2.2, não da
+  planilha, e tirou a base do K2 do TC-046
   ([convergência entre a planilha e o runbook](convergencia-planilha-runbook-2.2.md)).
+  A campanha alinhada confirmou os três.
 
 ### Os commits
 
@@ -51,20 +59,20 @@ medido. O que cada um muda no código está na seção 4.1 do
 
 Pares TC × perfil em que cada bug aparece, em cada campanha:
 
-| Bug | O que acontece | Sem os commits | Com os commits |
-|---|---|---|---|
-| [B1](#b1) | A pendência grava em X o e-mail de Y (bug 4) | 139: C2 e C3 em todos menos os de MATCH; C1, AR e FW nos 19 TCs em que Y não tem Account | 82: só C2 e C3. **Corrigido no C1, no AR e no FW**, que passam ao B8 |
-| [B2](#b2) | A contestação pendente grava em X o e-mail de Y | 41: C4 | 41: igual |
-| [B3](#b3) | Sem IdCliente, a pendência grava na Account duplicada errada | 3: C1, AR e FW, no 038 | 3: igual |
-| [B4](#b4) | A pendência reflete os dados de Y no Lead de Z | 3: AR, AM e FW, no 021 | 3: igual |
-| [B5](#b5) | A pendência antes dos eventos de cliente impede reutilizar o Lead candidato | 2: AR e FW, no 013 | 2: igual |
-| [B6](#b6) | A repetição do WebJob leva contatos de outra pessoa ao Lead novo de Y | 13: FW | 13: igual |
-| [B7](#b7) | A repetição do WebJob cria um segundo Lead para Y | 1: FW, no 040 | 1: igual |
-| [B8](#b8) | A PAC em análise de Y é recusada, e a pendência regrava X | 3: C1, AR e FW, no 040 | 60: **estendido** pelo commit 4 aos 19 TCs do B1 em C1, AR e FW |
-| [B9](#b9) | O Lead Y reutilizado perde os contatos dele | — | 6: **novo**, AR e FW, nos TCs 047, 055 e 056. **Sem base na planilha** (ver B9) |
-| [B10](#b10) | O Lead Y reutilizado, sem celular, recebe o celular de X | 11 no TC-026, fora da matriz | 11 no TC-026, fora da matriz: o harness não confere |
-| [K1](#k1) | Contato antes do cliente, sem prospect e sem Account, volta 400 | 2: PA e ME, no 040 | 2: igual |
-| [K2](#k2) | Lead candidato sem CPF não é reutilizado quando a Account Y é nova | 20: os de ordem CA nos TCs 045, 046 e 049, e AR e FW no 046 | 24: entram o AR e o FW nos TCs 045 e 049. No 046, artefato da massa |
+| Bug | O que acontece | Sem os commits | Com os commits | Alinhada à planilha |
+|---|---|---|---|---|
+| [B1](#b1) | A pendência grava em X o e-mail de Y (bug 4) | 139: C2 e C3 em todos menos os de MATCH; C1, AR e FW nos 19 TCs em que Y não tem Account | 82: só C2 e C3. **Corrigido no C1, no AR e no FW**, que passam ao B8 | 72: só C2 e C3 |
+| [B2](#b2) | A contestação pendente grava em X o e-mail de Y | 41: C4 | 41: igual | 36: C4 |
+| [B3](#b3) | Sem IdCliente, a pendência grava na Account duplicada errada | 3: C1, AR e FW, no 038 | 3: igual | 3: igual |
+| [B4](#b4) | A pendência reflete os dados de Y no Lead de Z | 3: AR, AM e FW, no 021 | 3: igual | 3: igual |
+| [B5](#b5) | A pendência antes dos eventos de cliente impede reutilizar o Lead candidato | 2: AR e FW, no 013 | 2: igual | 2: igual |
+| [B6](#b6) | A repetição do WebJob leva contatos de outra pessoa ao Lead novo de Y | 13: FW | 13: igual | 11: FW |
+| [B7](#b7) | A repetição do WebJob cria um segundo Lead para Y | 1: FW, no 040 | 1: igual | 0: é corrida; não apareceu nesta rodada |
+| [B8](#b8) | A PAC em análise de Y é recusada, e a pendência regrava X | 3: C1, AR e FW, no 040 | 60: **estendido** pelo commit 4 aos 19 TCs do B1 em C1, AR e FW | 48: C1, AR e FW |
+| [B9](#b9) | O Lead Y reutilizado perde os contatos dele | — | 6: **novo**, AR e FW, nos TCs 047, 055 e 056; no 055 e no 056, artefato da massa (ver B9) | 2: AR e FW, no 047. A preservação é regra da 2.2 e da QA, não da planilha |
+| [B10](#b10) | O Lead Y reutilizado, sem celular, recebe o celular de X | 11 no TC-026; o harness não conferia | 11 no TC-026; o harness não conferia | 11: TC-026, em 11 perfis, inclusive PA, CA e ME |
+| [K1](#k1) | Contato antes do cliente, sem prospect e sem Account, volta 400 | 2: PA e ME, no 040 | 2: igual | 2: igual |
+| [K2](#k2) | Lead candidato sem CPF não é reutilizado quando a Account Y é nova | 20: os de ordem CA nos TCs 045, 046 e 049, e AR e FW no 046 | 24: entram o AR e o FW nos TCs 045 e 049. No 046, artefato da massa | 16: só 045 e 049 |
 
 K1 e K2 são conhecidos desde 27/09. Os B são de 11/10, salvo o B1 e o B2, que
 a investigação do bug 4 já tinha reproduzido no TC-001 em 01/10. O B9 só
@@ -81,6 +89,18 @@ aparece com os commits.
 - **Efeito novo (B9):** com a PAC em análise recusada, a Account Y nasce com os
   contatos de X, e a PAC aprovada leva os aprovados ao Lead Y reutilizado.
 - **Os demais ficam iguais:** B3, B4, B5, B6, B7 e K1.
+
+**O que o alinhamento à planilha mudou (12/10):**
+
+- **B10 entrou na matriz:** o harness passou a conferir os contatos do Lead Y2
+  no TC-026, e ele diverge em 11 perfis, inclusive PA, CA e ME.
+- **B9 ficou só no 047, no AR e no FW:** a exigência de preservar os contatos
+  do Lead Y foi mantida no 047, por ser regra da 2.2 (commit `d6f147d303`) e
+  do teste da QA de 29/08; o 055 e o 056 ficaram fora do `--todos`.
+- **K2 ficou só no 045 e no 049:** com a massa da planilha, o 046 passa.
+- **As verificações que a planilha pede em todos os TCs** (contatos e IdCliente
+  da Account aprovada, nenhuma Account a mais, CPF e contatos do Proponente)
+  passaram nos 466 RUNs em que rodaram.
 
 ## 2. Os bugs
 
@@ -235,6 +255,8 @@ aparece com os commits.
 - **Onde:** FW, no TC-040.
 - **Evidência:** `TC040-FW-f33814`.
 - **Com os commits:** igual (`TC040-FW-2cc571`).
+- **Na campanha alinhada (12/10):** o FW do 040 terminou com um só Lead de Y
+  (`TC040-FW-88a5a4`). A duplicação é corrida e não aparece em toda rodada.
 
 <a id="b8"></a>
 
@@ -316,15 +338,19 @@ aparece com os commits.
     colisao" só com o celular colidindo: o e-mail já tinha chegado ao Lead Y;
   - sem as reentregas: `TC047-AR-512768`, sem a das PACs em análise, e
     `TC047-AR-473a24`, sem a da pendência, divergem do mesmo jeito.
-- **Frente à planilha (11/10):** o B9 não tem base.
+- **Frente à planilha (11/10):**
   - No 047, a planilha não pede preservar os contatos do Lead Y; só manda a
-    Account Y refletir a PAC.
+    Account Y refletir a PAC. A exigência vem da regra da 2.2 (commit
+    `d6f147d303`, "preservar contatos próprios do Lead") e do teste da QA de
+    29/08 (campanha R7153616), e o harness a mantém.
   - No 055 e no 056, o efeito vinha de uma massa incoerente do harness: a 1ª
     PAC de X saía com o e-mail A, embora X tivesse o e-mail aprovado. Com a 1ª
     PAC levando os contatos que X tem, o AR e o FW só acusam o carimbo do B8, e
     o Lead Y fica intacto (`TC055-AR-31fa8e`, `TC056-FW-ef2334`).
   - O mecanismo continua: a Account Y nasce com os contatos de X até a PAC
     aprovada corrigi-la. Mas o estado final que a planilha confere fica certo.
+  - Na campanha alinhada (12/10), com o 055 e o 056 fora do `--todos`, o B9
+    fica só no 047, no AR e no FW (`TC047-AR-e4257e`, `TC047-FW-69b7c8`).
 
 <a id="b10"></a>
 
@@ -339,9 +365,11 @@ aparece com os commits.
 - **Onde:** TC-026, em PA, CA, ME, AM, RC, EP, RL e C1 a C4, nas duas
   campanhas. Só o AR e o FW deixam o Y2 sem celular.
 - **Evidência:** `TC026-PA-90a107` (sem os commits) e `TC026-CA-307e8c` (com
-  os commits), no estado final dos RUNs.
-- **Por que a matriz não mostra:** o TC-026 confere o reuso do Y2, mas não os
-  contatos dele. Achado na comparação com a planilha, em 11/10.
+  os commits), no estado final dos RUNs; na campanha alinhada,
+  `TC026-PA-d50fa3` e `TC026-CA-0e1b50`, já acusados pela verificação.
+- **Matriz:** até 11/10, o TC-026 conferia o reuso do Y2, mas não os contatos
+  dele, e o bug só foi achado na comparação com a planilha. Desde a campanha
+  alinhada (12/10), o harness confere, e os 11 pares estão na matriz.
 
 <a id="k1"></a>
 
@@ -373,7 +401,9 @@ TCs.
 Frente à planilha (11/10), o K2 tem base no 045 (critério: o e-mail) e no 049
 (e-mail e celular). No 046, a planilha põe no candidato o celular B, o mesmo de
 X, e o runbook o trocou por D. Com a massa da planilha, o candidato é
-reutilizado em PA, CA, ME e AR (`TC046-PA-ac4be3`, `TC046-CA-14efa3`).
+reutilizado em PA, CA, ME e AR (`TC046-PA-ac4be3`, `TC046-CA-14efa3`). Na
+campanha alinhada (12/10), com essa massa, o 046 ficou conforme em todos os
+perfis, e o K2 ficou só no 045 e no 049 (16 pares).
 
 Pela leitura do código, o mesmo passo explicaria o K2 nos perfis de ordem CA
 desde 27/09. Sem PAC em análise de Y, o Proponente achado pelo prospect da
@@ -537,3 +567,99 @@ os pares em que a célula mudou.
 | B1 | B8 K2 | 4 | AR: 045, 049; FW: 045, 049 |
 | B1 B6 | B6 B8 | 9 | FW: 001, 016, 017, 018, 041, 042, 043, 054, 057 |
 | B1 K2 | B8 K2 | 2 | AR: 046; FW: 046 |
+
+### 3.4 Alinhada à planilha (12/10)
+
+Os 39 TCs que o harness modela (os 053 a 057 ficaram fora do `--todos`), com o
+critério da planilha ([convergência](convergencia-planilha-runbook-2.2.md)). O
+TC-047 foi refeito às 12:28 UTC com a exigência de preservar os contatos do
+Lead Y, e o resultado dele substitui o da rodada das 11:01.
+
+| TC | PA | CA | ME | C1 | C2 | C3 | C4 | AR | AM | FW | RC | EP | RL |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| TC-001 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-002 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B8 | ok | ok | ok |
+| TC-005 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-006 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-007 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | B6 | ok | ok | ok |
+| TC-009 | ok | ok | ok | ok | B1 | B1 | B2 | ok | — | ok | ok | ok | ok |
+| TC-010 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | B6 | ok | ok | ok |
+| TC-011 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-012 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-013 | ok | ok | ok | ok | B1 | B1 | B2 | B5 | ok | B5 | ok | ok | ok |
+| TC-014 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-015 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-016 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-017 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-018 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-019 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+| TC-020 | ok | ok | ok | ok | B1 | B1 | B2 | ok | — | ok | ok | ok | ok |
+| TC-021 | ok | ok | ok | ok | B1 | B1 | B2 | B4 | B4 | B4 | ok | ok | ok |
+| TC-022 | ok | ok | ok | ok | B1 | B1 | B2 | ok | — | ok | ok | ok | ok |
+| TC-023 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B8 | ok | ok | ok |
+| TC-024 | ok | ok | ok | ok | B1 | B1 | B2 | ok | — | ok | ok | ok | ok |
+| TC-025 | ok | ok | ok | ok | B1 | B1 | B2 | ok | — | B6 | ok | ok | ok |
+| TC-026 | B10 | B10 | B10 | B10 | B1 B10 | B1 B10 | B10 B2 | ok | B10 | ok | B10 | B10 | B10 |
+| TC-027 | ok | ok | ok | ok | B1 | B1 | B2 | ok | — | ok | ok | ok | ok |
+| TC-038 | ok | ok | ok | B3 | B1 | B1 | B2 | B3 | ok | B3 B6 | ok | ok | ok |
+| TC-040 | K1 | ok | K1 | B8 | B1 | B1 | B2 | B8 | — | B8 | ok | ok | ok |
+| TC-041 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-042 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-043 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B6 B8 | ok | ok | ok |
+| TC-044 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B8 | ok | ok | ok |
+| TC-045 | K2 | K2 | K2 | B8 | B1 | B1 | B2 | B8 K2 | — | B8 K2 | K2 | K2 | K2 |
+| TC-046 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B8 | ok | ok | ok |
+| TC-047 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 B9 | — | B8 B9 | ok | ok | ok |
+| TC-048 | ok | ok | ok | B8 | B1 | B1 | B2 | B8 | — | B8 | ok | ok | ok |
+| TC-049 | K2 | K2 | K2 | B8 | B1 | B1 | B2 | B8 K2 | — | B8 K2 | K2 | K2 | K2 |
+| TC-062 | ok | ok | ok | ok | B1 | B1 | B2 | ok | ok | ok | ok | ok | ok |
+
+| Bug | Pares | Onde |
+|---|---:|---|
+| B1 | 72 | C2: 001, 002, 005, 006, 007, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022, 023, 024, 025, 026, 027, 038, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 062; C3: 001, 002, 005, 006, 007, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022, 023, 024, 025, 026, 027, 038, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 062 |
+| B10 | 11 | PA: 026; CA: 026; ME: 026; C1: 026; C2: 026; C3: 026; C4: 026; AM: 026; RC: 026; EP: 026; RL: 026 |
+| B2 | 36 | C4: 001, 002, 005, 006, 007, 009, 010, 011, 012, 013, 014, 015, 016, 017, 018, 019, 020, 021, 022, 023, 024, 025, 026, 027, 038, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049, 062 |
+| B3 | 3 | C1: 038; AR: 038; FW: 038 |
+| B4 | 3 | AR: 021; AM: 021; FW: 021 |
+| B5 | 2 | AR: 013; FW: 013 |
+| B6 | 11 | FW: 001, 007, 010, 016, 017, 018, 025, 038, 041, 042, 043 |
+| B8 | 48 | C1: 001, 002, 016, 017, 018, 023, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049; AR: 001, 002, 016, 017, 018, 023, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049; FW: 001, 002, 016, 017, 018, 023, 040, 041, 042, 043, 044, 045, 046, 047, 048, 049 |
+| B9 | 2 | AR: 047; FW: 047 |
+| K1 | 2 | PA: 040; ME: 040 |
+| K2 | 16 | PA: 045, 049; CA: 045, 049; ME: 045, 049; AR: 045, 049; FW: 045, 049; RC: 045, 049; EP: 045, 049; RL: 045, 049 |
+
+### 3.5 O que mudou com o alinhamento
+
+Saída do `--comparar`, com a campanha com os commits como anterior. O código da
+dev é o mesmo; as mudanças vêm do harness. "—" na coluna da alinhada é par que
+saiu do `--todos`.
+
+| Bug | Pares com os commits | Pares na alinhada |
+|---|---:|---:|
+| B1 | 82 | 72 |
+| B10 | 0 | 11 |
+| B2 | 41 | 36 |
+| B3 | 3 | 3 |
+| B4 | 3 | 3 |
+| B5 | 2 | 2 |
+| B6 | 13 | 11 |
+| B7 | 1 | 0 |
+| B8 | 60 | 48 |
+| B9 | 6 | 2 |
+| K1 | 2 | 2 |
+| K2 | 24 | 16 |
+
+| Com os commits | Alinhada | Pares | Onde |
+|---|---|---:|---|
+| B1 | — | 10 | C2: 053, 054, 055, 056, 057; C3: 053, 054, 055, 056, 057 |
+| B1 | B1 B10 | 2 | C2: 026; C3: 026 |
+| B2 | — | 5 | C4: 053, 054, 055, 056, 057 |
+| B2 | B10 B2 | 1 | C4: 026 |
+| B6 B8 | — | 2 | FW: 054, 057 |
+| B7 B8 | B8 | 1 | FW: 040 |
+| B8 | — | 6 | C1: 054, 055, 056, 057; AR: 054, 057 |
+| B8 B9 | — | 4 | AR: 055, 056; FW: 055, 056 |
+| B8 K2 | B8 | 2 | AR: 046; FW: 046 |
+| K2 | ok | 6 | PA: 046; CA: 046; ME: 046; RC: 046; EP: 046; RL: 046 |
+| ok | — | 34 | PA: 053, 054, 055, 056, 057; CA: 053, 054, 055, 056, 057; ME: 053, 054, 055, 056, 057; C1: 053; AR: 053; AM: 053; FW: 053; RC: 053, 054, 055, 056, 057; EP: 053, 054, 055, 056, 057; RL: 053, 054, 055, 056, 057 |
+| ok | B10 | 8 | PA: 026; CA: 026; ME: 026; C1: 026; AM: 026; RC: 026; EP: 026; RL: 026 |
