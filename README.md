@@ -753,6 +753,14 @@ máquina, eles ficam ao lado deste diretório:
   commits do branch `GV_918914_UnificPosAprovPAC`, um a um: o que corrigem, se
   o harness cobre, em que regra da versão enxuta caem e se sobrevivem na
   ponta. É a base para reescrever a camada de identidade e contatos.
+- [Critério de aceite da Unificação 2.2](docs/criterio-de-aceite-unificacao-2.2.md) —
+  o que o runbook e a planilha definem como aprovado, onde a ponta da 2.2 está
+  frente a isso, as decisões pendentes e a proposta de critério para a
+  reescrita.
+- [Convergência entre a planilha e o runbook da 2.2](docs/convergencia-planilha-runbook-2.2.md) —
+  a planilha oficial (70 TCs) comparada com o runbook e com o harness: o que
+  converge, os 11 TCs que divergem, o bug que o harness não confere (B10) e o
+  que o B9 e o K2 do 046 deviam à massa do harness.
 - [Estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md) — em que ponto dos
   branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev,
   por que quatro classes ficaram em 03/09 de 27/09 a 11/10 e o que o simulador achou nesse

@@ -16,6 +16,9 @@ a dev revertida não tinha (lista abaixo).
 - **Outros relatórios:** [ordens reais, sem os commits](resultado-runbook-ordens-reais-2026-10-11.md)
   e, para os bugs já conhecidos, [27/09](resultado-runbook-recorte-2.2-2026-09-27.md).
 - **Estado da dev:** [estado da dev](estado-da-mrv-devDan.md).
+- **Revisão pela planilha (11/10):** a comparação com a planilha oficial achou
+  um bug que o harness não confere (B10) e tirou a base do B9 e do K2 do TC-046
+  ([convergência entre a planilha e o runbook](convergencia-planilha-runbook-2.2.md)).
 
 ### Os commits
 
@@ -58,9 +61,10 @@ Pares TC × perfil em que cada bug aparece, em cada campanha:
 | [B6](#b6) | A repetição do WebJob leva contatos de outra pessoa ao Lead novo de Y | 13: FW | 13: igual |
 | [B7](#b7) | A repetição do WebJob cria um segundo Lead para Y | 1: FW, no 040 | 1: igual |
 | [B8](#b8) | A PAC em análise de Y é recusada, e a pendência regrava X | 3: C1, AR e FW, no 040 | 60: **estendido** pelo commit 4 aos 19 TCs do B1 em C1, AR e FW |
-| [B9](#b9) | O Lead Y reutilizado perde os contatos dele | — | 6: **novo**, AR e FW, nos TCs 047, 055 e 056 |
+| [B9](#b9) | O Lead Y reutilizado perde os contatos dele | — | 6: **novo**, AR e FW, nos TCs 047, 055 e 056. **Sem base na planilha** (ver B9) |
+| [B10](#b10) | O Lead Y reutilizado, sem celular, recebe o celular de X | 11 no TC-026, fora da matriz | 11 no TC-026, fora da matriz: o harness não confere |
 | [K1](#k1) | Contato antes do cliente, sem prospect e sem Account, volta 400 | 2: PA e ME, no 040 | 2: igual |
-| [K2](#k2) | Lead candidato sem CPF não é reutilizado quando a Account Y é nova | 20: os de ordem CA nos TCs 045, 046 e 049, e AR e FW no 046 | 24: entram o AR e o FW nos TCs 045 e 049 |
+| [K2](#k2) | Lead candidato sem CPF não é reutilizado quando a Account Y é nova | 20: os de ordem CA nos TCs 045, 046 e 049, e AR e FW no 046 | 24: entram o AR e o FW nos TCs 045 e 049. No 046, artefato da massa |
 
 K1 e K2 são conhecidos desde 27/09. Os B são de 11/10, salvo o B1 e o B2, que
 a investigação do bug 4 já tinha reproduzido no TC-001 em 01/10. O B9 só
@@ -312,6 +316,32 @@ aparece com os commits.
     colisao" só com o celular colidindo: o e-mail já tinha chegado ao Lead Y;
   - sem as reentregas: `TC047-AR-512768`, sem a das PACs em análise, e
     `TC047-AR-473a24`, sem a da pendência, divergem do mesmo jeito.
+- **Frente à planilha (11/10):** o B9 não tem base.
+  - No 047, a planilha não pede preservar os contatos do Lead Y; só manda a
+    Account Y refletir a PAC.
+  - No 055 e no 056, o efeito vinha de uma massa incoerente do harness: a 1ª
+    PAC de X saía com o e-mail A, embora X tivesse o e-mail aprovado. Com a 1ª
+    PAC levando os contatos que X tem, o AR e o FW só acusam o carimbo do B8, e
+    o Lead Y fica intacto (`TC055-AR-31fa8e`, `TC056-FW-ef2334`).
+  - O mecanismo continua: a Account Y nasce com os contatos de X até a PAC
+    aprovada corrigi-la. Mas o estado final que a planilha confere fica certo.
+
+<a id="b10"></a>
+
+### B10 — O Lead Y reutilizado, sem celular, recebe o celular de X
+
+- **Sintoma:** no TC-026, o Lead Y2, reutilizado e criado sem celular, termina
+  com o celular B, o mesmo do Lead X. A planilha manda "não atualizar o e-mail
+  nem o celular do lead selecionado".
+- **Causa:** pela leitura do código, deve ser o mesmo ramo de escrita do
+  [B6](#b6): o `insertLeadQueueable` reutiliza o Lead do mesmo CPF e preenche
+  contatos vazios sem checar colisão. Não foi isolado à parte.
+- **Onde:** TC-026, em PA, CA, ME, AM, RC, EP, RL e C1 a C4, nas duas
+  campanhas. Só o AR e o FW deixam o Y2 sem celular.
+- **Evidência:** `TC026-PA-90a107` (sem os commits) e `TC026-CA-307e8c` (com
+  os commits), no estado final dos RUNs.
+- **Por que a matriz não mostra:** o TC-026 confere o reuso do Y2, mas não os
+  contatos dele. Achado na comparação com a planilha, em 11/10.
 
 <a id="k1"></a>
 
@@ -339,6 +369,11 @@ contatos aprovados que o fluxo lê do Proponente, e, com a PAC em análise
 recusada, eles são os de X. Sem os commits, a PAC em análise aceita punha no
 Proponente os contatos de Y, e o AR e o FW achavam o candidato nesses dois
 TCs.
+
+Frente à planilha (11/10), o K2 tem base no 045 (critério: o e-mail) e no 049
+(e-mail e celular). No 046, a planilha põe no candidato o celular B, o mesmo de
+X, e o runbook o trocou por D. Com a massa da planilha, o candidato é
+reutilizado em PA, CA, ME e AR (`TC046-PA-ac4be3`, `TC046-CA-14efa3`).
 
 Pela leitura do código, o mesmo passo explicaria o K2 nos perfis de ordem CA
 desde 27/09. Sem PAC em análise de Y, o Proponente achado pelo prospect da
