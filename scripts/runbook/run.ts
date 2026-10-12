@@ -65,7 +65,16 @@ import {
 type Opcoes = { timeoutRequisicaoMs: number; timeoutJobsMs: number };
 
 function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
-  if (argv.includes('--todos')) return CENARIOS;
+  const fora = CENARIOS.filter(({ foraDoModelo }) => foraDoModelo !== undefined);
+  if (argv.includes('--todos')) {
+    if (fora.length > 0) {
+      logStructured('runbook-fora-do-modelo', {
+        tcs: fora.map(({ id }) => id),
+        motivo: fora[0]!.foraDoModelo,
+      });
+    }
+    return CENARIOS.filter(({ foraDoModelo }) => foraDoModelo === undefined);
+  }
   const pedido = readCliFlag(argv, 'tcs');
   if (pedido === undefined) {
     throw new Error('Informe --tcs TC-001,TC-002 ou --todos.');
@@ -79,6 +88,13 @@ function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
     throw new Error(
       `TCs não executáveis ou inexistentes: ${desconhecidos.join(', ')} (bloqueados ficam de fora).`,
     );
+  }
+  const pedidosFora = fora.filter(({ id }) => ids.includes(id));
+  if (pedidosFora.length > 0) {
+    logStructured('runbook-fora-do-modelo', {
+      tcs: pedidosFora.map(({ id }) => id),
+      motivo: `${pedidosFora[0]!.foraDoModelo} Rodando só porque foi pedido.`,
+    });
   }
   return CENARIOS.filter(({ id }) => ids.includes(id));
 }

@@ -321,6 +321,7 @@ const proponenteSchema = z
     CpfProponente__c: texto,
     TipoClassificacao__c: texto,
     EmailAtualizado__c: texto,
+    Celular__c: texto,
     EnviarNotificacaoPendencia__c: z.boolean().nullable().optional(),
   })
   .passthrough();
@@ -519,6 +520,8 @@ export class Execucao {
   private inicioServidorMs: number | null = null;
   /** A cadeia chegou ao fim e os jobs dela assentaram. */
   private cadeiaConcluida = false;
+  /** Contatos que a massa deu a X; a 1ª PAC de X sai com eles. */
+  private contatosDeX = { email: '', celular: '' };
 
   constructor(
     readonly conexao: TargetOrgConnection,
@@ -920,6 +923,7 @@ export class Execucao {
   async xSincronizado(
     contatos = { email: this.contatos.emailA, celular: this.contatos.celularB },
   ): Promise<void> {
+    this.contatosDeX = contatos;
     await this.pessoaSincronizada('X', this.x, contatos);
   }
 
@@ -1154,7 +1158,7 @@ export class Execucao {
       ),
       this.consultar(
         proponenteSchema,
-        `SELECT Id, Proponente__c, IdCliente__c, IdProponente__c, CpfProponente__c, TipoClassificacao__c, EmailAtualizado__c, EnviarNotificacaoPendencia__c FROM Proponente__c WHERE Id__c = ${literal(this.proponenteExterno)}`,
+        `SELECT Id, Proponente__c, IdCliente__c, IdProponente__c, CpfProponente__c, TipoClassificacao__c, EmailAtualizado__c, Celular__c, EnviarNotificacaoPendencia__c FROM Proponente__c WHERE Id__c = ${literal(this.proponenteExterno)}`,
       ),
     ]);
     const prospectsAtuais = contas.flatMap(({ IdProspectSalesforce__c }) =>
@@ -1206,8 +1210,8 @@ export class Execucao {
         idCliente: this.x.idCliente,
         cpf: this.x.cpf,
         nome: this.x.nome,
-        email: this.contatos.emailA,
-        celular: this.contatos.celularB,
+        email: this.contatosDeX.email || this.contatos.emailA,
+        celular: this.contatosDeX.celular || this.contatos.celularB,
         idProponente: prospectJornada,
       }),
       'pac-insert-x',
@@ -2046,6 +2050,9 @@ export function resumirEstado(estado: Snapshot) {
       ? {
           Proponente__c: estado.proponente.Proponente__c ?? null,
           IdProponente__c: estado.proponente.IdProponente__c ?? null,
+          CpfProponente__c: estado.proponente.CpfProponente__c ?? null,
+          EmailAtualizado__c: estado.proponente.EmailAtualizado__c ?? null,
+          Celular__c: estado.proponente.Celular__c ?? null,
           EnviarNotificacaoPendencia__c: estado.proponente.EnviarNotificacaoPendencia__c ?? null,
         }
       : null,

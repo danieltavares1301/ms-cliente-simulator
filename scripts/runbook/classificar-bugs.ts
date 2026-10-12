@@ -102,6 +102,8 @@ export function bugsDoRun(
       anotar('B4', nome);
     } else if (nome.startsWith('Lead leadCandidato reutilizado')) {
       anotar(TCS_K2.has(resultado.tc) ? 'K2' : 'B5', nome);
+    } else if (nome.startsWith('Lead leadY2 reutilizado') && soContatosAlterados(resultado, nome)) {
+      anotar('B10', nome);
     } else if (nome.startsWith('Lead leadY reutilizado') && soContatosAlterados(resultado, nome)) {
       anotar('B9', nome);
     } else if (nome === '1 Lead(s) com o CPF aprovado' && resultado.perfil === 'FW') {

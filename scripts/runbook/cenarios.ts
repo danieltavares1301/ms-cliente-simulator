@@ -7,7 +7,11 @@ import type { Verificador } from './verificacoes.ts';
  * Os 44 TCs executáveis do runbook (`docs/runbook-testes-manuais-
  * unificacao-2.2.md`): os 70 da planilha menos os marcados como Bloqueado e
  * os `BLOCKED-FUNCIONAL` (008, 028, 029, 050, 052, 058, 060, 064, 065), que
- * aguardam decisão de PO/QA. Cada um roda nos perfis PA, CA e ME.
+ * aguardam decisão de PO/QA. Cada um roda nos perfis PA, CA e ME. Cinco deles
+ * (053 a 057) ficam fora do modelo (`foraDoModelo`) e fora do `--todos`.
+ *
+ * O esperado segue a planilha oficial, não só o texto do runbook
+ * (`docs/convergencia-planilha-runbook-2.2.md`).
  *
  * Massa, aprovação e esperado seguem o texto de cada TC. Contatos seguem a
  * convenção §3.1: A/B de X, C/D inéditos; E/F são contatos próprios de um
@@ -20,6 +24,8 @@ export type Cenario = {
   fluxo: 'JORNADA_UNIDADE' | 'VENDA_GENERICA';
   /** Adaptação ou leitura do texto do runbook registrada no relatório. */
   observacao?: string;
+  /** Motivo de o TC ficar fora do `--todos`: o harness não modela o cenário da planilha. */
+  foraDoModelo?: string;
   /** MATCH: a pessoa aprovada é a própria X, que pode mudar. */
   xAlteravel?: boolean;
   massa: (e: Execucao) => Promise<void>;
@@ -61,6 +67,10 @@ async function leadYLivre(
     ...contatos,
   });
 }
+
+/** TCs da planilha que incluem um proponente adicional, cenário que o harness não modela. */
+const PROPONENTE_ADICIONAL =
+  'A planilha descreve a inclusão de um proponente adicional; o harness só modela a troca do principal na aprovação.';
 
 async function candidatoSemCpf(
   e: Execucao,
@@ -170,12 +180,11 @@ export const CENARIOS: readonly Cenario[] = [
       tipoEventoCliente: 'cliente-insert',
       match: true,
     }),
-    esperado: (v, e) => [
+    esperado: (v) => [
       v.contaReutilizada('accountX'),
-      v.contaComIdCliente(),
       v.contasDoCpf(1),
-      v.leadReutilizado('leadX'),
-      v.contaComContatos(e.contatos.emailA, e.contatos.celularB),
+      v.leadReutilizado('leadX', { cpfPreenchido: true, contatosAprovados: true }),
+      v.leadsDoCpf(1),
     ],
   },
   {
@@ -250,7 +259,6 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [
       v.contaReutilizada('accountY'),
-      v.contaComIdCliente(),
       v.leadReutilizado('leadY', { contatosPreservados: true }),
       v.contasDoCpf(1),
       v.leadsDoCpf(1),
@@ -427,12 +435,11 @@ export const CENARIOS: readonly Cenario[] = [
       await leadYLivre(e);
     },
     aprovacao: (e) =>
-      aprovarY(e, { email: e.contatos.emailC, celular: e.contatos.celularD }, 'cliente-update'),
-    esperado: (v, e) => [
+      aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-update'),
+    esperado: (v) => [
       v.contaReutilizada('accountY'),
       v.leadReutilizado('leadY', { contatosPreservados: true }),
       v.leadsDoCpf(1),
-      v.contaComContatos(e.contatos.emailC, e.contatos.celularD),
     ],
   },
   {
@@ -447,7 +454,6 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailC, celular: e.contatos.celularD }, 'cliente-insert'),
     esperado: (v, e) => [
       v.contaReutilizada('accountY'),
-      v.contaComIdCliente(),
       v.contasDoCpf(1),
       v.leadsDoCpf(1),
       v.leadNovo({ email: e.contatos.emailC, celular: e.contatos.celularD }),
@@ -495,7 +501,6 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [
       v.contaReutilizada('accountY'),
-      v.contaComIdCliente(),
       v.leadReutilizado('leadY', { contatosPreservados: true }),
       v.leadsDoCpf(1),
     ],
@@ -530,7 +535,6 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [
       v.contaReutilizada('accountY'),
-      v.contaComIdCliente(),
       v.contaSemProspect(),
       v.preservado('leadY', 'Lead Y intacto (não transferido)'),
       v.preservado('accountZ', 'Account Z intacta'),
@@ -553,7 +557,6 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [
       v.contaReutilizada('accountY2'),
-      v.contaComIdCliente(),
       v.preservado('accountY1', 'Account Y1 intacta'),
       v.contasDoCpf(2),
       v.leadsDoCpf(1),
@@ -579,7 +582,7 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-update'),
     esperado: (v) => [
       v.contaReutilizada('accountY'),
-      v.leadReutilizado('leadY2'),
+      v.leadReutilizado('leadY2', { contatosPreservados: true }),
       v.preservado('leadY1', 'Lead Y1 intacto'),
       v.preservado('accountZ', 'Account Z intacta'),
       v.leadsDoCpf(2),
@@ -599,7 +602,6 @@ export const CENARIOS: readonly Cenario[] = [
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [
       v.contaReutilizada('accountY'),
-      v.contaComIdCliente(),
       v.contaSemProspect(),
       v.leadsDoCpf(2),
       v.preservado('leadY1', 'Lead Y1 intacto'),
@@ -643,12 +645,11 @@ export const CENARIOS: readonly Cenario[] = [
       tipoEventoCliente: 'cliente-update',
       match: true,
     }),
-    esperado: (v, e) => [
+    esperado: (v) => [
       v.contaReutilizada('accountX'),
-      v.leadReutilizado('leadX'),
+      v.leadReutilizado('leadX', { contatosAprovados: true }),
       v.contasDoCpf(1),
       v.leadsDoCpf(1),
-      v.contaComContatos(e.contatos.emailC, e.contatos.celularD),
     ],
   },
   {
@@ -723,8 +724,8 @@ export const CENARIOS: readonly Cenario[] = [
     fluxo: 'VENDA_GENERICA',
     massa: async (e) => {
       await e.xSincronizado();
-      // Contatos do Lead Y não definidos no runbook: E/F próprios.
-      await leadYLivre(e);
+      // A planilha dá ao Lead Y os mesmos contatos aprovados na PAC (C/D).
+      await leadYLivre(e, { email: e.contatos.emailC, celular: e.contatos.celularD });
     },
     aprovacao: (e) =>
       aprovarY(e, { email: e.contatos.emailC, celular: e.contatos.celularD }, 'cliente-insert'),
@@ -754,12 +755,13 @@ export const CENARIOS: readonly Cenario[] = [
     id: 'TC-046',
     titulo: 'Venda Genérica reutiliza Lead sem CPF por celular',
     fluxo: 'VENDA_GENERICA',
+    observacao: 'Como na planilha: o candidato e a aprovação têm o celular B, o mesmo de X (o runbook usava D).',
     massa: async (e) => {
       await e.xSincronizado();
-      await candidatoSemCpf(e, { email: null, celular: e.contatos.celularD });
+      await candidatoSemCpf(e, { email: null, celular: e.contatos.celularB });
     },
     aprovacao: (e) =>
-      aprovarY(e, { email: e.contatos.emailC, celular: e.contatos.celularD }, 'cliente-insert'),
+      aprovarY(e, { email: e.contatos.emailC, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [
       v.contaNova(),
       v.leadReutilizado('leadCandidato', { cpfPreenchido: true }),
@@ -770,6 +772,8 @@ export const CENARIOS: readonly Cenario[] = [
     id: 'TC-047',
     titulo: 'Venda Genérica reutiliza Lead por CPF forte',
     fluxo: 'VENDA_GENERICA',
+    observacao:
+      'A planilha não fala dos contatos do Lead Y. Preservá-los segue a regra do commit d6f147d303 (2.2) e o teste da QA de 29/08 (campanha R7153616).',
     massa: async (e) => {
       await e.xSincronizado();
       await leadYLivre(e);
@@ -822,6 +826,7 @@ export const CENARIOS: readonly Cenario[] = [
   {
     id: 'TC-053',
     titulo: 'Proponente com Account/IdCliente existente',
+    foraDoModelo: PROPONENTE_ADICIONAL,
     fluxo: 'VENDA_GENERICA',
     observacao:
       'Y sincronizado (Account + Lead) com contatos próprios E/F, aprovado com os mesmos contatos.',
@@ -846,6 +851,7 @@ export const CENARIOS: readonly Cenario[] = [
   {
     id: 'TC-054',
     titulo: 'Proponente X aprovado como Y na Venda Genérica',
+    foraDoModelo: PROPONENTE_ADICIONAL,
     fluxo: 'VENDA_GENERICA',
     massa: (e) => e.xSincronizado(),
     aprovacao: (e) =>
@@ -865,6 +871,7 @@ export const CENARIOS: readonly Cenario[] = [
           ? 'Priorizar Lead Y por CPF na Venda Genérica'
           : 'Repetição funcional do TC-055',
       fluxo: 'VENDA_GENERICA',
+      foraDoModelo: PROPONENTE_ADICIONAL,
       ...(id === 'TC-056'
         ? { observacao: 'Duplicação aparente da planilha: mesma massa do TC-055.' }
         : {}),
@@ -891,6 +898,7 @@ export const CENARIOS: readonly Cenario[] = [
   {
     id: 'TC-057',
     titulo: 'Proponente Y colide totalmente com X',
+    foraDoModelo: PROPONENTE_ADICIONAL,
     fluxo: 'VENDA_GENERICA',
     massa: (e) => e.xSincronizado(),
     aprovacao: (e) =>
