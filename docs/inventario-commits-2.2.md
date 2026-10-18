@@ -21,11 +21,15 @@ O alvo da reescrita está no
 > resultados das duas campanhas de 11/10 estão no
 > [catálogo de bugs](bugs-pegos-pelo-runbook.md), e o que cada um dos cinco
 > últimos commits mudou está na seção 4.1 do
-> [estado da dev](estado-da-mrv-devDan.md).
+> [estado da dev](estado-da-mrv-devDan.md). Em 18/10, o item 6 foi revisto
+> com a planilha, a skill local `salesforce-unificacao-clientes` do
+> `com_salesforce_mrv` e o branch `GV_909649_918914`, a partir da 1.3.
 
 **Em resumo:** 35 dos 47 commits caem nas cinco regras da camada de identidade
 e contatos. Quase todos tapam um efeito de confiar no prospect da jornada, que
-nos eventos de Y é o de X. Seis ficam fora dessa camada, dois são robustez
+nos eventos de Y é o de X. A exceção é o `c47170d879`: ele cria a busca por
+IdCliente, CPF e prospect, que é a base da R1, e os remendos vêm em cima dele
+(item 6). Seis ficam fora dessa camada, dois são robustez
 genérica e quatro são só teste ou comentário. Nenhum foi removido depois: 22
 foram alterados por commits seguintes, e alguns vão e voltam, como o reflexo
 da Account para o Proponente. Dez commits corrigem comportamentos que o
@@ -182,12 +186,35 @@ Na ponta (`3f2919f5e7`): 25 sobrevivem, 22 foram alterados depois e 0 removidos.
 ### 6. `c47170d879` — pesquisa por CPF e pesquisa defensiva de Id Prospect no pós-PAC
 
 - **Data e arquivos:** 08/07/2026; `ClienteService`, `ClienteSelector`, `NotificacaoCliente`, `NotificacaoMaquinaEstado`, `NotificacaoPAC`.
-- **Mudança:** Cria `getClientePosPac` (busca por IdCliente, depois pelo CPF só com dígitos, depois pelo prospect, ficando em cada busca com a Account mais recente) e `deveDescartarMatchPosPac` (descarta o match pelo prospect quando o IdCliente do evento difere). Os dois entram no lugar do `getClienteUnificacaoLead` no `/Cliente`, na `criarInstanciaProponente` e na máquina, onde o CPF vem do `proponentecredito` do payload (`obterCpfProponentePorIdCliente`).
+- **Antes do commit:** As três entradas do pós-PAC (`/Cliente`, `criarInstanciaProponente` da PAC e máquina) achavam a Account pelo `getClienteUnificacaoLead`, com o IdCliente e o prospect no mesmo conjunto e numa só consulta (`Id__c IN :set OR IdProspectSalesforce__c IN :set`, linha 192 do `ClienteSelector` do pai). CPF, celular, e-mail e telefone iam como `null` (linhas 545 e 552 do `ClienteService` da 1.3). E-mail e celular nunca entraram na busca de Account do pós-PAC.
+- **Mudança:** Cria `getClientePosPac` e `deveDescartarMatchPosPac`, que entram no lugar do `getClienteUnificacaoLead` no `/Cliente`, na `criarInstanciaProponente` e na máquina.
+  - **`getClientePosPac`:** busca o IdCliente só em `Id__c`, depois o CPF só com dígitos em `CPF__pc`, depois o prospect só em `IdProspectSalesforce__c`. Em cada busca, fica com a Account mais recente e devolve o `matchedVia`. Na máquina, o CPF vem do `proponentecredito` do payload (`obterCpfProponentePorIdCliente`).
+  - **`deveDescartarMatchPosPac`:** descarta o match pelo prospect quando o IdCliente do evento difere do `Id__c` preenchido da Account. No `/Cliente`, substitui o descarte do `3f4b3f0906` e continua só no `cliente-insert`. Na PAC e na máquina, o descarte é novo.
 - **Corrige:** A busca antiga usava só o IdCliente e o prospect: a Account de Y só com CPF não era achada e nascia duplicada, e eventos com o IdCliente de Y caíam na Account X pelo prospect.
 - **Harness (sim):** A Account Y só com CPF é achada e reutilizada em 009, 020, 022, 024, 025 e 027 (`contaReutilizada`, `contaComIdCliente`, `contasDoCpf`); o 038 afirma a prioridade do IdCliente, o 014 e o 015 a caixa, e o catálogo tem `match-cpf-sem-id-cliente`. O CPF da máquina não roda, porque a `jornadausuario-update` do harness não traz `proponentecredito`.
-- **Regra R1:** É a busca e o match de R1. Na reescrita, o CPF e o IdCliente decidem e são conferidos um contra o outro, e o prospect nunca acha a Account de outra pessoa, em vez de um descarte só quando o IdCliente diverge.
-- **Na ponta (alterada depois):** `getClientePosPac` ganhou o prospect tratado como IdCliente (`fc7077f94d`), `deveDescartarMatchPosPac` ganhou o CPF (`1f6844e910`, `9210581ea5`) e `obterClientePorCPF` passou a expandir formatos (`da90427ced`). Na máquina, o CPF ganhou fallback pelo idProponente (`9210581ea5`).
-- **Relação:** Como não confere o CPF da Account achada por IdCliente ou prospect, deixa o B1 (sem IdCliente, a PAC em análise acha X pelo prospect; com o IdCliente de X, acha X), e a escolha da mais recente entre Accounts do mesmo CPF dá o B3. O CPF só entra no descarte com `1f6844e910`, que gera o B8.
+- **Regra R1:** O commit tem duas partes.
+  - **A busca em cascata é a base da R1 e fica na reescrita.** Ela tem cada chave no seu campo e inclui o CPF. Não é remendo.
+  - **O `deveDescartarMatchPosPac` é proteção parcial.** Só olha o IdCliente e deixa passar três casos: a Account X sem `Id__c`, o evento sem IdCliente e o CPF divergente. No `/Cliente`, só vale no `cliente-insert`. Na reescrita, ele dá lugar à conferência de CPF e IdCliente um contra o outro, e o prospect nunca acha a Account de outra pessoa.
+- **Na ponta (alterada depois):**
+  - O `getClientePosPac` ganhou o prospect tratado como IdCliente (`fc7077f94d`).
+  - O `obterClientePorCPF` passou a casar o CPF com máscara: primeiro pela fórmula (`85e4c3ba5f`), depois pela expansão de formatos (`da90427ced`).
+  - O `deveDescartarMatchPosPac` ganhou o CPF (`1f6844e910`, `9210581ea5`).
+  - Na máquina, o CPF ganhou fallback pelo idProponente (`9210581ea5`).
+- **Relação:**
+  - **Regressão na Venda Genérica:** ao separar os campos, o commit perde um caso que a consulta antiga cobria. A PAC de encerramento que traz o IdCliente só no `idProponente` passa a cair no erro da `criarInstanciaProponente`. O [`fc7077f94d`](#c16) restaura o caso.
+  - **B1, B3 e B8:** como não confere o CPF da Account achada por IdCliente ou prospect, o commit deixa o B1. Sem IdCliente, a PAC em análise acha X pelo prospect; com o IdCliente de X, acha X. A escolha da mais recente entre Accounts do mesmo CPF dá o B3. O CPF só entra no descarte com o `1f6844e910`, que gera o B8.
+  - **Testes:** o `realizaPostDescartaMatchPorIdProspectDivergenteTest` exige 0 Proponente quando o match é descartado. Ou seja, trava o comportamento do B8, contraria a R2 e precisa mudar com ela. O `erroRequisicaoTest` troca `== 500` por `>= 400`, o que só afrouxa a checagem.
+  - **Prospect gravado em Y:** o `preencherAtributosAccount` já gravava o prospect do evento no IdProspect vazio da Account achada. Quando a Account Y passa a ser achada pelo CPF, ela recebe o prospect de X. O [`09dadb24bf`](#c8) trata isso.
+- **E-mail e celular:**
+  - **No código:** quem os tirou da busca de Account foi o Iniciar Jornada, antes da PAC: na 2.1, o `b60c6ae4b9`; na 2.2, o `da90427ced`. Eles seguem na busca de Account da `NotificacaoLead` e na busca de Lead.
+  - **Na planilha:** os dois servem para achar Lead sem CPF (TCs 012, 013, 045, 046 e 049) e, no 050, Account. O que ela manda é desconsiderar os Leads achados só por contato quando há Lead com o CPF (034, 035, 055 e 056).
+  - **Ordem de busca:** a planilha não escreve uma. Ela acha a Account pelo IdCliente e pelo CPF, e o IdProspect é só o vínculo a gravar. A ordem IdCliente, CPF e prospect está na skill local `salesforce-unificacao-clientes` (27/08), que descreve este commit.
+- **Na 1.3:**
+  - **O código já está lá, sem uso.** O `6af00f4bc3` (13/07) copiou os seletores, o serviço e os testes deste commit, já com o filtro `CPFSemFormatacao__c`, que a 2.2 só ganhou no `85e4c3ba5f`. O `539bcbfa73` corrigiu dois erros de compilação da cópia. Na 1.3, o `NotificacaoCliente` (linha 65), a `NotificacaoPAC` (517) e a `NotificacaoMaquinaEstado` (40) ainda chamam o `getClienteUnificacaoLead`.
+  - **O que o commit traz:** num branch a partir da 1.3, só a ligação nessas três classes, mais o `obterCpfProponentePorIdCliente`.
+  - **Conflitos no cherry-pick:**
+    - `ClienteSelector`: ficar com o `OR CPFSemFormatacao__c` da base.
+    - `NotificacaoCliente`: ficar com o bloco do commit, sem o `this.criarLeadDoCliente = true;`, porque a base não tem esse campo.
 
 <a id="c7"></a>
 
@@ -235,7 +262,7 @@ Na ponta (`3f2919f5e7`): 25 sobrevivem, 22 foram alterados depois e 0 removidos.
 - **Harness (em parte):** A busca por CPF roda nos TCs com Account Y só com CPF (009, 020, 022, 024, 025, 027), mas a massa, os eventos e o catálogo usam CPF só com dígitos. O caso do CPF formatado não é exercitado.
 - **Regra R1:** É a busca por CPF de R1. Na reescrita, comparar o CPF normalizado dos dois lados, sem filtrar por fórmula, que não é seletiva.
 - **Na ponta (alterada depois):** `da90427ced` trocou o filtro pela fórmula `CPFSemFormatacao__c` por `CpfCNPJ.expandirFormatosCPF` sobre `CPF__pc`. A troca de ordem no `LeadSelector` não muda comportamento e segue, já com campos novos.
-- **Relação:** Complementa a busca por CPF de `c47170d879`.
+- **Relação:** Complementa a busca por CPF de `c47170d879`. Na 1.3, o `6af00f4bc3` já tinha esse filtro desde 13/07, 11 dias antes.
 
 <a id="c11"></a>
 
@@ -307,7 +334,7 @@ Na ponta (`3f2919f5e7`): 25 sobrevivem, 22 foram alterados depois e 0 removidos.
 - **Harness (não):** Nenhum evento do harness ou do catálogo leva o IdCliente no campo de prospect. O prospect de X sempre acha a Account X antes de o fallback rodar.
 - **Regra R1:** Muda a busca usada por `/Cliente`, `/PAC` e `/MaquinaEstado`, e o match 'ID_CLIENTE' escapa do descarte do `deveDescartarMatchPosPac`. Na reescrita, a identidade vem do IdCliente/CPF do payload e a PAC sem Account é aceita (R2), o que torna o fallback desnecessário.
 - **Na ponta (sobrevive):** Intacto em `ClienteService`, linhas 1381 a 1387.
-- **Relação:** É o mesmo problema de prospect igual ao IdCliente que o de3731957d trata na gravação. Se o `idProponente` de uma PAC de Y trouxer o IdCliente de X, o fallback acha X sem o descarte por CPF.
+- **Relação:** Restaura um caso que a consulta antiga cobria (`Id__c OR IdProspectSalesforce__c`) e que o [`c47170d879`](#c6) perdeu ao separar os campos. É o mesmo problema de prospect igual ao IdCliente que o de3731957d trata na gravação. Se o `idProponente` de uma PAC de Y trouxer o IdCliente de X, o fallback acha X sem o descarte por CPF.
 
 <a id="c17"></a>
 
@@ -714,3 +741,5 @@ conta. A última coluna diz como cada um foi verificado.
 | A regra Perdido→Cancelado da PAC não dispara na ponta: o `preencherDadosPAC` lê `this.oportunidade` antes de a `obterPAC` carregá-la (linhas 116, 118 e 223 da `NotificacaoPAC`). O cenário de catálogo `pac-insert-opportunity-perdida-forca-cancelado` deve acusar isso | `07608bac4a`, `a1eef12c11` | leitura; não testado ao vivo |
 | Falhas de DML que não sejam lock na `ReconciliacaoContatosLeadQueueable` somem sem rastro: os logs saíram, e o `catch` do enqueue ficou vazio. O harness também não veria, porque o job termina sem erro | `68e7cfc856` | leitura |
 | O CPF tirado do `proponentecredito` da jornada não é exercitado em lugar nenhum: nem o harness nem os payloads de jornada da API trazem esse bloco | `c47170d879`, `9210581ea5`, `7c86318a05` | leitura do harness e do catálogo |
+| E-mail e celular nunca entraram na busca de Account do pós-PAC. Antes do `c47170d879`, ela usava o IdCliente e o prospect numa só consulta, com `null` para os contatos. Os dois saíram da busca do Iniciar Jornada (2.1, `b60c6ae4b9`; 2.2, `da90427ced`) e seguem na `NotificacaoLead` | `c47170d879`, `da90427ced` | leitura do pai do `c47170d879` (`ClienteSelector`, linha 192) e da 1.3 (`ClienteService`, linhas 545 e 552) |
+| A 1.3 já tem a busca do `c47170d879` (`6af00f4bc3` e `539bcbfa73`), mas nenhuma das três entradas do pós-PAC a chama. O cherry-pick sobre a 1.3 conflita só no `ClienteSelector` e no `NotificacaoCliente` | `c47170d879` | `git grep` e `git merge-tree` sobre `GV_909649_918914` |
