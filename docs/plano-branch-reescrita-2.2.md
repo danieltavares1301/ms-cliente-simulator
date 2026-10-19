@@ -26,6 +26,13 @@ da 2.2 faz e em que regra cai está no
 > passou por uma revisão adversarial em três frentes: git, Apex e coerência
 > com os outros documentos.
 
+> **Pendência máxima (19/10):** o `pac-update` sobre PAC existente quebra com
+> o código do master, que é o da produção. A regra Perdido→Cancelado chegou lá
+> sem o campo no seletor. A correção (`9559725a48`) já está no develop e no
+> `GestaoVendasPreProd__c`, mas não na preprod nem no master. Falta confirmar
+> na produção, que ainda não tem acesso, e saber quando a correção sobe (seção
+> 7, "Alerta de produção").
+
 **Em resumo:**
 
 | Etapa | O que entra | Contra o quê se mede |
@@ -164,7 +171,7 @@ Os commits que entram, na ordem, com os conflitos da simulação em cadeia sobre
 | 1 | `fbd67a1216` | Jornada obsoleta sem Account responde 200, em vez de ir para a fila manual | No `NotificacaoMaquinaEstadoTest`, ficar com o arquivo da 1.3 e acrescentar só o `deveIgnorarEventoObsoletoSemClienteTest`. O lado da 2.2 traz junto o `obterCpfProponentePorIdClienteTest`, do `c47170d879`, que não compila na base. |
 | 2 | `dea0460ade` | A Opportunity herda dono, equipe e gerente do Lead | No `LeadSelector.buscarLeadPorIdExterno`, unir os campos: `Id, Status, Name, FirstName, LastName, Email, MobilePhone, CelularSemFormatacao__c, CPF__c, Ges_RendaMensal__c, Id__c, OwnerId, GES_Equipe__c, Ges_GerenteAtual__c`. Sem os três últimos, o `herdarEstruturaComercialDoLead` falha em execução. No `NotificacaoMaquinaEstadoTest`, acrescentar os dois testes `herdarEstruturaComercialDoLead*` e tirar o `devePreservarContaAtualDaOportunidadeTest`, que chama método ausente na base. |
 | 3 | `9f0ba21f38` | Não grava StageName vazio na Venda Genérica | Limpo. Conferir que os 3 testes dele entraram. |
-| 4 | commit novo ou `a1eef12c11` | Regra Perdido→Cancelado da PAC (seção 2.1) | — |
+| 4 | commit novo | Regra Perdido→Cancelado da PAC, gravando `CANCELADA` (seção 2.1) | — |
 | 5 | commit novo | 3h nas datas da PAC que chegam sem fuso (seção 2.2) | — |
 
 O `fbbde9da5c` não entra: o conteúdo dele já está na base, e o cherry-pick
@@ -188,13 +195,14 @@ git diff --stat 1ef8425b91..HEAD -- force-app
 
 **No simulador, ainda nesta etapa:**
 - criar a v2 do cenário `pac-insert-opportunity-perdida-forca-cancelado`, com
-  `ANALISE_NAO_INICIADA` e `Cancelado` esperado;
+  `ANALISE_NAO_INICIADA` e `CANCELADA` esperado;
 - criar o par para o `pac-update` (seção 2.1).
 
 ### 2.1 A regra Perdido→Cancelado
 
 **O defeito.** A regra do `305a3060c7` (24/04) está na linha 204 da
-`NotificacaoPAC` e lê `Oportunidade__r.StageName`.
+`NotificacaoPAC` e lê `Oportunidade__r.StageName`. Ela chegou à preprod e ao
+master pela metade, sem o campo no seletor (seção 7, "Alerta de produção").
 - **PAC que já existe** (`pac-update`, ou `pac-insert` num reenvio): o
   registro vem da `getPacsByIdExternoForUpdate`, que não traz o campo. O
   resultado é `SObjectException`.
@@ -203,6 +211,14 @@ git diff --stat 1ef8425b91..HEAD -- force-app
 - **`pac-update` com `ANALISE_NAO_INICIADA`:** volta antes, na linha 70, sem
   passar pela regra.
 
+**Confirmado na dev em 19/10 (01:38 UTC)**, que roda os mesmos blobs da
+`NotificacaoPAC`, do `PropostaAnaliseCreditoSelector` e do `EventGrid` que o
+master e o `origin/GestaoVendasPreProd`. No RUN `TC003-PA-9a2ca9`:
+- o `pac-insert` da PAC nova respondeu 200;
+- o `pac-update` respondeu 400, com `System.SObjectException: SObject row was
+  retrieved via SOQL without querying the requested field:
+  Opportunity.StageName`.
+
 **Duas saídas:**
 
 | | `a1eef12c11` | Commit novo |
@@ -210,12 +226,19 @@ git diff --stat 1ef8425b91..HEAD -- force-app
 | O que faz | Põe `Oportunidade__r.StageName` nas duas consultas do `PropostaAnaliseCreditoSelector` | Carrega a Opportunity pelo `idjornadapac` antes do `preencherDadosPAC` e lê `this.oportunidade.StageName`, com null-check, no texto do `07608bac4a` |
 | PAC existente | conserta | conserta |
 | `pac-insert` de PAC nova | a regra continua sem disparar | a regra passa a disparar |
-| Volta à preprod | o `9559725a48` (29/09) pôs o campo na `getPacsByIdExternoForUpdate` do `origin/GestaoVendasPreProd__c` (e do `origin/develop`). No merge com o `__c`, o campo fica duas vezes no SOQL, e um campo repetido não compila. Com o `origin/GestaoVendasPreProd` de 06/10 e com o master, não há repetição | o seletor não muda, e a `NotificacaoPAC` entra limpa |
+| Volta à preprod (`origin/GestaoVendasPreProd`) | entra limpo. O campo só ficaria repetido no SOQL contra o `origin/GestaoVendasPreProd__c` e o `origin/develop`, que têm o `9559725a48` | entra limpo, e o seletor não muda |
 
-**Recomendação: o commit novo.** Ele não depende de qual ref é a preprod e
-aplica a regra nos dois eventos. Se o time disser que a regra não vale no
-`pac-insert`, usar o `a1eef12c11` e tirar o campo repetido na volta ao
-`GestaoVendasPreProd__c` (seção 7).
+**Decisão de 18/10: o commit novo,** porque a regra vale também no
+`pac-insert`.
+
+**O literal é `CANCELADA`, não `Cancelado`.**
+- `Cancelado` não falha na gravação, porque o `Status__c` é texto (50).
+- Mas só `CANCELADA`, o valor do crédito (`StatusPacEnum.java:5`), é
+  reconhecido:
+  - pela fórmula `StatusFormula__c`, que mostra "Cancelada";
+  - pelo `PropostaAnaliseCreditoHelper.encerrarOportunidadePACCancelada`.
+- Com `CANCELADA`, o helper roda e não muda a Opportunity, que já está fechada
+  como Perdido: ele só mexe em Opportunity aberta.
 
 O diff do commit novo:
 
@@ -230,7 +253,7 @@ O diff do commit novo:
 +        this.preencherDadosPAC();
 @@ preencherDadosPAC
 -            this.propostaAnaliseCredito.Status__c = this.propostaAnaliseCredito.Oportunidade__r.StageName == 'Perdido' ? 'Cancelado' : status;
-+            this.propostaAnaliseCredito.Status__c = this.oportunidade != null && this.oportunidade.StageName == 'Perdido' ? 'Cancelado' : status;
++            this.propostaAnaliseCredito.Status__c = this.oportunidade != null && this.oportunidade.StageName == 'Perdido' ? 'CANCELADA' : status;
 ```
 
 A `selectOportunidadePorIdExternoParaConsulta` já traz o StageName. A linha
@@ -243,10 +266,10 @@ limpos na preprod, que acrescenta testes depois do `realizaPostTest`.
 
 | Teste | Cenário | Esperado com o commit novo | Na base |
 |---|---|---|---|
-| (a) | `pac-insert` de PAC nova, `ANALISE_NAO_INICIADA`, Opportunity inserida direto em Perdido | 200, 1 PAC, `Cancelado` | 200, status do payload |
-| (b) | `pac-update` `CREDITO_REPROVADO`, PAC existente, Opportunity em Perdido | 200, `Cancelado` | `SObjectException` |
+| (a) | `pac-insert` de PAC nova, `ANALISE_NAO_INICIADA`, Opportunity inserida direto em Perdido | 200, 1 PAC, `CANCELADA` | 200, status do payload |
+| (b) | `pac-update` `CREDITO_REPROVADO`, PAC existente, Opportunity em Perdido | 200, `CANCELADA`, Opportunity sem mudança | `SObjectException` |
 | (c) | o mesmo, com a Opportunity em New | 200, `CREDITO_REPROVADO` | `SObjectException` |
-| (d) | `pac-update` sem PAC prévia, Opportunity em Perdido | 200, 1 PAC, `Cancelado` | 200, status do payload |
+| (d) | `pac-update` sem PAC prévia, Opportunity em Perdido | 200, 1 PAC, `CANCELADA` | 200, status do payload |
 | (e) | `pac-insert` sem Opportunity: reforçar o `oportunidadeNaoEncontradaTest` (linha 586), que hoje só confere o corpo | mensagem "Oportunidade n…", nenhuma PAC, `statusCode >= 400` | igual |
 
 Notas:
@@ -801,24 +824,73 @@ cada uma precisa estar fechada:
 | 4 | contatos do Lead Y reutilizado onde a planilha não fala | etapa 5 |
 | 7 | aceite pela cadeia real | pronto, com a 2.1 |
 
-**Perguntas desta reescrita:**
-- **Qual ref é a preprod?** O `origin/GestaoVendasPreProd__c` (14/10) tem o
-  `9559725a48`. O `origin/GestaoVendasPreProd` (06/10), de onde a 2.2 recebia
-  merges, não tem.
-- **Produção:** o master e o `origin/GestaoVendasPreProd` têm a mesma linha
-  204 da `NotificacaoPAC` e um seletor sem o StageName. Pela leitura, o
-  `pac-update` sobre PAC existente quebra neles. Confirmar de que branch a
-  produção roda antes de tratar a seção 2.1 como correção de produção.
-- **A regra vale no `pac-insert`?** Decide entre o commit novo e o
-  `a1eef12c11` (seção 2.1).
-- **Literal do status:** a regra grava `Cancelado`, mas o crédito usa
-  `CANCELADA` (`StatusPacEnum.java:5`), e é esse valor que o
-  `StatusFormula__c` conhece.
-- **Qual Opportunity vale:** o `305a3060c7` lia a Opportunity mestre da PAC. O
-  commit novo lê a do `idjornadapac`. As duas só divergem se a PAC estiver
-  ligada a outra Opportunity, e o `Oportunidade__c` é MasterDetail e não troca
-  de pai.
-- **US 1026579:**
-  - o rótulo dos TCs 022 e 030 a 041 não bate com o conteúdo;
-  - a obrigatoriedade de CPF não tem TC na planilha;
-  - a US impede o TC-004 pela UI.
+**Respostas de 18/10:**
+
+| Pergunta | Resposta | O que muda |
+|---|---|---|
+| Qual ref é a preprod? | `origin/GestaoVendasPreProd` | Os dois caminhos da seção 2.1 entram limpos nela. |
+| De que branch a produção roda? | master | Ver o alerta abaixo. |
+| A regra Perdido→Cancelado vale no `pac-insert`? | sim | Entra o commit novo, não o `a1eef12c11`. |
+| O literal `Cancelado` está certo? | se for erro, consertar | Era erro: o commit novo grava `CANCELADA` (seção 2.1). |
+| Qual Opportunity vale para a regra? | — | Ver abaixo. Fica a da jornada (`idjornadapac`), salvo objeção. |
+| A US 1026579 entra? | não, tem conteúdo próprio e fica como está | Continua fora do branch (seção 1.4). |
+
+**Alerta de produção (pendência máxima).**
+- **O código:** a produção roda o master. O master tem os mesmos blobs da
+  `NotificacaoPAC` e do `PropostaAnaliseCreditoSelector` que quebraram na dev
+  em 19/10 (seção 2.1). A regra entrou no master em 04/05, pelo `a0559ec8f8`
+  (RDM 44893).
+- **O que isso quer dizer:** se a produção roda exatamente o master, desde
+  então todo `pac-update` com status, exceto `ANALISE_NAO_INICIADA`, sobre uma
+  PAC que já existe responde 400. A Event Grid não repete a
+  entrega que responde 400: o evento vai para o dead-letter, se houver, ou se
+  perde.
+- **Falta confirmar na produção.** Ainda não há acesso. O usuário confere
+  quando tiver: só leitura, comparando o corpo das duas classes na org e
+  procurando no `LogIntegracao__c` a mensagem `Opportunity.StageName`. Até lá,
+  a `mrv-staging`, que espelha o develop, serve de indício (investigação em
+  andamento).
+- **Como o bug nasceu:** a regra foi feita completa e copiada pela metade.
+
+  | Commit | Data | Autor | O que fez | Onde está |
+  |---|---|---|---|---|
+  | `a1ad99b194` (US 970751) | 03/03 | Carlos Eduardo | A regra completa: a linha na `NotificacaoPAC`, o `StageName` na `getPacsByIdExternoForUpdate` e 61 linhas de teste | `970751_ajuste_oportunidade_perdida_notificacao_pac`, `release2023` e outros. Nunca chegou ao master, à preprod nem ao develop |
+  | `305a3060c7` | 24/04 | santana.jeferson | Só a linha da regra na `NotificacaoPAC`, sem o seletor e sem os testes | preprod, develop e master (desde 04/05) |
+
+- **Quem já pôs o campo no seletor depois:**
+
+  | Commit | Data | Autor | Consultas | Onde está |
+  |---|---|---|---|---|
+  | `a1eef12c11` (2.2) | 28/08 | daniel tavares | as duas | `GV_918914_UnificPosAprovPAC`, `copy_develop` e `develop_merge_superapp` |
+  | `9559725a48` (US 1060669, "fix necessários de telefone internacional") | 29/09 | cef-silva | só a `getPacsByIdExternoForUpdate`, a que a `NotificacaoPAC` usa | `origin/develop` e `origin/GestaoVendasPreProd__c`; não está no `origin/GestaoVendasPreProd` de 06/10 nem no master |
+
+- **O campo no seletor resolve o bug.** O `pac-update` sobre PAC existente
+  deixa de lançar a exceção, e a regra passa a valer nele. No `pac-insert` de
+  PAC nova, a regra continua sem disparar e o literal continua `Cancelado`: é o
+  que o commit novo da seção 2.1 acrescenta no branch da reescrita.
+- **A correção da produção provavelmente já está a caminho**, dentro do
+  `9559725a48`. Ela chega quando o `GestaoVendasPreProd__c`, ou a US 1060669,
+  for promovido. A pergunta para o time é quando isso sobe. Se for demorar, a
+  saída é um hotfix só com o campo no seletor, ou com o commit novo, a partir
+  da `GestaoVendasPreProd`.
+- **O branch da reescrita não muda.** O commit novo mexe só na
+  `NotificacaoPAC` e não conflita com o campo do `9559725a48`. Quando os dois
+  se encontrarem, o campo fica sem uso, sem erro.
+
+**Qual Opportunity vale para a regra.** É uma escolha, e a recomendação é
+ficar com a da jornada:
+- **Duas formas de chegar a uma Opportunity a partir da PAC:**
+  - a **mestre** da PAC, pelo `Oportunidade__c`, que é o que o `305a3060c7`
+    lia;
+  - a **da jornada** do evento, pelo `idjornadapac`, que é o que o commit novo
+    lê.
+- **Na prática são a mesma.** A PAC nasce ligada à Opportunity da jornada, o
+  `Oportunidade__c` é MasterDetail e não troca de pai, e o `PACAtual__c` já é
+  gravado na Opportunity do `idjornadapac`.
+- **Só divergiriam** num evento que chegasse com o `idjornadapac` de outra
+  Opportunity.
+
+**Ainda em aberto, sobre a US 1026579 (para PO/QA):**
+- o rótulo dos TCs 022 e 030 a 041 não bate com o conteúdo;
+- a obrigatoriedade de CPF não tem TC na planilha;
+- a US impede o TC-004 pela UI.
