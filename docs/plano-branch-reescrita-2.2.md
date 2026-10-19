@@ -731,10 +731,32 @@ Contra o ponto zero:
   - Os contatos aprovados vêm do Proponente da PAC da própria pessoa.
 - **O que inclui:**
   - trocar o `refletirAlteracoesLead` da 1.3;
-  - trazer o `MSClienteService.atualizarCliente` e as mudanças do
-    `d914e60785` no `GraphQLCreator`, no `ProponenteSelector` e no
-    `Ges_LeadSelector`. A do `LeadSelector` já entrou na etapa 1, pela união
-    de campos do `dea0460ade`.
+  - trazer a `MSClienteService` e a `MSClienteServiceTest`, as duas classes
+    que o Rubens criou (`d914e60785` e `1792eaa62d`), copiando os arquivos da
+    ponta da 2.2. Ninguém mexeu nelas depois dele.
+    - **O que fazem:** o `atualizarCliente` informa ao MS Clientes o
+      IdProspect do cliente depois que o Lead é ligado. A chamada usa a
+      credencial `VFlexMsClientes`, que a base já usa na Venda Genérica, e vem
+      do `NotificacaoCliente.callMSClienteFuture`, no fluxo do Lead.
+    - **Por que só aqui:** antes da R4, ninguém as chamaria.
+    - **Por que sem cherry-pick:** o `d914e60785` também muda o
+      `NotificacaoCliente`, a parte que a R4 reescreve.
+    - **Na dev:** o deploy de 18/10 apagou as duas, então elas vão no deploy
+      desta etapa;
+  - das mudanças do `d914e60785` nas classes que já existiam:
+
+    | Classe | Mudança | Na base | Nesta etapa |
+    |---|---|---|---|
+    | `GraphQLCreator` | o `ATUALIZAR_CLIENTE`, 4 linhas | falta | entra, porque a `MSClienteService` depende dele |
+    | `Ges_LeadSelector` | 4 linhas | já está | nada a fazer |
+    | `LeadSelector` | os campos da `buscarLeadPorIdExterno` | entra na etapa 1 | nada a fazer (união de campos do `dea0460ade`) |
+    | `ProponenteSelector` | o `getProponenteByIdProponente` | falta | não volta como está (ver abaixo) |
+
+    O `getProponenteByIdProponente` acha o Proponente pelo prospect do
+    evento. O `NotificacaoCliente` da 2.2 o usa para ler os "contatos
+    aprovados", e é assim que a Account Y nasce com os contatos de X: é o
+    passo 1 do B9. Pela R1 e pela R3, os contatos vêm do Proponente da PAC da
+    própria pessoa, achado por CPF ou IdCliente.
 - **Substitui:**
   - `d914e60785`, `8b06b4cd2b`, `1195c8984b`, `509c87ad24`, `2eef5b7ba2`,
     `3029bcfb6d`, `af28349332`, `78a25da643`, `d6f147d303` e `a6d1f4c64c`;
