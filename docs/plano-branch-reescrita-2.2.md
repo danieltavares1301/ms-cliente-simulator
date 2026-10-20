@@ -723,56 +723,94 @@ Contra o ponto zero:
 
 ### 5.2 R4: política única de Lead
 
-- **O que é:** uma política só para criar, reutilizar e atualizar Lead.
-  - Só grava em Lead com o mesmo CPF da Account, ou no candidato sem CPF e
-    livre.
-  - Lead reutilizado só recebe contato onde está vazio.
-  - Contato que colide com outra pessoa nunca é gravado.
-  - Os contatos aprovados vêm do Proponente da PAC da própria pessoa.
-- **O que inclui:**
-  - trocar o `refletirAlteracoesLead` da 1.3;
-  - trazer a `MSClienteService` e a `MSClienteServiceTest`, as duas classes
-    que o Rubens criou (`d914e60785` e `1792eaa62d`), copiando os arquivos da
-    ponta da 2.2. Ninguém mexeu nelas depois dele.
-    - **O que fazem:** o `atualizarCliente` informa ao MS Clientes o
-      IdProspect do cliente depois que o Lead é ligado. A chamada usa a
-      credencial `VFlexMsClientes`, que a base já usa na Venda Genérica, e vem
-      do `NotificacaoCliente.callMSClienteFuture`, no fluxo do Lead.
-    - **Por que só aqui:** antes da R4, ninguém as chamaria.
-    - **Por que sem cherry-pick:** o `d914e60785` também muda o
-      `NotificacaoCliente`, a parte que a R4 reescreve.
-    - **Na dev:** o deploy de 18/10 apagou as duas, então elas vão no deploy
-      desta etapa;
-  - das mudanças do `d914e60785` nas classes que já existiam:
+**Em uma frase:** a R4 escreve do zero a parte que cria, reutiliza e atualiza
+o Lead de Y. Quase nada da 2.2 entra como código. Os commits dela servem de
+lista dos problemas que a política nova precisa resolver, cada um com o TC ou
+o teste que o confere.
 
-    | Classe | Mudança | Na base | Nesta etapa |
-    |---|---|---|---|
-    | `GraphQLCreator` | o `ATUALIZAR_CLIENTE`, 4 linhas | falta | entra, porque a `MSClienteService` depende dele |
-    | `Ges_LeadSelector` | 4 linhas | já está | nada a fazer |
-    | `LeadSelector` | os campos da `buscarLeadPorIdExterno` | entra na etapa 1 | nada a fazer (união de campos do `dea0460ade`) |
-    | `ProponenteSelector` | o `getProponenteByIdProponente` | falta | não volta como está (ver abaixo) |
+**A política, em sete regras:**
 
-    O `getProponenteByIdProponente` acha o Proponente pelo prospect do
-    evento. O `NotificacaoCliente` da 2.2 o usa para ler os "contatos
-    aprovados", e é assim que a Account Y nasce com os contatos de X: é o
-    passo 1 do B9. Pela R1 e pela R3, os contatos vêm do Proponente da PAC da
-    própria pessoa, achado por CPF ou IdCliente.
-- **Substitui:**
-  - `d914e60785`, `8b06b4cd2b`, `1195c8984b`, `509c87ad24`, `2eef5b7ba2`,
-    `3029bcfb6d`, `af28349332`, `78a25da643`, `d6f147d303` e `a6d1f4c64c`;
-  - o resto do `c04b6add92`;
-  - a parte de Lead do `de3731957d` e do `b4be1623d2`.
-- **Commits adiados que entram aqui:**
-  - `fe1d5a610c` e `72cbd884f6`: o padrão de retry em `UNABLE_TO_LOCK_ROW`,
-    na sincronização do `IdProponente__c` e no update da Account;
-  - `1792eaa62d`: o `MSClienteServiceTest` e os testes de seletores. Os do
-    Queueable são refeitos.
-- **Commits adiados que não entram:**
-  - o `68e7cfc856`: a lição dele é manter o log de falha de DML e não deixar
-    `catch` vazio;
-  - o `8763dacaaa`, que não tem onde aplicar.
+| Regra | O que diz |
+|---|---|
+| P1 | O Lead da pessoa é o do mesmo CPF. Sem ele, vale o candidato sem CPF e livre, achado pelo contato aprovado. Lead de outro CPF nunca é usado. |
+| P2 | Sem Lead para reutilizar, cria-se um, já com os contatos aprovados. |
+| P3 | Lead reutilizado só recebe contato onde está vazio. |
+| P4 | Contato que já é de outro Lead nunca é gravado. |
+| P5 | Os contatos aprovados vêm do Proponente da PAC da própria pessoa, achado por CPF ou IdCliente, e nunca pelo prospect do evento. |
+| P6 | O vínculo: o IdProspect da Account recebe o `Id__c` do Lead (um Lead sem `Id__c` ganha um), o `IdProponente__c` do principal recebe o mesmo valor, e o MS Clientes é avisado. |
+| P7 | O reflexo da Account para o Lead (nome e contatos) só vai ao Lead da mesma pessoa e obedece a P3 e a P4. Substitui o `refletirAlteracoesLead` da 1.3, que copia tudo, inclusive o CPF, para o Lead do prospect. |
+
+#### O que entra de código da 2.2
+
+**1. Copiado como está.** São as duas classes que o Rubens criou e as 4
+linhas de que elas dependem. Ninguém mexeu nelas depois dele.
+
+| De onde | O que copiar | Por quê |
+|---|---|---|
+| `d914e60785` | a classe `MSClienteService` | O `atualizarCliente` avisa o MS Clientes do IdProspect do cliente depois que o Lead é ligado (P6). Usa a credencial `VFlexMsClientes`, que a base já usa na Venda Genérica, e é chamado pelo `NotificacaoCliente.callMSClienteFuture` (`@future`). |
+| `d914e60785` | o `ATUALIZAR_CLIENTE` do `GraphQLCreator` (4 linhas) | A `MSClienteService` depende dele, e a base não tem. |
+| `1792eaa62d` | a `MSClienteServiceTest` e os testes de seletores | Os testes do Queueable são refeitos com a política nova. |
+
+- **Por que copiar o arquivo e não fazer cherry-pick:** o `d914e60785` também
+  muda o `NotificacaoCliente`, a parte que esta etapa reescreve.
+- **Por que só agora:** antes da R4, o `NotificacaoCliente` da 1.3 não cria
+  nem liga Lead para Y, então ninguém chamaria a `MSClienteService`.
+- **Na dev:** o deploy de 18/10 apagou a `MSClienteService` e o teste dela, e
+  eles voltam no deploy desta etapa.
+
+**2. O padrão volta, em código novo.** Os dois commits mexiam em métodos que
+não existem na base, então não há o que aplicar. O que se repete é a técnica.
+
+| Commit | O padrão | Onde aplicar |
+|---|---|---|
+| `fe1d5a610c` | DML parcial com até 3 tentativas em `UNABLE_TO_LOCK_ROW`; se falhar, só log, sem exceção | na sincronização do `IdProponente__c` (P6) |
+| `72cbd884f6` | o mesmo retry, para o rollback do savepoint não desfazer o Lead novo | no update da Account com o vínculo (P6) |
+
+**3. Já resolvido em outro lugar.**
+- `Ges_LeadSelector` (mudança do `d914e60785`): já está na base.
+- `LeadSelector` (campos da `buscarLeadPorIdExterno`): entra na etapa 1, pela
+  união de campos do `dea0460ade`.
+- As 3h da data da PAC (do `c04b6add92`): entram na etapa 1 (seção 2.2).
+
+**4. Não volta.**
+- `ProponenteSelector.getProponenteByIdProponente` (do `d914e60785`): acha o
+  Proponente pelo prospect do evento. O `NotificacaoCliente` da 2.2 o usa para
+  ler os "contatos aprovados", e é assim que a Account Y nasce com os contatos
+  de X: é o passo 1 do B9. A P5 o substitui.
+- `68e7cfc856`: só tirava comentários e logs de uma classe que não existe na
+  base. A lição que fica dele é manter o log de falha de DML e não deixar
+  `catch` vazio.
+- `8763dacaaa`: só tirava comentários de um teste que não volta.
+
+#### O que é reescrito
+
+Estes commits não entram. A política nova resolve o problema de cada um, e a
+última coluna diz como conferir. Os TCs 053 a 057 estão fora do `--todos` e
+rodam com `--tcs`.
+
+| Commit | O que ele corrigia | Regra | Como conferir |
+|---|---|---|---|
+| `d914e60785` (o resto) | Com o `3f4b3f0906`, X perdia o prospect e Y herdava o Lead da jornada. Y passa a ter Lead próprio, novo ou reutilizado, sem os contatos do Lead original. | P1, P2, P4, P6 | Lead novo em 22 TCs (ex.: 001, 002, 010, 017); Lead reutilizado em 15 (ex.: 006, 012, 019, 045); Leads presos preservados (024, 026, 027, 048) |
+| `8b06b4cd2b` | No MATCH sem prospect, o `cliente-update` da aprovação não ligava a Account ao Lead de mesmo CPF que já existia. | P1, P6 | TC-062 e os Caso C (024, 027, 048). O caso exato do título não tem TC: precisa de teste Apex. |
+| `1195c8984b` | A aprovação criava um segundo Lead do CPF Y quando o Lead Y já estava ligado à Account Y. | P1 | TC-053 ("1 Lead do CPF"); no FW, a repetição não cria Lead |
+| `509c87ad24` | Um Lead de outro CPF, achado por e-mail ou celular, era reusado e tinha o CPF trocado. Um Lead reusado sem `Id__c` deixava a Account sem IdProspect. | P1, P6 | Caso C (024, 027, 048); reuso do Lead livre (026); fallback sem CPF (012, 013, 045, 046, 049). O Lead sem `Id__c` precisa de teste Apex. |
+| `2eef5b7ba2` | A colisão era conferida nos contatos do evento, que vinham vazios, e o Lead de Y herdava o e-mail de outro Lead. | P4, P5 | Lead só com CPF (001, 016, 041, 057); Lead sem o contato que colide (010, 011, 017, 018, 042, 043) |
+| `3029bcfb6d` | O Lead livre sem CPF que compartilhava e-mail ou celular com o Lead da jornada não era achado, e nascia um Lead novo. | P1, P5 | TC-012 e TC-013 |
+| `af28349332` | O Lead não recebia o nome da Account depois da aprovação. | P7 | Nenhum TC confere o nome do Lead de Y: precisa de teste Apex ou de asserção nova |
+| `78a25da643` | O reflexo trocava os contatos do Lead Y e alterava o Lead de outra pessoa. O contato que chegava antes do vínculo não chegava ao Lead. | P3, P4, P7 | "Lead X intacto" e "Lead Z intacto"; TC-021 (B4) |
+| `c04b6add92` (o resto) | Caso Clarice: depois da PAC aprovada, a Account Y tinha os contatos aprovados e o Lead Y o contato velho com que nasceu. | P2, P3 | Não está nos TCs; cenário de catálogo `pac-aprovada-sobrescreve-contato-anterior` |
+| `d6f147d303` | A sobrescrita pós-PAC trocava pelos aprovados os contatos próprios do Lead Y reutilizado. | P3 | TCs 009, 019, 022, 023 e 047 ("contatos preservados") |
+| `a6d1f4c64c` | A sobrescrita pós-PAC podia gravar no Lead Y um e-mail ou celular de outro Lead. | P4 | AR e FW do 055 e do 056 (fora do `--todos`); precisa de teste Apex, porque nenhuma asserção isola o caso |
+| `de3731957d` (parte de Lead) | Na Venda Genérica com cliente existente, a Account ficava sem Lead. | P1, P2 | TC-062 e TC-040 ("Lead novo vinculado") |
+| `b4be1623d2` (parte de Lead) | O Proponente principal ficava com o prospect da jornada, não com o do Lead de Y. | P6 | "Proponente principal na Account aprovada com PROS-Y", que roda em todo TC |
+
+#### Antes e depois
+
 - **Decidir antes:** as decisões 3 (K2) e 4 (contatos do Lead Y reutilizado)
   de PO/QA.
+- **Testes Apex a escrever antes:** os quatro casos sem TC da tabela
+  (`8b06b4cd2b`, `509c87ad24`, `af28349332`, `a6d1f4c64c`) e o lock simulado
+  para o retry do `fe1d5a610c` e do `72cbd884f6`, que nunca foi reproduzido.
 - **Esperado:**
   - somem os rótulos "pendente R4", e todas as asserções de Lead passam;
   - o B4, o B6, o B9 e o B10 não voltam quando a criação e o reuso de Lead
