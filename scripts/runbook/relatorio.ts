@@ -9,15 +9,29 @@ import {
   TODOS_PERFIS,
   type ResultadoRun,
 } from './engine.ts';
+import { ETAPAS, etapaDa } from './etapas.ts';
 import { readCliFlag } from '../stress-o10-concurrent-events-lib.ts';
 
 /**
  * Consolida os JSONL do `npm run runbook` num relatório Markdown.
  *
- *   npm run runbook:relatorio -- --entrada resultados.jsonl --saida docs/x.md
+ *   npm run runbook:relatorio -- --entrada resultados.jsonl --saida docs/x.md [--etapa N]
  *
- * Um par TC×perfil repetido no JSONL vale pela última execução.
+ * Um par TC×perfil repetido no JSONL vale pela última execução. A etapa do
+ * plano da reescrita vem da flag ou do nome do arquivo (`etapa-2-….jsonl`) e
+ * entra no cabeçalho.
  */
+
+function cabecalho(etapa: number | undefined): string[] {
+  if (etapa === undefined) return ['# Resultado do runbook da Unificação 2.2 — recorte 2.2 na `mrv-devDan`'];
+  return [
+    `# Resultado do runbook da Unificação 2.2 — etapa ${etapa} (${ETAPAS[etapa]}) na \`mrv-devDan\``,
+    '',
+    etapa === 2
+      ? '> **Linha de base da 1.3.** A dev roda a 1.3 com a etapa 1 do plano da reescrita, sem a camada de identidade e contatos da 2.2. As etapas seguintes se medem contra esta campanha (`docs/plano-branch-reescrita-2.2.md`, seções 3 e 6).'
+      : `> **Etapa ${etapa} do plano da reescrita.** Mede-se contra a etapa ${etapa - 1}, com \`npm run runbook:bugs -- --comparar\` (\`docs/plano-branch-reescrita-2.2.md\`, seção 6).`,
+  ];
+}
 
 const SIMBOLO: Record<ResultadoRun['veredito'], string> = {
   CONFORME: '✅ conforme',
@@ -53,7 +67,7 @@ async function main(): Promise<void> {
   const fim = resultados.map(({ fim }) => fim).sort().at(-1) ?? '';
 
   const linhas: string[] = [
-    '# Resultado do runbook da Unificação 2.2 — recorte 2.2 na `mrv-devDan`',
+    ...cabecalho(etapaDa(argv, 'etapa', entrada)),
     '',
     `Execução de ${inicio} a ${fim} (UTC), por \`npm run runbook\`.`,
     '',
