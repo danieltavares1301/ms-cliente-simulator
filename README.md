@@ -597,8 +597,8 @@ Scripts ad-hoc em `scripts/runbook/diagnostico-tc001-*.ts` (fora do
 catálogo dos 44 TCs, mesmo nível de acesso do O06/O07/O09/O10/O12) tentam
 reproduzir os dois bugs do TC-001 corrigidos pelos commits `1f6844e910`
 (guard de identidade) e `72cbd884f6` (retry lock), contra o estado
-revertido desses commits em `mrv-devDan`. Esse estado está descrito, arquivo
-por arquivo, em [estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md).
+revertido desses commits em `mrv-devDan`. Esse estado está descrito na seção
+2 do [estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md).
 Quatro dos scripts têm atalho no npm:
 
 ```bash
@@ -778,9 +778,11 @@ máquina, eles ficam ao lado deste diretório:
   converge, os 11 TCs que divergem, o bug que o harness não confere (B10) e o
   que o B9 e o K2 do 046 deviam à massa do harness.
 - [Estado da `mrv-devDan`](docs/estado-da-mrv-devDan.md) — em que ponto dos
-  branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev,
-  por que quatro classes ficaram em 03/09 de 27/09 a 11/10 e o que o simulador achou nesse
-  estado. É atualizado a cada mudança na dev.
+  branches da unificação (2.2, 2.1 e 1.3) está cada arquivo implantado na dev.
+  Desde 20/10, é o ponto zero da reescrita: a 1.3 mais a etapa 1. Guarda
+  também os estados anteriores, como as quatro classes que ficaram em 03/09
+  de 27/09 a 11/10, e o que o simulador achou neles. É atualizado a cada
+  mudança na dev.
 - [Origem dos eventos que o Salesforce recebe](docs/origem-dos-eventos-no-salesforce.md) —
   quem publica cada evento (MS Clientes, MS de crédito, Plataforma BFF), o
   que o código do MS Clientes publica e quem dispara cada evento, o formato
