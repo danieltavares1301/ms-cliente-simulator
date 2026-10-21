@@ -20,7 +20,7 @@ O alvo da reescrita está no
 > perfis, afirma o comportamento corrigido; não diz se o TC passa. Os
 > resultados das duas campanhas de 11/10 estão no
 > [catálogo de bugs](bugs-pegos-pelo-runbook.md), e o que cada um dos cinco
-> últimos commits mudou está na seção 4.1 do
+> últimos commits mudou está na seção 2.1 do
 > [estado da dev](estado-da-mrv-devDan.md). Em 18/10, o item 6 foi revisto
 > com a planilha, a skill local `salesforce-unificacao-clientes` do
 > `com_salesforce_mrv` e o branch `GV_909649_918914`, a partir da 1.3.

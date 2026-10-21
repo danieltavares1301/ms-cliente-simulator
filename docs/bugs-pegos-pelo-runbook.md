@@ -45,15 +45,21 @@ Os títulos são os dos commits, sem o prefixo `[918914] - [UNIFICAÇÃO DE LEAD
 | `3f2919f5e7` | 21/09 | Corrige falso positivo no guard de identidade de payload parcial (contato-update/endereco-update) | `ClienteService`, `NotificacaoCliente` |
 
 Os commits também mudam as classes de teste, que não alteram o comportamento
-medido. O que cada um muda no código está na seção 4.1 do
+medido. O que cada um muda no código está na seção 2.1 do
 [estado da dev](estado-da-mrv-devDan.md).
 
 > **Como manter.** A cada campanha nova, rode
 > `npm run runbook:bugs -- --entrada resultados.jsonl --comparar anterior.jsonl`.
 > Ele liga cada asserção que falhou a um bug deste catálogo, pelas regras de
 > `scripts/runbook/classificar-bugs.ts`, imprime a matriz da seção 3 e o que
-> mudou desde a campanha anterior. Uma falha que sai como `?` não tem regra:
-> analise-a e, se for bug novo, acrescente aqui e no script.
+> mudou desde a campanha anterior, por célula e por asserção. Uma falha que
+> sai como `?` não tem regra: analise-a e, se for bug novo, acrescente aqui e
+> no script.
+>
+> Nas campanhas das etapas do plano da reescrita (`etapa-N-….jsonl`), o que
+> uma regra ainda não implantada resolve sai como "pendente" dela ("pendente
+> R1", "pendente R3", "pendente R4" ou "pendente R5"), e não como bug
+> ([plano, seção 3.3](plano-branch-reescrita-2.2.md#33-ajustes-no-harness)).
 
 ## 1. Resumo
 
@@ -257,6 +263,8 @@ aparece com os commits.
 - **Com os commits:** igual (`TC040-FW-2cc571`).
 - **Na campanha alinhada (12/10):** o FW do 040 terminou com um só Lead de Y
   (`TC040-FW-88a5a4`). A duplicação é corrida e não aparece em toda rodada.
+- **Classificação:** desde 20/10, o classificador só liga ao B7 a contagem com
+  dois Leads ou mais. Sem Lead nenhum, a falha é outra.
 
 <a id="b8"></a>
 
@@ -663,3 +671,18 @@ saiu do `--todos`.
 | K2 | ok | 6 | PA: 046; CA: 046; ME: 046; RC: 046; EP: 046; RL: 046 |
 | ok | — | 34 | PA: 053, 054, 055, 056, 057; CA: 053, 054, 055, 056, 057; ME: 053, 054, 055, 056, 057; C1: 053; AR: 053; AM: 053; FW: 053; RC: 053, 054, 055, 056, 057; EP: 053, 054, 055, 056, 057; RL: 053, 054, 055, 056, 057 |
 | ok | B10 | 8 | PA: 026; CA: 026; ME: 026; C1: 026; AM: 026; RC: 026; EP: 026; RL: 026 |
+
+### 3.6 Ponto zero da reescrita (20/10)
+
+A matriz está no
+[relatório da etapa 2](resultado-runbook-etapa-2-2026-10-20.md#matriz). Ela
+não se compara com as anteriores célula a célula: a dev roda a 1.3 mais a
+etapa 1 do [plano da reescrita](plano-branch-reescrita-2.2.md), sem a camada de
+identidade e contatos da 2.2. É a linha de base das etapas seguintes.
+
+- **O que falta de código** sai como "pendente R1" (269 pares), "pendente R4"
+  (251), "pendente R5" (156) e "pendente R3" (26).
+- **Bugs deste catálogo:** B1 em 9 pares, B4 em 10 (só no 021), B8 em 6 (no
+  040 e no 062) e K1 em 2.
+- **Não aparecem:** o B2, o B3, o B5, o B6, o B7, o B9, o B10 e o K2. Na 1.3,
+  o código que os produz não existe.

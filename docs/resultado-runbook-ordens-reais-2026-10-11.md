@@ -18,7 +18,7 @@
 
 Os títulos são os dos commits, sem o prefixo `[918914] - [UNIFICAÇÃO DE LEADS]`.
 Os commits também mudam as classes de teste, que não alteram o comportamento
-medido. O que cada um muda no código está na seção 4.1 do
+medido. O que cada um muda no código está na seção 2.1 do
 [estado da dev](estado-da-mrv-devDan.md).
 
 Execução de 2026-10-11T16:48:19.433Z a 2026-10-11T17:14:27.295Z (UTC), por `npm run runbook`.

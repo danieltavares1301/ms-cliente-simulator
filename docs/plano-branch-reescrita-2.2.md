@@ -463,6 +463,33 @@ valem para o mesmo JSONL.
 - **Cabeçalho do relatório:** marcar a campanha como linha de base da 1.3
   (`scripts/runbook/relatorio.ts`).
 
+**Feito em 20/10** (`scripts/runbook/etapas.ts`, `classificar-bugs.ts` e
+`relatorio.ts`):
+- **A etapa:** vem de `--etapa N` ou do nome do arquivo
+  (`etapa-N-AAAA-MM-DD.jsonl`). Na comparação, a campanha anterior usa
+  `--etapa-anterior` ou o próprio nome. Sem etapa, a campanha é da 2.2, e
+  nada muda na classificação dela.
+- **"pendente" de cada regra:** antes da etapa que traz a regra, o que ela
+  resolve sai como "pendente R1", "pendente R3", "pendente R4" ou "pendente
+  R5". Da etapa da regra em diante, a mesma falha sai como `?`.
+- **A sobrescrita de X pelo `cliente-insert`:** "pendente R1". O classificador
+  a reconhece pelo mecanismo: X (a Account ou o Lead) ficou com outro
+  IdCliente ou outro CPF. Nas campanhas da 2.2, isso nunca aconteceu.
+- **O que cai junto com ela:** "Account aprovada é nova" ou "é a `<ref>`", as
+  contagens de Account e de Lead do CPF e o Caso C saem como "pendente R1"
+  (consequência). Sem isso, o Lead X com o CPF de Y contava como B7.
+- **O B7:** só com dois Leads ou mais, em qualquer etapa.
+- **"pendente R4":** as asserções de Lead da lista acima. Tem prioridade sobre
+  o K2, o B5, o B6, o B9 e o B10, mas não sobre o B7.
+- **Rótulos que a campanha do ponto zero pediu** (seção 3.5):
+  - "pendente R1": a PAC de X que não acha X (TC-004) e a Opportunity da
+    Venda Genérica (lacuna 8);
+  - "pendente R3": o contato atrasado que vence no RC;
+  - "pendente R5": o `DUPLICATE_VALUE` do PROS-X gravado na Account Y.
+- **A comparação por asserção:** três tabelas novas no `--comparar`: as
+  asserções que passavam e agora falham, as que falhavam e agora passam e as
+  que seguem falhando com outro rótulo.
+
 ### 3.4 Campanha
 
 A partir do `ms-cliente-simulator`:
@@ -507,6 +534,15 @@ Pela leitura, sem rodar:
 - **Somem como mecanismo** o B2, o B6, o B7, o B9 e o B10, que dependem de
   código da 2.2. O B8 fica só no TC-040.
 - **O RC passa na data** se o item 5 da etapa 1 entrar.
+
+**O que deu (20/10):** está no
+[relatório da etapa 2](resultado-runbook-etapa-2-2026-10-20.md), na seção
+"Contra o que o plano previa". O resto se confirmou, com quatro diferenças:
+- o TC-004 não passa: a PAC de X não acha X sem o `getClientePosPac`;
+- 156 pares param em `DUPLICATE_VALUE`, nos 12 TCs em que a Account Y já
+  existe;
+- no RC, o contato atrasado vence;
+- o B8 aparece também no TC-062.
 
 ## 4. Etapa 3: R1 e R2
 
@@ -857,7 +893,8 @@ A cada etapa, com N sendo o número da etapa:
 **Não regressão:**
 - nenhuma asserção que passava passa a falhar;
 - os bugs previstos para a etapa somem;
-- não aparece nenhum `?` fora da regra "pendente R4".
+- não aparece nenhum `?`; o que falta de código sai como "pendente" da regra
+  que o traz.
 
 **Pronto,** pela seção 7 do critério de aceite:
 1. os TCs executáveis ficam conformes em PA, CA, ME, AR, AM, FW, RC, EP e RL
