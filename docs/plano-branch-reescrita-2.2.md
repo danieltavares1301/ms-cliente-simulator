@@ -550,6 +550,20 @@ R1 e R2 entram juntas, num deploy só. Conferir o CPF na PAC sem aceitar
 Proponente sem Account vira recusa da PAC, que é o B8: o `1f6844e910` o levou
 de 3 para 60 pares.
 
+**Classes da dev fora do recorte (20/10).** A dev tem, de 03/11/2025, o
+`OportunidadeTriggerHandler`, o `EquipeSelector` e a `NotificacaoPendencias`,
+que não batem com nenhuma ref.
+- O `OportunidadeTriggerHandler` do branch não compila na dev: ele usa a
+  Entrada Facilitada (`e20d0d22a6`, 02/03) e uma assinatura do
+  `EquipeSelector` que a dev não tem. A guarda da R2 nele (seção 4.2, item 3)
+  foi validada à parte, sobre a versão da dev, que tem o mesmo método
+  (validação `0AfHZ00000QxXU10AN`). O deploy da etapa 3 não leva essa classe
+  nem o teste dela.
+- O `NotificacaoPendenciasTest` do branch espera as respostas da
+  `NotificacaoPendencias` do branch (400 e 500), e a da dev responde 503. Com
+  as duas do branch, só falha o `erroRequisicaoTest`, pelo mesmo motivo do da
+  PAC: a dev não tem registros no `Error_Response_Mapping__mdt`.
+
 ### 4.1 O `c47170d879`
 
 `git cherry-pick -x c47170d879`. A 1.3 já tem a busca. O que entra é a ligação
