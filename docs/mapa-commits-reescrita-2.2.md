@@ -30,6 +30,7 @@ branch antiga.
 | 9 | `a58b32caa4` | 3, seção 4.2, R2 (b) | Guardas para o Proponente sem Account no flow `Proponente_1` e no compartilhamento da Opportunity; compartilhamento quando o vínculo chega por update | sem equivalente direto; a guarda da pendência tem par no [`07608bac4a`](inventario-commits-2.2.md#c32) (32) | commit novo (2.7) |
 | 10 | `c082172e87` | 3, seção 4.2, R2 (c) | O `/Cliente` liga à Account da pessoa os Proponentes que a PAC gravou sem Account | sem equivalente; o mais próximo é o `sincronizarIdProponentePrincipal` do [`b4be1623d2`](inventario-commits-2.2.md#c20) (20), que é da R4 | commit novo (2.8) |
 | 11 | `7185fbbe79` | 3, seção 4.2, R2 (d) | Na Venda Genérica, o cliente relacionado vem da Account do Proponente, conferida pelo CPF | sem equivalente: a 2.2 não mexeu no `AtualizaClientesRelacionadosService` | commit novo (2.9) |
+| 12 | `1ffd1d1645` | 3, seção 4.3, lacuna 1 | Sem IdCliente, o `idProponente` também é procurado como IdCliente, se o CPF não divergir | refaz o [`fc7077f94d`](inventario-commits-2.2.md#c16) (16), com conferência de CPF | commit novo (2.10) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -161,6 +162,22 @@ método (plano, seção 4).
 - **O que fica:** quando o `/Cliente` liga o Proponente depois (commit 10), o
   cliente relacionado segue sem Account até o próximo evento de PAC.
 
+### 2.10 `1ffd1d1645` ← refaz o `fc7077f94d`
+
+- **Igual ao `fc7077f94d`:** sem achar a Account pelo prospect, a busca do
+  pós-PAC testa o valor do `idProponente` como IdCliente, e o match sai como
+  `ID_CLIENTE`. É a PAC de encerramento da Venda Genérica, que traz o
+  IdCliente só no `idProponente`.
+- **Diferente:**
+  - só roda quando o payload não tem IdCliente;
+  - a Account achada assim só vale se o CPF do evento não divergir do dela.
+
+  Sem isso, a PAC de Y com o IdCliente de X no `idProponente` achava X, o
+  risco que o inventário apontava no `fc7077f94d`.
+- **A conferência fica no `getClientePosPac`,** e não só na PAC. Assim ela
+  vale para a PAC, o `/Cliente` e a máquina.
+- **Falta:** o cenário de catálogo que o plano pede, no simulador.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -172,6 +189,7 @@ método (plano, seção 4).
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
 | [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal` do `/Cliente` fica para a R4 |
 | [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | pendente: lacuna 7 da R1 |
+| [`fc7077f94d`](inventario-commits-2.2.md#c16) (16) | refeito no commit 12, com conferência de CPF |
 | [`dea0460ade`](inventario-commits-2.2.md#c26) (26) | commit 3 |
 | [`7694d36312`](inventario-commits-2.2.md#c27) (27) e [`d0e2635a70`](inventario-commits-2.2.md#c28) (28) | não entram (contra a R2) |
 | [`542df3b1d1`](inventario-commits-2.2.md#c30) (30) | os comparadores de CPF e a forma final da regra do `IdProponente__c`, no commit 8; o resto fica para a R4 |
