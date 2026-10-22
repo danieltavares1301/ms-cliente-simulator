@@ -32,6 +32,7 @@ branch antiga.
 | 11 | `7185fbbe79` | 3, seção 4.2, R2 (d) | Na Venda Genérica, o cliente relacionado vem da Account do Proponente, conferida pelo CPF | sem equivalente: a 2.2 não mexeu no `AtualizaClientesRelacionadosService` | commit novo (2.9) |
 | 12 | `1ffd1d1645` | 3, seção 4.3, lacuna 1 | Sem IdCliente, o `idProponente` também é procurado como IdCliente, se o CPF não divergir | refaz o [`fc7077f94d`](inventario-commits-2.2.md#c16) (16), com conferência de CPF | commit novo (2.10) |
 | 13 | `962e5993bc` | 3, seção 4.3, lacuna 2 | O `/Cliente` descarta o match pelo prospect de outra Account em todo evento; o parcial antes da Account da pessoa volta com erro reentregável | refaz o descarte do [`b372038f43`](inventario-commits-2.2.md#c9) (9), estendido a todos os eventos, sem descartar o evento inteiro | commit novo (2.11) |
+| 14 | `0a18d28a48` | 3, seção 4.3, lacuna 3 | A Account achada só pelo prospect é descartada quando o IdCliente ou o CPF divergem; o parcial não dá IdCliente a uma Account sem IdCliente | mistura do CPF no descarte do [`1f6844e910`](inventario-commits-2.2.md#c43) (43) e do ramo sem IdCliente e sem CPF do [`9210581ea5`](inventario-commits-2.2.md#c45) (45); a parte do parcial não tem equivalente | commit novo (2.12) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -198,6 +199,40 @@ método (plano, seção 4).
 - **A decisão do erro reentregável** (decisão 2, K1) e como voltar ao 200 estão
   no [plano, seção 4.5](plano-branch-reescrita-2.2.md#45-decisão-2-o-parcial-que-chega-antes-do-cliente).
 
+### 2.12 `0a18d28a48`: mistura do `1f6844e910` e do `9210581ea5`
+
+- **Do [`1f6844e910`](inventario-commits-2.2.md#c43):** o CPF no
+  `deveDescartarMatchPosPac`. A Account achada só pelo prospect é descartada
+  quando o IdCliente ou o CPF do evento divergem dos dela, com o CPF comparado
+  só pelos dígitos.
+  - **Diferente:** lá, uma Account sem IdCliente passava sem conferir o CPF.
+    Aqui o CPF é conferido nela também. Era assim que X sem IdCliente era
+    sobrescrita.
+  - **Ficou de fora:** a recusa da PAC em análise, já substituída pelo
+    commit 8, e a conferência de escrita dos parciais, que é da R3.
+- **Do [`9210581ea5`](inventario-commits-2.2.md#c45):** sem IdCliente e sem
+  CPF no evento, o prospect continua valendo.
+  - **Ficou de fora:** o "não move Opportunity existente" e o CPF da máquina
+    pelo `idProponente`. Os dois são da lacuna 7.
+- **Nas chamadas:** a PAC, o `/Cliente` e a máquina passam o CPF que têm. A
+  versão de dois parâmetros segue, sem CPF.
+- **Sem equivalente na 2.2:** no `/Cliente`, o contato ou endereço que acha só
+  pelo prospect uma Account sem IdCliente descarta o match. O parcial não traz
+  CPF, então não pode confirmar a pessoa. Sem isso, o contato de Y gravava o
+  IdCliente de Y em X. O defeito apareceu no harness, no TC-001-XSI (a variante
+  do TC-001 com X sem IdCliente), e não em teste Apex.
+- **Testes:** o `deveDescartarMatchPosPacConfereCpfTest`, no
+  `ClienteServiceTest`, e o
+  `clienteInsertComProspectDeXSemIdClienteNaoSobrescreveXTest` e o
+  `contatoNaoDaOIdClienteAContaSemIdClienteAchadaPeloProspectTest`, no
+  `NotificacaoClienteTest`. O `contaAchadaPeloProspectNaoLigaProponenteTest`,
+  do commit 10, passou a usar uma X sem CPF: com a X de outro CPF, o match era
+  descartado e o teste deixava de medir o que diz.
+- **Verificação na dev (22/10):** com o branch até aqui no working tree, o
+  TC-001 e o TC-001-XSI nos 12 perfis deixaram a Account X e o Lead X
+  intactos. Todos os RUNs param no primeiro contato depois do `cliente-insert`,
+  com `DUPLICATE_VALUE` no IdProspect da Account Y, que é a lacuna 6.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -219,4 +254,5 @@ método (plano, seção 4).
 | [`78a25da643`](inventario-commits-2.2.md#c33) (33) | não entra; o `ProponenteTriggerHandlerTest` do commit 9 só repete o nome da classe de teste dele; o resto é da R4 |
 | [`9f0ba21f38`](inventario-commits-2.2.md#c38) (38) | commit 4 |
 | [`c04b6add92`](inventario-commits-2.2.md#c39) (39) | o trecho das 3h, no commit 6; o resto é da R4 |
-| [`1f6844e910`](inventario-commits-2.2.md#c43) (43) | a recusa da PAC em análise é substituída pelo commit 8; o resto é da R1 (lacuna 3) e da R3 |
+| [`1f6844e910`](inventario-commits-2.2.md#c43) (43) | a recusa da PAC em análise é substituída pelo commit 8; o CPF no descarte, no commit 14; o guard de parciais é da R3 |
+| [`9210581ea5`](inventario-commits-2.2.md#c45) (45) | o ramo sem IdCliente e sem CPF, no commit 14; a parte da máquina e o "não move Opportunity existente" ficam para a lacuna 7 |
