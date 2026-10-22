@@ -31,6 +31,7 @@ branch antiga.
 | 10 | `c082172e87` | 3, seção 4.2, R2 (c) | O `/Cliente` liga à Account da pessoa os Proponentes que a PAC gravou sem Account | sem equivalente; o mais próximo é o `sincronizarIdProponentePrincipal` do [`b4be1623d2`](inventario-commits-2.2.md#c20) (20), que é da R4 | commit novo (2.8) |
 | 11 | `7185fbbe79` | 3, seção 4.2, R2 (d) | Na Venda Genérica, o cliente relacionado vem da Account do Proponente, conferida pelo CPF | sem equivalente: a 2.2 não mexeu no `AtualizaClientesRelacionadosService` | commit novo (2.9) |
 | 12 | `1ffd1d1645` | 3, seção 4.3, lacuna 1 | Sem IdCliente, o `idProponente` também é procurado como IdCliente, se o CPF não divergir | refaz o [`fc7077f94d`](inventario-commits-2.2.md#c16) (16), com conferência de CPF | commit novo (2.10) |
+| 13 | `962e5993bc` | 3, seção 4.3, lacuna 2 | O `/Cliente` descarta o match pelo prospect de outra Account em todo evento; o parcial antes da Account da pessoa volta com erro reentregável | refaz o descarte do [`b372038f43`](inventario-commits-2.2.md#c9) (9), estendido a todos os eventos, sem descartar o evento inteiro | commit novo (2.11) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -178,6 +179,25 @@ método (plano, seção 4).
   vale para a PAC, o `/Cliente` e a máquina.
 - **Falta:** o cenário de catálogo que o plano pede, no simulador.
 
+### 2.11 `962e5993bc` ← refaz o descarte do `b372038f43`
+
+- **Na 2.2:** o [`b372038f43`](inventario-commits-2.2.md#c9) estendeu o
+  `deveDescartarMatchPosPac` e o `prospectPertenceAOutraConta` a todos os
+  eventos do `/Cliente`. Fora do `cliente-insert`, ele descartava o evento
+  inteiro e respondia 200, sem DML. O `0dd2e9a338` desfez isso no
+  `cliente-update`, ligando o `criarLeadDoCliente`.
+- **Aqui:**
+  - o `deveDescartarMatchPosPac` vale em todo evento;
+  - o `cliente-update` com o prospect de outra Account cria a Account da
+    pessoa, como o `cliente-insert`;
+  - o contato ou endereço sem a Account da pessoa volta com erro reentregável
+    (500, pelo metadado `Error_Response_Mapping.Parcial_antes_do_cliente`) e é
+    aplicado na reentrega. Na 2.2, ele era descartado de vez.
+- **Ficou de fora:** o `prospectPertenceAOutraConta` e a gravação do prospect
+  no IdProspect vazio. Os dois são da lacuna 6.
+- **A decisão do erro reentregável** (decisão 2, K1) e como voltar ao 200 estão
+  no [plano, seção 4.5](plano-branch-reescrita-2.2.md#45-decisão-2-o-parcial-que-chega-antes-do-cliente).
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -186,6 +206,7 @@ método (plano, seção 4).
 | [`dcb966ddd9`](inventario-commits-2.2.md#c3) (3) | já na base, pelo `0ee6d92b81` (13/02) |
 | [`fbbde9da5c`](inventario-commits-2.2.md#c4) (4) | já na base, pelo `0f9014e393`; o cherry-pick sairia vazio |
 | [`c47170d879`](inventario-commits-2.2.md#c6) (6) | commit 7 |
+| [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; o `prospectPertenceAOutraConta` fica para a lacuna 6 |
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
 | [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal` do `/Cliente` fica para a R4 |
 | [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | pendente: lacuna 7 da R1 |
