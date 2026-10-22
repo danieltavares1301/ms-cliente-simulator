@@ -69,8 +69,7 @@ function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
   if (argv.includes('--todos')) {
     if (fora.length > 0) {
       logStructured('runbook-fora-do-modelo', {
-        tcs: fora.map(({ id }) => id),
-        motivo: fora[0]!.foraDoModelo,
+        tcs: fora.map(({ id, foraDoModelo }) => ({ id, motivo: foraDoModelo })),
       });
     }
     return CENARIOS.filter(({ foraDoModelo }) => foraDoModelo === undefined);
@@ -80,8 +79,9 @@ function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
     throw new Error('Informe --tcs TC-001,TC-002 ou --todos.');
   }
   const ids = pedido.split(',').map((valor) => {
-    const numero = valor.trim().toUpperCase().replace(/\D/g, '');
-    return `TC-${numero.padStart(3, '0')}`;
+    const exato = valor.trim().toUpperCase();
+    if (CENARIOS.some(({ id }) => id === exato)) return exato;
+    return `TC-${exato.replace(/\D/g, '').padStart(3, '0')}`;
   });
   const desconhecidos = ids.filter((id) => !CENARIOS.some((c) => c.id === id));
   if (desconhecidos.length > 0) {
@@ -92,8 +92,8 @@ function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
   const pedidosFora = fora.filter(({ id }) => ids.includes(id));
   if (pedidosFora.length > 0) {
     logStructured('runbook-fora-do-modelo', {
-      tcs: pedidosFora.map(({ id }) => id),
-      motivo: `${pedidosFora[0]!.foraDoModelo} Rodando só porque foi pedido.`,
+      tcs: pedidosFora.map(({ id, foraDoModelo }) => ({ id, motivo: foraDoModelo })),
+      observacao: 'Rodando só porque foi pedido.',
     });
   }
   return CENARIOS.filter(({ id }) => ids.includes(id));
@@ -195,6 +195,17 @@ async function executarRun(
         ok: false,
         detalhe: resultado.erro,
       });
+      // O RUN parou num evento, mas X ainda pode ser conferida.
+      if (!(cenario.xAlteravel ?? false)) {
+        try {
+          const final = await execucao.snapshot();
+          resultado.estadoFinal = resumirEstado(final);
+          const verificador = new Verificador(execucao, cenario.aprovacao(execucao), final, null, null);
+          resultado.assercoes.push(...verificador.xIntacto());
+        } catch {
+          // Sem retrato, fica só a falha do evento.
+        }
+      }
     }
   } finally {
     marcas.cleanup = Date.now();

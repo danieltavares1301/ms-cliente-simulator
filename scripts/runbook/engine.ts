@@ -127,6 +127,14 @@ export type EvidenciaDoPerfil = {
  */
 const CLIENTE_NAO_ENCONTRADO = /Cliente\(Account\) n\S{1,4}o encontrado/;
 
+/**
+ * Resposta do `/Cliente` ao contato ou endereço que chega antes da Account da
+ * pessoa: erro reentregável, 500 com o `Error_Response_Mapping__mdt` e 400 sem
+ * ele (decisão 2, plano da reescrita, seção 4.5). O Event Grid o entrega de
+ * novo, e ele é aplicado depois do evento de cliente.
+ */
+const PARCIAL_ANTES_DO_CLIENTE = /Parcial antes do cliente/;
+
 export type Fluxo = 'JORNADA_UNIDADE' | 'VENDA_GENERICA';
 
 /**
@@ -522,6 +530,8 @@ export class Execucao {
   private cadeiaConcluida = false;
   /** Contatos que a massa deu a X; a 1ª PAC de X sai com eles. */
   private contatosDeX = { email: '', celular: '' };
+  /** Parciais recusados por chegarem antes do cliente, reenviados depois dele. */
+  private parciaisRecusados: Array<{ envelope: EventGridEnvelope; rotulo: string }> = [];
 
   constructor(
     readonly conexao: TargetOrgConnection,
@@ -922,9 +932,10 @@ export class Execucao {
   /** X sincronizado com os contatos A/B (massa-base da maioria dos TCs). */
   async xSincronizado(
     contatos = { email: this.contatos.emailA, celular: this.contatos.celularB },
+    opcoes: { idCliente?: boolean } = {},
   ): Promise<void> {
     this.contatosDeX = contatos;
-    await this.pessoaSincronizada('X', this.x, contatos);
+    await this.pessoaSincronizada('X', this.x, contatos, opcoes);
   }
 
   fixture(ref: string) {
@@ -991,8 +1002,10 @@ export class Execucao {
 
   /**
    * Manda um evento e confere a resposta. Devolve `false` só quando o evento
-   * volta 4xx com a rejeição esperada (`opcoes.rejeicaoEsperada`), que a
-   * produção também teria; qualquer outra resposta diferente de 200 é falha.
+   * volta com a rejeição esperada (`opcoes.rejeicaoEsperada`), que a produção
+   * também teria; qualquer outra resposta diferente de 200 é falha. O contato
+   * ou endereço recusado por chegar antes do cliente é reenviado logo depois
+   * do evento de cliente, como o Event Grid faria.
    */
   private async enviar(
     alvo: 'Cliente' | 'PAC' | 'MaquinaEstado' | 'Pendencia',
@@ -1001,6 +1014,8 @@ export class Execucao {
     opcoes: { rejeicaoEsperada?: RegExp } = {},
   ): Promise<boolean> {
     const evento = envelope[0]!;
+    const parcial = alvo === 'Cliente' && /^(contato|endereco)-/.test(evento.eventType);
+    const rejeicaoEsperada = opcoes.rejeicaoEsperada ?? (parcial ? PARCIAL_ANTES_DO_CLIENTE : undefined);
     const access = await this.acesso();
     const resultado = await dispatchConcurrentRequest(
       access,
@@ -1019,8 +1034,7 @@ export class Execucao {
       !resultado.ok &&
       resultado.httpStatus !== null &&
       resultado.httpStatus >= 400 &&
-      resultado.httpStatus < 500 &&
-      opcoes.rejeicaoEsperada?.test(resultado.responseText) === true;
+      rejeicaoEsperada?.test(resultado.responseText) === true;
     this.eventos.push({
       rotulo,
       eventType: evento.eventType,
@@ -1038,14 +1052,26 @@ export class Execucao {
       this.rede.aoFalhar?.(falha.causa);
       throw falha;
     }
-    if (rejeitado) return false;
+    if (rejeitado) {
+      if (parcial && opcoes.rejeicaoEsperada === undefined) this.parciaisRecusados.push({ envelope, rotulo });
+      return false;
+    }
     // Runbook §5: HTTP 4xx/5xx é falha no escopo CLI.
     if (!resultado.ok) {
       throw new FalhaDeEvento(
         `${rotulo} respondeu ${resultado.httpStatus ?? resultado.transportError}: ${resultado.responseText.slice(0, 200)}`,
       );
     }
+    if (alvo === 'Cliente' && /^cliente-/.test(evento.eventType)) await this.reenviarParciaisRecusados();
     return true;
+  }
+
+  private async reenviarParciaisRecusados(): Promise<void> {
+    const recusados = this.parciaisRecusados;
+    this.parciaisRecusados = [];
+    for (const { envelope, rotulo } of recusados) {
+      await this.enviar('Cliente', envelope, `${rotulo}-reentrega`);
+    }
   }
 
   private pacEnvelope(

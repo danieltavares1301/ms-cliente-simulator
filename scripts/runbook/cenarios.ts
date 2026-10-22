@@ -68,6 +68,10 @@ async function leadYLivre(
   });
 }
 
+/** Cenário de verificação da reescrita, fora da planilha. */
+const X_SEM_ID_CLIENTE =
+  'Variante do TC-001 para a lacuna 3 da R1: X sem IdCliente, achada só pelo prospect da jornada. Não está na planilha.';
+
 /** TCs da planilha que incluem um proponente adicional, cenário que o harness não modela. */
 const PROPONENTE_ADICIONAL =
   'A planilha descreve a inclusão de um proponente adicional; o harness só modela a troca do principal na aprovação.';
@@ -116,6 +120,22 @@ export const CENARIOS: readonly Cenario[] = [
     titulo: 'CPF divergente com os mesmos contatos',
     fluxo: 'JORNADA_UNIDADE',
     massa: (e) => e.xSincronizado(),
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
+    esperado: (v) => [
+      v.contaNova(),
+      v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+      leadSoCpf(v),
+      v.vinculo(),
+    ],
+  },
+  {
+    id: 'TC-001-XSI',
+    titulo: 'CPF divergente com os mesmos contatos, com X sem IdCliente',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: X_SEM_ID_CLIENTE,
+    massa: (e) => e.xSincronizado(undefined, { idCliente: false }),
     aprovacao: (e) =>
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
     esperado: (v) => [

@@ -52,6 +52,8 @@ código.
     harness cria.
 - **Testes Apex do ponto zero:** passaram 80 dos 81 métodos das quatro
   classes que o plano pede (seção 5).
+- **Desde 22/10, parte da etapa 3 está na dev** (seção 3). As seções 4 a 6
+  ainda descrevem o ponto zero e serão refeitas no deploy da etapa 3.
 
 ## 2. Estados anteriores
 
@@ -184,6 +186,7 @@ branches mudaram e os deploys conhecidos pelo ID. Horários em UTC.
 | 19/10 02:54 e 03:21 | `NotificacaoPAC` e `NotificacaoPACTest`, com os itens 4 e 5 da etapa 1, antes do commit | deploys `0AfHZ00000QuBwH0AV` e `0AfHZ00000QuCcE0AV` |
 | 20/10 01:11 a 23:28 | 27 deploys de outro trabalho: voucher da Uber, deslocamento, visita e SLA. Em Lead: `LeadHelper`, `GES_LeadTriggerHandler`, os campos `StatusVoucher__c`, `VoucherCode__c`, `VoucherCodeLink__c` e `OrigemCaptacao__c`, o record type `GestaoVendas` e o flow `SelecaoStatusLeadDistribuicaoAutomatica` | fora da unificação, mas no Lead |
 | **20/10 23:46** | `LeadSelector`, `NotificacaoMaquinaEstado`, os testes deles, `OportunidadeSelectorTest`, `PesquisarContaControllerTest` e o flow `PermutaCadastroCliente` (v15). A `NotificacaoPAC` e o teste dela foram no pacote, mas já estavam iguais | ponto zero; deploy `0AfHZ00000QxNw60AF` |
+| **22/10 02:21 e 02:33** | Parte da etapa 3, do working tree, com a lacuna 3 ainda sem commit: `AtualizaClientesRelacionadosService`, `ClienteService`, `NotificacaoCliente`, `NotificacaoMaquinaEstado`, `NotificacaoPAC`, `ProponenteSelector`, `ProponenteTriggerHandler`, os testes deles, o `ProponenteTrigger`, o flow `Proponente_1` (v5) e o metadado `Error_Response_Mapping.Parcial_antes_do_cliente` | etapa 3 parcial, para validar a lacuna 3; deploys `0AfHZ00000QzQUr0AN` e `0AfHZ00000QzQkz0AF`. Ficaram fora o `OportunidadeTriggerHandler`, que não compila na dev, e o `NotificacaoPendenciasTest` |
 
 Fora do Apex e dos branches:
 
@@ -347,3 +350,5 @@ As quatro classes da seção 3.1 do plano, em 20/10:
 | 19/10 02:54 e 03:21 | `NotificacaoPAC` com os itens 4 e 5 da etapa 1 | em 20/10, pelo script |
 | 20/10 01:11 a 23:28 | 27 deploys do trabalho da Uber, com mudanças em Lead | em 20/10, pelo `DeployRequest` |
 | 20/10 23:46 | Ponto zero: a etapa 1 inteira (deploy `0AfHZ00000QxNw60AF`) | em 20/10, pelo script e à parte (seção 4.3) |
+| 21/10 e 22/10 | Deploys do outro trabalho (SLA, deslocamento, list views) e o usuário de novo em `en_US` | em 22/10, pelo `DeployRequest` |
+| 22/10 02:21 e 02:33 | Etapa 3 parcial, para validar a lacuna 3 (seção 3) | em 22/10, pelo `DeployRequest`; o retrato arquivo por arquivo não foi refeito |
