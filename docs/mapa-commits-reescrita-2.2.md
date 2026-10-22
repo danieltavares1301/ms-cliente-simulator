@@ -38,6 +38,10 @@ branch antiga.
 | 17 | `37246536b2` | 3, seção 4.3, lacuna 5 | A busca por CPF usa o índice do `CPF__pc` com os formatos expandidos, sem o `OR` na fórmula | o `CpfCNPJ` e o `CpfCNPJTest` do `56813a221e` (2.1, US 918899), iguais byte a byte, e a mudança de duas linhas dele no `ClienteSelector`; substitui o [`85e4c3ba5f`](inventario-commits-2.2.md#c10) (10) e a busca do [`da90427ced`](inventario-commits-2.2.md#c34) (34) | parte de um commit da 2.1, mais testes (2.15) |
 | 18 | `ea5495b870` | 3, seção 4.3, lacuna 7 | A jornada lê o CPF também pelo `idProponente` e, sem IdCliente, não move a Opportunity que já existe | mistura da leitura do CPF e dos testes do [`9210581ea5`](inventario-commits-2.2.md#c45) (45), do `obterOportunidadePorPayload` do [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) e da intenção do [`12182e7e78`](inventario-commits-2.2.md#c13) (13) e do [`7c86318a05`](inventario-commits-2.2.md#c46) (46), refeitos numa regra só | commit novo (2.16) |
 | 19 | `0d4d046b9d` | 3, seção 4.3, lacuna 8 | Na PAC aprovada, a Opportunity vai para a Account que o IdCliente e o CPF do proponente principal apontam | refaz o [`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36), com a Account vinda da busca pela identidade da PAC, e não do vínculo do Proponente | commit novo (2.17) |
+| 20 | `6285c95a0d` | 4, seção 5.1, item 1 | Ponto único de escrita de contato na Account; a PAC aprovada leva à Account da pessoa o e-mail e o celular aprovados, com a data dela | do [`07608bac4a`](inventario-commits-2.2.md#c32) (32), o `sincronizarContatosAprovadosPac`, sem o furo de data do [`70f3295319`](inventario-commits-2.2.md#c37) (37) | commit novo (2.18) |
+| 21 | `d363515af3` | 4, seção 5.1, item 2 | A pendência grava o e-mail da PAC na Account pelo ponto único, com a data do evento da PAC, no lugar da ação do flow `Proponente_1` | do [`07608bac4a`](inventario-commits-2.2.md#c32) (32), a troca do flow pelo `sincronizarEmailContatoPendencia` na `ProponenteTrigger` | commit novo (2.19) |
+| 22 | `a920622615` | 4, seção 5.1, item 3 | Com contestação pendente, a PAC leva à Account de cada Proponente o e-mail e o celular do payload pelo ponto único, conferindo o CPF | mistura do `sincronizarContatosContestacao` do [`6612bab1b3`](inventario-commits-2.2.md#c29) (29) e da versão dele refeita no [`07608bac4a`](inventario-commits-2.2.md#c32) (32) | commit novo (2.20) |
+| 23 | `0949e50a55` | 4, seção 5.1, item 5 | O reflexo da Account para o Lead do prospect só vale para o Lead do mesmo CPF ou sem CPF, e não quebra com maiúsculas no `Id__c` do Lead | sem equivalente: na 2.2, o `refletirAlteracoesLead` ganhou escopos e passou a gravar campo a campo ([`07608bac4a`](inventario-commits-2.2.md#c32) e `78a25da643`), mas nunca conferiu o CPF | commit novo (2.21) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -415,6 +419,109 @@ método (plano, seção 4).
   o 040 e o 062 falhavam ali, e o 041 a 048 passavam por engano, porque X tinha
   sido sobrescrita por Y.
 
+### 2.18 `6285c95a0d`: R3, item 1
+
+- **O ponto único:** o `ClienteService.gravarContatosNaConta`, que recebe
+  uma lista de `EscritaContato` (a Account, o CPF e o IdCliente da fonte, o
+  e-mail, o celular, a data e a fonte).
+  - **Identidade:** o mesmo CPF, só pelos dígitos; sem CPF de um dos lados,
+    o mesmo IdCliente, sem caixa.
+  - **Data:** cada tipo só é gravado com data mais nova que o carimbo dele
+    (`DataAlteracaoEventoContatoEmail__c` e `…Celular__c`, os do `/Cliente`).
+    O carimbo avança mesmo quando o valor já é o mesmo.
+  - **DML parcial com log.**
+- **Do [`07608bac4a`](inventario-commits-2.2.md#c32):** a PAC aprovada leva
+  à Account do principal o e-mail e o celular aprovados, com a data da PAC
+  (já corrigida pelo item 5 da etapa 1). É o `sincronizarContatosAprovadosPac`.
+  - **Diferente:** lá, a Account precisava ter o IdCliente da PAC e o CPF
+    compatível; aqui, o CPF igual basta, e sem CPF vale o IdCliente. Não
+    entraram o bloqueio por conflito entre Proponentes, o escopo de reflexo
+    para o Lead nem a `ReconciliacaoContatosLeadQueueable`, que são da R4.
+- **O que não entrou:** o [`70f3295319`](inventario-commits-2.2.md#c37), que
+  gravava sem olhar a data na Account da PAC vigente. Pela decisão 1 da R3
+  (plano, seção 5.1), a data decide.
+- **Testes:** o `gravarContatosNaContaTest`, no `ClienteServiceTest`, e o
+  `pacAprovadaGravaOsContatosAprovadosNaContaDaPessoaTest` e o
+  `pacAprovadaNaoSobrescreveContatoMaisNovoTest`, no `NotificacaoPACTest`.
+- **Verificação na dev (22/10):** os 39 TCs no RC, no CA, no PA e no AR. No
+  RC, "Account aprovada com os contatos da PAC" e o contato atrasado
+  descartado passam nos 39, e o "pendente R3" some. Nada piorou nos outros
+  três perfis.
+
+### 2.19 `d363515af3`: R3, item 2
+
+- **Do [`07608bac4a`](inventario-commits-2.2.md#c32):** a ação do flow
+  `Proponente_1` que gravava o e-mail da pendência na Account sai, e o Apex
+  na `ProponenteTrigger` (after insert e after update) faz o trabalho. Lá era
+  o `sincronizarEmailContatoPendencia`, que o `78a25da643` mudou depois; aqui
+  é o `ProponenteTriggerHandler.gravarEmailDaPendencia`.
+- **Diferente:**
+  - **Passa pelo ponto único** do commit 20: confere o CPF (ou o IdCliente)
+    do Proponente contra a Account. Lá, a pendência não conferia nada.
+  - **A data:** é a do evento da PAC, gravada no registro da PAC
+    (`PropostaAnaliseCredito__c.DataAlteracaoEvento__c`) e já corrigida pelas
+    3h do item 5 da etapa 1. Lá era o `Proponente.DataAlteracaoEvento__c`, um
+    texto cru do payload, que no relógio do crédito vem sem fuso. Com a data
+    da PAC, a pendência e a PAC aprovada carimbam o mesmo e-mail com a mesma
+    data.
+  - **O carimbo:** o do `/Cliente` (`DataAlteracaoEventoContatoEmail__c`).
+    Lá era o `Contact.DataHoraAtualizacaoEmailPendencia__c`, que o `/Cliente`
+    não lê.
+  - **No update,** só roda quando muda o e-mail, a flag, a Account ou a data
+    do Proponente. O flow regravava a cada save.
+- **O flow `Proponente_1`:** saem a decisão "EnvioPendencia", a fórmula
+  `Now()` e o update "AtualizarEmailConta". Fica o ReplyTo na Opportunity
+  (v6 na dev).
+- **Testes:** no `ProponenteTriggerHandlerTest`, a pendência grava com a data
+  da PAC, não sobrescreve um e-mail mais novo, não grava na Account de outro
+  CPF e, sem Account, não grava nada.
+- **Verificação na dev (22/10):** os 39 TCs no C1, C2, C3, AR, AM e FW, os
+  perfis com pendência: nenhuma diferença contra a etapa 3. O harness não
+  separa o carimbo, que fica coberto pelos testes Apex.
+
+### 2.20 `a920622615`: mistura do `6612bab1b3` e do `07608bac4a`
+
+- **Do [`6612bab1b3`](inventario-commits-2.2.md#c29):** com contestação
+  pendente na PAC, os contatos do payload vão para a Account de cada
+  Proponente. Aqui é o `NotificacaoPAC.gravarContatosDaContestacao`, chamado
+  depois do upsert dos Proponentes e antes do `resolverContestacao`.
+- **Do [`07608bac4a`](inventario-commits-2.2.md#c32):** a versão refeita, sem
+  a escrita no Lead e com a data obrigatória (a da PAC).
+- **Diferente:**
+  - **O ponto único confere o CPF.** Lá, só o IdCliente, e era daí que vinha o
+    B2: no C4, a PAC de Y trazia o IdCliente de X.
+  - **Não entraram** o bloqueio por conflito entre Proponentes da mesma
+    Account e a troca do `ContestacaoSelector` para a contestação pendente
+    mais recente, que não muda nada aqui.
+  - **O `deveUsarContatoAprovado`** não entrou: no branch, o Proponente já
+    recebe sempre os contatos do payload.
+- **Testes:** no `NotificacaoPACTest`, a PAC com contestação pendente leva o
+  e-mail para Y e deixa X intacta, e a PAC sem contestação e não aprovada não
+  grava contato.
+- **Verificação na dev (22/10):** os 39 TCs no C4: nenhuma mudança contra a
+  etapa 3, e X intacta em 35 de 35, com a contestação agora gravando.
+
+### 2.21 `0949e50a55`: R3, item 5, commit novo
+
+- **O defeito:** o `refletirAlteracoesLead` da 1.3 copiava os dados da
+  Account (CPF, e-mail, celular, nome, renda e nascimento) para o Lead do
+  prospect sem conferir a pessoa. É o B4: no TC-021, o Lead Z recebia o CPF e
+  os contatos de Y. Com a R3 aumentando as escritas na Account, ele
+  disparava mais.
+- **Aqui (decisão 2 da R3):** o reflexo só vale para o Lead do mesmo CPF da
+  Account, só pelos dígitos, ou sem CPF (o `leadDaMesmaPessoa`). O reflexo
+  completo, com a regra P7, segue na R4.
+- **A correção do `NullPointerException`:** o mapa das Accounts é indexado
+  pelo prospect em minúsculas, e a busca usava o `Id__c` do Lead como está
+  gravado. Com maiúscula no `Id__c`, o update da Account caía (achado na
+  lacuna 6, plano, seção 4.3). A 2.2 tem o mesmo código.
+- **Testes:** o `refletirAlteracoesLeadSucessoTest` usava um Lead de outro
+  CPF e esperava o reflexo; o Lead passou a ter o CPF da Account. O
+  `refletirAlteracoesLeadConfereOCpfDoLeadTest` é novo.
+- **Verificação na dev (22/10):** no TC-021, nos 13 perfis, o B4 some. O
+  "1 Lead com o CPF aprovado" passa a falhar ("pendente R4"): ele só passava
+  porque o Lead Z recebia o CPF de Y.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -432,12 +539,14 @@ método (plano, seção 4).
 | [`85e4c3ba5f`](inventario-commits-2.2.md#c10) (10) | substituído pelo commit 17 |
 | [`fc7077f94d`](inventario-commits-2.2.md#c16) (16) | refeito no commit 12, com conferência de CPF |
 | [`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36) | refeito no commit 19, com a Account vinda da identidade da PAC |
+| [`70f3295319`](inventario-commits-2.2.md#c37) (37) | não entra (decisão 1 da R3: a data decide) |
 | [`de3731957d`](inventario-commits-2.2.md#c17) (17) | a guarda do eco, no commit 15; a criação de Lead no `vincularLeadExistente` fica para a R4 |
 | [`dea0460ade`](inventario-commits-2.2.md#c26) (26) | commit 3 |
 | [`7694d36312`](inventario-commits-2.2.md#c27) (27) e [`d0e2635a70`](inventario-commits-2.2.md#c28) (28) | não entram (contra a R2) |
 | [`542df3b1d1`](inventario-commits-2.2.md#c30) (30) | os comparadores de CPF e a forma final da regra do `IdProponente__c`, no commit 8; o resto fica para a R4 |
 | [`a1eef12c11`](inventario-commits-2.2.md#c31) (31) | substituído pelo commit 5 |
-| [`07608bac4a`](inventario-commits-2.2.md#c32) (32) | a linha da regra Perdido→Cancelado, no commit 5; a guarda do Proponente sem Account na pendência tem par no commit 9, no flow; o resto é da R3 |
+| [`07608bac4a`](inventario-commits-2.2.md#c32) (32) | a linha da regra Perdido→Cancelado, no commit 5; a guarda do Proponente sem Account na pendência tem par no commit 9, no flow; a sincronização da PAC aprovada, no commit 20; a pendência em Apex, no commit 21; a contestação, no commit 22 |
+| [`6612bab1b3`](inventario-commits-2.2.md#c29) (29) | a sincronização da contestação, no commit 22, conferindo o CPF |
 | [`78a25da643`](inventario-commits-2.2.md#c33) (33) | não entra; o `ProponenteTriggerHandlerTest` do commit 9 só repete o nome da classe de teste dele; o resto é da R4 |
 | [`9f0ba21f38`](inventario-commits-2.2.md#c38) (38) | commit 4 |
 | [`c04b6add92`](inventario-commits-2.2.md#c39) (39) | o trecho das 3h, no commit 6; o resto é da R4 |

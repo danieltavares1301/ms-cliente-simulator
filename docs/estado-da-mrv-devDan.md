@@ -192,6 +192,10 @@ branches mudaram e os deploys conhecidos pelo ID. Horários em UTC.
 | **22/10 10:27** | `CpfCNPJ`, `ClienteSelector`, os testes deles e o `VG_MSClienteCriarAtualizarInvocableTest`, com a lacuna 5 ainda sem commit | para validar a lacuna 5; deploy `0AfHZ00000QzaUD0AZ`, depois da validação `0AfHZ00000QzaSb0AJ` (127 testes) |
 | **22/10 11:10** | `NotificacaoMaquinaEstado` e o teste dela, com a lacuna 7 ainda sem commit | para validar a lacuna 7; deploy `0AfHZ00000QzbbZ0AR`, depois da validação `0AfHZ00000QzbJq0AJ` (87 testes) |
 | **22/10 11:26** | `NotificacaoPAC` e o teste dela, com a lacuna 8 ainda sem commit | para validar a lacuna 8; deploy `0AfHZ00000QzcML0AZ`, depois da validação `0AfHZ00000QzcB30AJ` (91 testes) |
+| **22/10 14:59** | `ClienteService`, `NotificacaoPAC` e os testes deles, com o item 1 da R3 (o ponto único e a PAC aprovada) ainda sem commit | etapa 4; deploy `0AfHZ00000Qzg3Q0AR`, depois da validação `0AfHZ00000QzqM60AJ` (94 testes) |
+| **22/10 19:03** | `ProponenteSelector`, `ProponenteTriggerHandler` e o teste dele, o `ProponenteTrigger` e o flow `Proponente_1` (v6, sem o elemento que grava o e-mail), com o item 2 da R3 (a pendência) ainda sem commit | etapa 4; deploy `0AfHZ00000R0Ttj0AF`, depois da validação `0AfHZ00000R0OpE0AV` (101 testes) |
+| **22/10 19:38** | `NotificacaoPAC` e o teste dela, com o item 3 da R3 (a contestação) ainda sem commit | etapa 4; deploy `0AfHZ00000R0RS80AN`, depois da validação `0AfHZ00000R0X2s0AF` (81 testes) |
+| **22/10 21:26** | `ClienteService` e o teste dele, com o item 5 da R3 (o reflexo para o Lead confere o CPF) ainda sem commit | etapa 4; deploy `0AfHZ00000R0cXE0AZ`, depois da validação `0AfHZ00000R0ruQ0AR` (104 testes) |
 
 Fora do Apex e dos branches:
 
@@ -362,3 +366,8 @@ As quatro classes da seção 3.1 do plano, em 20/10:
 | 22/10 10:27 | Lacuna 5, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
 | 22/10 11:10 | Lacuna 7, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
 | 22/10 11:26 | Lacuna 8, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 14:59 | R3, item 1, do working tree (seção 3) | em 22/10, pelo `DeployRequest`; antes, a dev conferida igual ao branch no `0d4d046b9d` |
+| 22/10 19:03 | R3, item 2, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 19:38 | R3, item 3, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 21:26 | R3, item 5, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 22:16 a 22:40 | **Espaço de dados estourado e limpeza.** A dev chegou a 220 MB de 200 (110%) no fim da campanha da etapa 4, com 90.460 `LogIntegracao__c`. Foram apagados os 55.285 criados antes dos últimos 3 dias (de 29/05 a 19/10 01:38), pela Bulk API, sem hard delete (o usuário não tem a permissão "Bulk API Hard Delete"); ficam na lixeira por 15 dias. O espaço caiu para 150 MB (75%) | em 22/10, pelos limites da org e pela contagem dos logs |

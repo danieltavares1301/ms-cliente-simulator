@@ -983,6 +983,39 @@ IdCliente da fonte, o e-mail, o celular, a data e a fonte.
    segue na R4.
 3. **A contestação sincroniza e-mail e celular** pelo ponto único, com CPF,
    IdCliente e data. É a correção do `6612bab1b3`, sem o B2.
+4. **O `/Cliente` não passa pela função (22/10).** Ele já é o quarto escritor
+   com as mesmas regras: o contato só chega a uma Account achada pelo
+   IdCliente (lacunas 2, 3 e 6), e cada tipo só é gravado com data
+   estritamente mais nova que o carimbo dele, os mesmos que a função usa.
+   - **Por que não:** o `/Cliente` grava contato, IdCliente, prospect,
+     telefone e endereço num update só. Passar o e-mail e o celular pela
+     função daria dois updates da Account por evento, com o dobro de
+     execuções do trigger dela e mais chance de lock. O ganho seria só ter o
+     código num lugar.
+   - **A diferença que fica:** um evento sem `DataAlteracao` grava contato
+     sem carimbo no `/Cliente`; a função não grava sem data.
+   - **Se um dia mudar uma regra de identidade ou de data,** mudar nos dois
+     lugares: o `gravarContatosNaConta` e o `executar` da `NotificacaoCliente`
+     (o `getDataAlteracaoEventoCliente`).
+
+**O que deu (22/10):** está no
+[relatório da etapa 4](resultado-runbook-etapa-4-2026-10-22.md). A campanha
+rodou com o branch até o `0949e50a55` na dev (commits 20 a 23 do
+[mapa](mapa-commits-reescrita-2.2.md)). Foram 484 pares, 74 conformes (eram 68
+na etapa 3), nenhum com erro e nenhum evento fora do 200.
+- **Some todo o "pendente R3"** (39 pares, todos no RC). "Account aprovada com
+  os contatos da PAC" e o contato atrasado descartado passam nos 39 TCs do RC,
+  e o RC conforma no 003, no 004, no 039 e no Caso C, como os outros perfis.
+- **Some o B4** do TC-021, nos 13 perfis: o Lead Z fica intacto.
+- **O C4 segue sem B2,** agora com a contestação gravando contato.
+- **Sobra só o "pendente R4"** (410 pares).
+- **Uma asserção que passava e agora falha,** e está certo: "1 Lead com o CPF
+  aprovado" no TC-021. Ela só passava porque o Lead Z recebia o CPF de Y.
+- **A dev estourou o espaço de dados no fim da campanha** (220 MB de 200, quase
+  tudo `LogIntegracao__c` das campanhas). Os 23 RUNs afetados (o 049 e o 062
+  na maioria dos perfis e o 042 no C4) rodaram de novo depois da limpeza
+  ([estado da dev](estado-da-mrv-devDan.md)), e o JSONL guarda as duas
+  rodadas; o relatório e o classificador usam a última de cada par.
 
 ### 5.2 R4: política única de Lead
 
