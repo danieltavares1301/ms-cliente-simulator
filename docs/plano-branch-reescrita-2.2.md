@@ -921,6 +921,69 @@ que nunca chegou a ser commitado.
   - o C4 fica sem B2;
   - o RC confere o contato atrasado descartado.
 
+**Levantamento (22/10), no branch até o `0d4d046b9d`.** Onde o pós-PAC grava
+contato na Account hoje:
+
+| Caminho | Onde | Identidade | Data |
+|---|---|---|---|
+| `contato-*` e `endereco-*` | `NotificacaoCliente` | Account achada pelo IdCliente ou pelo CPF (lacunas 2, 3 e 6) | um carimbo por tipo: `DataAlteracaoEventoContato{Email,Celular,Telefone}__c` e `…Endereco__c` |
+| Pendência | flow `Proponente_1`, elemento "AtualizarEmailConta", em todo save do Proponente com `EnviarNotificacaoPendencia__c` ligada | nenhuma; o `Proponente__c` já vem da busca com CPF (R2) | nenhuma: `Now()` em `Contact.DataHoraAtualizacaoEmailPendencia__c`, que o `/Cliente` não lê |
+| Contestação | `NotificacaoPAC.resolverContestacao` | — | — (só grava `DataSolucao__c`) |
+| PAC aprovada | — | — | não grava contato na Account |
+
+- **Daí:** o contato atrasado vence no RC (39 pares na etapa 3); o C4 não tem
+  B2, porque a contestação não sincroniza contato; a pendência regrava o
+  e-mail da PAC a cada save do Proponente.
+- **O `/Pendencia` só liga a flag.** O mapeamento
+  (`MapaProponentePendencia__mdt`) não traz e-mail nem data. O e-mail que vai
+  para a Account é o `EmailAtualizado__c` que a PAC gravou no Proponente, e a
+  data dele é o `Proponente.DataAlteracaoEvento__c`, um texto cru do payload
+  da PAC.
+- **A `NotificacaoPendencias` da dev** difere da do branch só no tratamento
+  de erro (503), sem efeito em contato.
+- **Fora da R3:** as escritas do pré-PAC (Iniciar Jornada no `ClienteService`,
+  `NotificacaoLead` e os flows de tela da Venda Genérica).
+
+**A função:** um método no `ClienteService` (por exemplo,
+`gravarContatosNaConta`) que recebe, por escrita, a Account, o CPF e o
+IdCliente da fonte, o e-mail, o celular, a data e a fonte.
+- **Identidade:** o CPF da fonte igual ao da Account, só pelos dígitos. Sem
+  CPF de um dos lados, o IdCliente igual. Sem nenhum dos dois, não grava.
+- **Data:** cada tipo só é gravado com data mais nova que o carimbo dele. Os
+  carimbos são os do `/Cliente`, para todas as fontes se enxergarem.
+- **DML parcial com log.**
+- **Quem chama:** a PAC aprovada (depois do upsert dos Proponentes, com a data
+  da PAC já corrigida pelo item 5), a pendência (Apex na `ProponenteTrigger`; o
+  elemento "AtualizarEmailConta" sai do flow, e o do ReplyTo fica), a
+  contestação e o `/Cliente`.
+- **O guard de parciais** do `1f6844e910` e do `3f2919f5e7` não volta. Com a
+  R1, o parcial só grava na Account achada pelo IdCliente, e na campanha da
+  2.2 ele disparou 0 vezes.
+- **Cuidado com a data da pendência:** o `Proponente.DataAlteracaoEvento__c`
+  vem sem fuso no RC. Precisa da mesma correção das 3h que o item 5 aplica aos
+  campos da PAC; sem ela, a pendência ganha ou perde por 3h.
+
+**Decisões de 22/10:**
+1. **A data decide.** A PAC aprovada é mais uma fonte, com a data dela, e um
+   `contato-*` mais novo vence. O `70f3295319` (gravar sem olhar a data na
+   Account da PAC vigente) não volta.
+   - **Por quê:** com a decisão 2 (seção 4.5), o parcial recusado antes da
+     Account é reentregue minutos depois, muitas vezes já depois da PAC
+     aprovada, com a mesma `DataAlteracao`. Pela data, o resultado não
+     depende da ordem de chegada. Com a PAC prevalecendo, dependeria, e o
+     carimbo poderia voltar no tempo.
+   - **Condição:** todas as datas no mesmo relógio (item 5 e a correção da
+     pendência acima).
+   - **Voltar atrás:** gravar os contatos da PAC aprovada sem a comparação de
+     data quando a Account for a do principal, como o `70f3295319` e o
+     `c04b6add92`.
+2. **O `refletirAlteracoesLead` confere o CPF na R3.** Só reflete para o Lead
+   do prospect com o mesmo CPF ou sem CPF, e corrige o `NullPointerException`
+   do `Id__c` com maiúsculas (seção 4.3, lacuna 6). O reflexo completo (P7)
+   segue na R4.
+3. **A contestação sincroniza e-mail e celular** pelo ponto único, com CPF,
+   IdCliente e data. É a correção do `6612bab1b3`, sem o B2.
+
 ### 5.2 R4: política única de Lead
 
 **Em uma frase:** a R4 escreve do zero a parte que cria, reutiliza e atualiza
