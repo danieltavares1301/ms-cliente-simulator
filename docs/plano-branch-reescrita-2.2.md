@@ -682,7 +682,7 @@ substitui.
 | 1 | A PAC de encerramento da Venda Genérica que traz o IdCliente só no `idProponente` deixa de achar a Account | Sem IdCliente, procurar o valor do `idProponente` também em `Id__c`, sujeito à conferência de CPF | `fc7077f94d` | Apex com CPF igual e com CPF divergente; cenário novo de catálogo |
 | 2 | No `/Cliente`, o descarte só vale no `cliente-insert` | Aplicar a decisão de identidade a todos os eventos; o parcial sem a Account da pessoa responde 200, sem DML | o descarte do `b372038f43` estendido a todos os eventos, sem descartar o evento inteiro | PA: "Account X intacta depois dos parciais"; perfil EP; K1 do 040 |
 | 3 | A Account achada não tem o CPF conferido (B1) | Conferir IdCliente e CPF contra toda Account achada, com o CPF normalizado nos dois lados. Sem IdCliente e sem CPF, o prospect vale, mas não move Opportunity existente | do `1f6844e910`, o CPF no descarte e a recusa da PAC; do `9210581ea5`, o ramo sem IdCliente e sem CPF | C1, C2 e C3 sem B1; C1, AR e FW sem B8 |
-| 4 | Entre Accounts do mesmo CPF, fica a mais recente (B3) | Preferir a que tem `Id__c`; empatando, a modificada por último (TCs 028 e 068) | — (o B3 segue na ponta) | TC-038 em C1, AR e FW ("Account Y2 intacta"); teste novo no `ClienteSelectorTest` |
+| 4 | Entre Accounts do mesmo CPF, fica a mais recente (B3) | Preferir a que tem `Id__c`; empatando, a modificada por último (TCs 028 e 068) | — (o B3 segue na ponta) | TC-038 em C1, C2, C3, AR e FW ("Account Y2 intacta"; o C2 e o C3 apareceram na verificação da lacuna 6); teste novo no `ClienteSelectorTest` |
 | 5 | CPF gravado com máscara: o `OR` na fórmula `CPFSemFormatacao__c` faz a consulta virar varredura | Expandir os formatos no `obterClientePorCPF` e manter `WHERE CPF__pc IN :set` (ver abaixo) | `85e4c3ba5f`; do `da90427ced`, a busca | Apex com máscara dos dois lados e com menos de 11 dígitos; explain na dev |
 | 6 | Achada pelo IdCliente ou pelo CPF, a Account Y recebe o prospect de X no IdProspect vazio, em qualquer evento do `/Cliente` | Gravar o prospect do evento só se o Lead dele tiver o mesmo CPF ou nenhum e não estiver preso a outra Account | do `09dadb24bf`, o `prospectPertenceAOutraConta` e a gravação; do `b372038f43`, a parte que impedia gravar o prospect de X em Y; `de3731957d` (o eco) | 009, 020, 022, 024, 025 e 027: "Lead X intacto" e Y sem PROS-X; os 12 TCs que param em `DUPLICATE_VALUE` no ponto zero (005 a 007, 010 a 015, 019, 026 e 038) |
 | 7 | Na máquina, o CPF só é lido pelo IdCliente | Ler também pelo `idProponente` igual ao prospect; jornada sem IdCliente não move a Opportunity | do `9210581ea5`, a parte da máquina; `7c86318a05`, `12182e7e78`. O `ec9d1a6a7c` entra aqui | Apex desses commits refeitos; cenário novo com `proponentecredito` |
@@ -724,6 +724,31 @@ Ficam para outras etapas:
   a Account Y mascarada, antes é preciso ajustar as consultas que comparam o
   `CPF__pc` exato: `engine.ts` (limpeza, retrato e `contaDaPessoa`) e o
   `contasDoCpf` de `verificacoes.ts`.
+
+**Lacuna 6, como foi feita (22/10).**
+- **Onde:** no `preencherAtributosAccount` da `NotificacaoCliente`, que roda
+  em todo evento do `/Cliente`. A decisão fica no
+  `ClienteService.prospectPodeSerGravado`.
+- **O prospect vai para o IdProspect vazio só se:**
+  - não for o eco do IdCliente, comparado sem caixa e sem espaço. A 1.3 já
+    barrava o eco, mas com comparação exata;
+  - nenhuma outra Account o tiver (`prospectPertenceAOutraConta`, o mesmo
+    nome da 2.2);
+  - o Lead dele tiver o mesmo CPF da pessoa ou nenhum. O CPF da pessoa é o do
+    evento; sem ele, como no contato e no endereço, vale o da Account.
+- **Casos de borda escolhidos:**
+  - **Sem Lead com esse `Id__c`:** grava, como na 1.3. Não há o que conferir.
+  - **Prospect com o texto "null":** não grava. A 2.2 tratava o mesmo caso no
+    `idProspectSalesforceFoiInformado`.
+  - **Sem CPF no evento e na Account:** grava, porque não há com que comparar.
+- **Ficou de fora:** o `criarLeadDoCliente` do `09dadb24bf` e a criação de
+  Lead do `de3731957d`. Os dois são da R4 e da R5.
+- **Defeito latente da 1.3, achado no teste:** o `refletirAlteracoesLead`
+  indexa as Accounts pelo prospect em minúsculas e os Leads pelo `Id__c` como
+  está gravado. Um Lead com maiúscula no `Id__c` dá `NullPointerException` no
+  trigger da Account, e o evento volta 400. Os prospects reais e os do harness
+  são UUIDs em minúsculas, por isso o teste usa minúsculas. A 2.2 tem o mesmo
+  código. Fica para a R4, que substitui esse método (P7).
 
 ### 4.4 O que esperar
 

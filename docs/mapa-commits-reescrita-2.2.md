@@ -33,6 +33,7 @@ branch antiga.
 | 12 | `1ffd1d1645` | 3, seção 4.3, lacuna 1 | Sem IdCliente, o `idProponente` também é procurado como IdCliente, se o CPF não divergir | refaz o [`fc7077f94d`](inventario-commits-2.2.md#c16) (16), com conferência de CPF | commit novo (2.10) |
 | 13 | `962e5993bc` | 3, seção 4.3, lacuna 2 | O `/Cliente` descarta o match pelo prospect de outra Account em todo evento; o parcial antes da Account da pessoa volta com erro reentregável | refaz o descarte do [`b372038f43`](inventario-commits-2.2.md#c9) (9), estendido a todos os eventos, sem descartar o evento inteiro | commit novo (2.11) |
 | 14 | `0a18d28a48` | 3, seção 4.3, lacuna 3 | A Account achada só pelo prospect é descartada quando o IdCliente ou o CPF divergem; o parcial não dá IdCliente a uma Account sem IdCliente | mistura do CPF no descarte do [`1f6844e910`](inventario-commits-2.2.md#c43) (43) e do ramo sem IdCliente e sem CPF do [`9210581ea5`](inventario-commits-2.2.md#c45) (45); a parte do parcial não tem equivalente | commit novo (2.12) |
+| 15 | `946cf8bdc1` | 3, seção 4.3, lacuna 6 | O evento do `/Cliente` só grava o prospect no IdProspect vazio se ele não for o eco do IdCliente, não estiver em outra Account e o Lead dele não tiver outro CPF | mistura do `prospectPertenceAOutraConta` e da guarda da gravação do [`09dadb24bf`](inventario-commits-2.2.md#c8) (8), da extensão a todo evento do [`b372038f43`](inventario-commits-2.2.md#c9) (9) e da guarda do eco do [`de3731957d`](inventario-commits-2.2.md#c17) (17); o CPF do Lead não tem equivalente | commit novo (2.13) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -233,6 +234,52 @@ método (plano, seção 4).
   intactos. Todos os RUNs param no primeiro contato depois do `cliente-insert`,
   com `DUPLICATE_VALUE` no IdProspect da Account Y, que é a lacuna 6.
 
+### 2.13 `946cf8bdc1`: mistura do `09dadb24bf`, do `b372038f43` e do `de3731957d`
+
+- **Do [`09dadb24bf`](inventario-commits-2.2.md#c8):** o
+  `ClienteService.prospectPertenceAOutraConta`, com o mesmo nome e a mesma
+  lógica, e a guarda que impede gravar no IdProspect vazio o prospect que já
+  está em outra Account.
+  - **Diferente:** na 2.2, a guarda era a flag `prospectDivergente`, ligada no
+    `getSObjectExistente`. Aqui a decisão fica toda no
+    `ClienteService.prospectPodeSerGravado`, chamado no
+    `preencherAtributosAccount`.
+  - **Ficou de fora:** o `criarLeadDoCliente`, que é da R4 e da R5.
+- **Do [`b372038f43`](inventario-commits-2.2.md#c9):** a guarda vale em todo
+  evento do `/Cliente`, inclusive no contato e no endereço. Na 2.2, esses
+  eventos eram descartados inteiros; aqui eles são aplicados em Y, só sem o
+  prospect.
+- **Do [`de3731957d`](inventario-commits-2.2.md#c17):** a guarda do eco, sem
+  caixa e sem espaço (o `idProspectIgualAoIdCliente`). A 1.3 já tinha uma
+  comparação exata. O "null" em texto também não é gravado, como no
+  `idProspectSalesforceFoiInformado` da 2.2.
+  - **Ficou de fora:** a criação de Lead no `vincularLeadExistente`, que é da
+    R4.
+- **Sem equivalente na 2.2:** o Lead do prospect precisa ter o CPF da pessoa
+  ou nenhum. O CPF da pessoa é o do evento ou, sem ele, o da Account. Sem Lead
+  com aquele `Id__c`, o prospect é gravado, como na 1.3. As escolhas estão no
+  [plano, seção 4.3](plano-branch-reescrita-2.2.md#43-as-lacunas-do-c47170d879-e-o-resto-da-r1).
+- **Testes:** o `prospectPodeSerGravadoTest`, no `ClienteServiceTest`, e o
+  `contatoComProspectDeXNaoGravaOProspectNaContaDeYTest`, o
+  `clienteUpdateNaoGravaProspectDeLeadDeOutroCpfTest` e o
+  `clienteUpdateGravaOProspectDoLeadDaPessoaTest`, no `NotificacaoClienteTest`.
+  O último usa um prospect em minúsculas por causa de um defeito latente da
+  1.3 no `refletirAlteracoesLead`, descrito no plano.
+- **Verificação na dev (22/10):**
+  - **TC-001 e TC-001-XSI, nos 12 perfis:** a cadeia vai até o fim, com todos
+    os eventos em 200. Sobram só o Lead de Y ("pendente R4") e, no RC, o
+    contato atrasado ("pendente R3").
+  - **Os 18 TCs da verificação da lacuna** (seção 4.3 do plano), em 228 RUNs:
+    nenhum evento fora do 200. Contra o ponto zero, os 228 pares saem de
+    "pendente R1". Account X intacta e Lead X intacto passam em todos. O 024 e
+    o 027 (Caso C) ficam conformes em 11 perfis; no RC, só o "pendente R3". O
+    resto fica "pendente R4", e o 038 tem B3 em C1, C2, C3, AR e FW (lacuna
+    4).
+  - **Duas asserções passavam por engano no ponto zero.** No 020 e no 025,
+    "1 Lead com o CPF aprovado" e "Account aprovada → Lead" passavam porque Y
+    tomava o Lead X e gravava nele o CPF de Y. Agora o Lead X fica intacto, e
+    as duas falham como "pendente R4".
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -241,11 +288,13 @@ método (plano, seção 4).
 | [`dcb966ddd9`](inventario-commits-2.2.md#c3) (3) | já na base, pelo `0ee6d92b81` (13/02) |
 | [`fbbde9da5c`](inventario-commits-2.2.md#c4) (4) | já na base, pelo `0f9014e393`; o cherry-pick sairia vazio |
 | [`c47170d879`](inventario-commits-2.2.md#c6) (6) | commit 7 |
-| [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; o `prospectPertenceAOutraConta` fica para a lacuna 6 |
+| [`09dadb24bf`](inventario-commits-2.2.md#c8) (8) | o `prospectPertenceAOutraConta` e a guarda da gravação do prospect, no commit 15; o `criarLeadDoCliente` fica para a R4 e a R5 |
+| [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; a guarda do prospect em todo evento, no commit 15 |
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
 | [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal` do `/Cliente` fica para a R4 |
 | [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | pendente: lacuna 7 da R1 |
 | [`fc7077f94d`](inventario-commits-2.2.md#c16) (16) | refeito no commit 12, com conferência de CPF |
+| [`de3731957d`](inventario-commits-2.2.md#c17) (17) | a guarda do eco, no commit 15; a criação de Lead no `vincularLeadExistente` fica para a R4 |
 | [`dea0460ade`](inventario-commits-2.2.md#c26) (26) | commit 3 |
 | [`7694d36312`](inventario-commits-2.2.md#c27) (27) e [`d0e2635a70`](inventario-commits-2.2.md#c28) (28) | não entram (contra a R2) |
 | [`542df3b1d1`](inventario-commits-2.2.md#c30) (30) | os comparadores de CPF e a forma final da regra do `IdProponente__c`, no commit 8; o resto fica para a R4 |
