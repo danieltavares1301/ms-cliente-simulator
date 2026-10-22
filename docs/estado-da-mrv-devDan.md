@@ -59,10 +59,10 @@ código.
 
 Até 18/10, a dev rodava a 2.2. Todas as campanhas do runbook até 12/10 rodaram
 nela, e não no ponto zero. O retrato de 11/10, arquivo por arquivo, está na
-versão deste doc do commit `dfdf0d6`:
+versão deste doc do commit `d519b3c`:
 
 ```bash
-git show dfdf0d6:docs/estado-da-mrv-devDan.md
+git show d519b3c:docs/estado-da-mrv-devDan.md
 ```
 
 - **27/09, às 15:20 UTC:** entrou o Apex do `develop` de 21/09 a 27/09, que

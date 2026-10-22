@@ -428,8 +428,8 @@ com conteúdo real dos eventos.
 Em 02/10, a investigação e o harness foram commitados na `main` local, sem
 push:
 
-- `a09c6ee`: diagnósticos e documentos do bug 4;
-- `d98919e`: perfis C1 a C4, pool paralelo e tolerância a queda de rede;
+- `87821d7`: diagnósticos e documentos do bug 4;
+- `8546cdb`: perfis C1 a C4, pool paralelo e tolerância a queda de rede;
 - o commit de documentação seguinte: resultado de 02/10 e a seção 10.
 
 A pasta `claude/` fica fora do versionamento de propósito. Revisar
@@ -481,7 +481,7 @@ como representação deste incidente.
 
 ### Harness
 
-Commit `d98919e`; os detalhes de uso estão no README, seção "Runbook da
+Commit `8546cdb`; os detalhes de uso estão no README, seção "Runbook da
 Unificação 2.2".
 
 - **Perfis C1 a C4.** São os quatro caminhos do bug 4, aplicados sobre os TCs
