@@ -169,7 +169,7 @@ describe('bugsDoRun', () => {
     ]);
   });
 
-  it('liga a R1, R3 e R5 as falhas de evento e de contato que o ponto zero mostrou', () => {
+  it('liga à R1 e à R3 as falhas de evento e de contato que o ponto zero mostrou', () => {
     const http = 'Todos os eventos responderam HTTP 200';
     const evento = (rotulo: string, resposta: string): ResultadoRun['eventos'][number] => ({
       rotulo,
@@ -186,12 +186,12 @@ describe('bugsDoRun', () => {
     expect(ids(run('TC-040', 'C1', [http], { eventos: [evento('pac-analise-1', naoAchou)] }), undefined, 2)).toEqual([
       'B8',
     ]);
-    // O prospect de X gravado na Account Y: R5.
+    // O prospect de X gravado na Account Y: R1, pelas lacunas 2 e 6.
     const duplicado = evento(
       'cliente-update',
       'DUPLICATE_VALUE, valor duplicado encontrado: IdProspectSalesforce__c duplica o valor',
     );
-    expect(ids(run('TC-005', 'CA', [http], { eventos: [duplicado] }), undefined, 2)).toEqual(['pendente R5']);
+    expect(ids(run('TC-005', 'CA', [http], { eventos: [duplicado] }), undefined, 2)).toEqual(['pendente R1']);
     expect(ids(run('TC-005', 'CA', [http], { eventos: [duplicado] }))).toEqual(['?']);
     // O contato atrasado vence a PAC aprovada no RC: R3.
     const rc = run('TC-003', 'RC', [

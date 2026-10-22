@@ -70,9 +70,8 @@ falha ficou com `?`.
 
 | Rótulo | Pares | O que é |
 |---|---:|---|
-| pendente R1 | 269 | **X sobrescrita.** O `cliente-insert` de Y com o PROS-X acha X pelo prospect e grava nela o IdCliente, o CPF e o nome de Y; o reflexo leva o CPF de Y ao Lead X. Em 21 TCs, em todos os perfis. Daí falham também "Account aprovada é nova" ou "é a accountY", as contagens de Account e de Lead do CPF e o Caso C. Entram ainda a PAC de X que não acha X (TC-004) e a Opportunity da Venda Genérica (lacuna 8) |
+| pendente R1 | 425 | **X sobrescrita.** O `cliente-insert` de Y com o PROS-X acha X pelo prospect e grava nela o IdCliente, o CPF e o nome de Y; o reflexo leva o CPF de Y ao Lead X. Em 21 TCs, em todos os perfis. Daí falham também "Account aprovada é nova" ou "é a accountY", as contagens de Account e de Lead do CPF e o Caso C. Entram ainda a PAC de X que não acha X (TC-004), a Opportunity da Venda Genérica (lacuna 8) e, nos 12 TCs em que a Account Y já existe, o PROS-X gravado nela pelo evento de Y: o campo é único, o evento volta 400 com `DUPLICATE_VALUE`, e o RUN para aí |
 | pendente R4 | 251 | Não nasce Lead para Y, e o Lead que devia ser reutilizado não é ligado |
-| pendente R5 | 156 | O evento de Y com o PROS-X grava esse prospect na Account Y, que já existe. O campo é único, e o evento volta 400 com `DUPLICATE_VALUE`. O RUN para aí |
 | pendente R3 | 26 | No RC, o contato atrasado, de antes da aprovação, vence os contatos da PAC aprovada |
 | B1 | 9 | A pendência grava em X o e-mail de Y: TC-021 no C1, C2, C3, AR e FW; TC-040 e TC-062 no C2 e C3 |
 | B4 | 10 | A pendência reflete os dados de Y no Lead de Z, no TC-021 |
@@ -106,8 +105,8 @@ Não aparecem o B2, o B3, o B5, o B6, o B7, o B9, o B10 nem o K2.
    - O `cliente-update` ou o `contato-email` de Y chega com o PROS-X, e a 1.3
      grava esse prospect na Account Y. Na 2.2, quem impedia era o
      `b372038f43`, que o inventário põe na R5.
-   - Por isso, o rótulo é "pendente R5". Mas a R1 também lista "o IdProspect
-     da Account" no escopo dela, então o erro pode sumir já na etapa 3.
+   - A R1 também lista "o IdProspect da Account" no escopo dela. Em 21/10, a
+     correção ficou na R1, pelas lacunas 2 e 6, e o rótulo é "pendente R1".
    - Como o RUN para no evento, nada depois dele é medido nesses TCs, nem o
      B1 que o plano previa no 038 nem o Lead candidato do 012 e do 013.
 3. **No RC, o contato atrasado vence** nos 26 TCs que chegam ao fim. Na 2.2, a
@@ -124,29 +123,29 @@ Não aparecem o B2, o B3, o B5, o B6, o B7, o B9, o B10 nem o K2.
 | TC-002 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-003 | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | pendente R3 | ok | ok |
 | TC-004 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | — | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
-| TC-005 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-006 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-007 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
+| TC-005 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-006 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-007 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
 | TC-009 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
-| TC-010 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-011 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-012 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-013 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-014 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
-| TC-015 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
+| TC-010 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-011 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-012 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-013 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-014 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
+| TC-015 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
 | TC-016 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-017 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-018 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
-| TC-019 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
+| TC-019 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
 | TC-020 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-021 | B4 pendente R4 | B4 pendente R4 | B4 pendente R4 | B1 B4 pendente R4 | B1 B4 pendente R4 | B1 pendente R4 | B4 pendente R4 | B1 pendente R4 | B4 pendente R4 | B1 pendente R4 | B4 pendente R3 pendente R4 | B4 pendente R4 | B4 pendente R4 |
 | TC-022 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-023 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-024 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | — | pendente R1 | pendente R1 pendente R3 | pendente R1 | pendente R1 |
 | TC-025 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
-| TC-026 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
+| TC-026 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
 | TC-027 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | — | pendente R1 | pendente R1 pendente R3 | pendente R1 | pendente R1 |
-| TC-038 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 | pendente R5 |
+| TC-038 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 |
 | TC-039 | ok | ok | ok | ok | ok | ok | ok | ok | ok | ok | pendente R3 pendente R4 | ok | ok |
 | TC-040 | K1 | pendente R4 | K1 | B8 | B1 pendente R4 | B1 pendente R4 | pendente R4 | B8 pendente R1 pendente R4 | — | B8 pendente R1 pendente R4 | pendente R3 pendente R4 | pendente R4 | pendente R4 |
 | TC-041 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
@@ -159,6 +158,7 @@ Não aparecem o B2, o B3, o B5, o B6, o B7, o B9, o B10 nem o K2.
 | TC-048 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | pendente R1 | — | pendente R1 | pendente R1 pendente R3 | pendente R1 | pendente R1 |
 | TC-049 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 | — | pendente R1 pendente R4 | pendente R1 pendente R3 pendente R4 | pendente R1 pendente R4 | pendente R1 pendente R4 |
 | TC-062 | pendente R4 | pendente R4 | pendente R4 | B8 | B1 pendente R4 | B1 pendente R4 | pendente R4 | B8 pendente R1 pendente R4 | pendente R1 pendente R4 | B8 pendente R1 pendente R4 | pendente R3 pendente R4 | pendente R4 | pendente R4 |
+
 
 ## Resumo por TC
 

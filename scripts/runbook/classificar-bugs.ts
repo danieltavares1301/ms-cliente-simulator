@@ -172,8 +172,9 @@ export function bugsDoRun(
         anotar('B8', nome);
       } else if (/DUPLICATE_VALUE.*IdProspectSalesforce__c/.test(falhaDoEvento)) {
         // O evento de Y com o PROS-X grava esse prospect na Account Y, e o
-        // campo é único: o `b372038f43` da 2.2, que a R5 refaz.
-        anotar(pendente('R5'), nome);
+        // campo é único. Na reescrita, as lacunas 2 e 6 da R1 só gravam o
+        // prospect da mesma pessoa (decisão de 21/10; na 2.2, `b372038f43`).
+        anotar(pendente('R1'), nome);
       } else {
         anotar('?', nome);
       }

@@ -680,8 +680,8 @@ não se compara com as anteriores célula a célula: a dev roda a 1.3 mais a
 etapa 1 do [plano da reescrita](plano-branch-reescrita-2.2.md), sem a camada de
 identidade e contatos da 2.2. É a linha de base das etapas seguintes.
 
-- **O que falta de código** sai como "pendente R1" (269 pares), "pendente R4"
-  (251), "pendente R5" (156) e "pendente R3" (26).
+- **O que falta de código** sai como "pendente R1" (425 pares), "pendente R4"
+  (251) e "pendente R3" (26).
 - **Bugs deste catálogo:** B1 em 9 pares, B4 em 10 (só no 021), B8 em 6 (no
   040 e no 062) e K1 em 2.
 - **Não aparecem:** o B2, o B3, o B5, o B6, o B7, o B9, o B10 e o K2. Na 1.3,

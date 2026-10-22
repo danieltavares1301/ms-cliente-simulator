@@ -482,10 +482,10 @@ valem para o mesmo JSONL.
 - **"pendente R4":** as asserções de Lead da lista acima. Tem prioridade sobre
   o K2, o B5, o B6, o B9 e o B10, mas não sobre o B7.
 - **Rótulos que a campanha do ponto zero pediu** (seção 3.5):
-  - "pendente R1": a PAC de X que não acha X (TC-004) e a Opportunity da
-    Venda Genérica (lacuna 8);
-  - "pendente R3": o contato atrasado que vence no RC;
-  - "pendente R5": o `DUPLICATE_VALUE` do PROS-X gravado na Account Y.
+  - "pendente R1": a PAC de X que não acha X (TC-004), a Opportunity da
+    Venda Genérica (lacuna 8) e o `DUPLICATE_VALUE` do PROS-X gravado na
+    Account Y (lacunas 2 e 6, por decisão de 21/10);
+  - "pendente R3": o contato atrasado que vence no RC.
 - **A comparação por asserção:** três tabelas novas no `--comparar`: as
   asserções que passavam e agora falham, as que falhavam e agora passam e as
   que seguem falhando com outro rótulo.
@@ -684,7 +684,7 @@ substitui.
 | 3 | A Account achada não tem o CPF conferido (B1) | Conferir IdCliente e CPF contra toda Account achada, com o CPF normalizado nos dois lados. Sem IdCliente e sem CPF, o prospect vale, mas não move Opportunity existente | do `1f6844e910`, o CPF no descarte e a recusa da PAC; do `9210581ea5`, o ramo sem IdCliente e sem CPF | C1, C2 e C3 sem B1; C1, AR e FW sem B8 |
 | 4 | Entre Accounts do mesmo CPF, fica a mais recente (B3) | Preferir a que tem `Id__c`; empatando, a modificada por último (TCs 028 e 068) | — (o B3 segue na ponta) | TC-038 em C1, AR e FW ("Account Y2 intacta"); teste novo no `ClienteSelectorTest` |
 | 5 | CPF gravado com máscara: o `OR` na fórmula `CPFSemFormatacao__c` faz a consulta virar varredura | Expandir os formatos no `obterClientePorCPF` e manter `WHERE CPF__pc IN :set` (ver abaixo) | `85e4c3ba5f`; do `da90427ced`, a busca | Apex com máscara dos dois lados e com menos de 11 dígitos; explain na dev |
-| 6 | Achada pelo CPF, a Account Y recebe o prospect de X no IdProspect vazio | Gravar o prospect do evento só se o Lead dele tiver o mesmo CPF ou nenhum e não estiver preso a outra Account | do `09dadb24bf`, o `prospectPertenceAOutraConta` e a gravação; `de3731957d` (o eco) | 009, 020, 022, 024, 025 e 027: "Lead X intacto" e Y sem PROS-X |
+| 6 | Achada pelo IdCliente ou pelo CPF, a Account Y recebe o prospect de X no IdProspect vazio, em qualquer evento do `/Cliente` | Gravar o prospect do evento só se o Lead dele tiver o mesmo CPF ou nenhum e não estiver preso a outra Account | do `09dadb24bf`, o `prospectPertenceAOutraConta` e a gravação; do `b372038f43`, a parte que impedia gravar o prospect de X em Y; `de3731957d` (o eco) | 009, 020, 022, 024, 025 e 027: "Lead X intacto" e Y sem PROS-X; os 12 TCs que param em `DUPLICATE_VALUE` no ponto zero (005 a 007, 010 a 015, 019, 026 e 038) |
 | 7 | Na máquina, o CPF só é lido pelo IdCliente | Ler também pelo `idProponente` igual ao prospect; jornada sem IdCliente não move a Opportunity | do `9210581ea5`, a parte da máquina; `7c86318a05`, `12182e7e78`. O `ec9d1a6a7c` entra aqui | Apex desses commits refeitos; cenário novo com `proponentecredito` |
 | 8 | Depois da PAC aprovada, a Opportunity fica na Account de X até chegar um evento de máquina, que a Venda Genérica pode não ter | Na PAC aprovada, mover a Opportunity para a Account que o CPF e o IdCliente da PAC apontam | `4d54e3b7d9` | "Opportunity na Account aprovada" no AR e no FW dos TCs de Venda Genérica |
 
@@ -713,8 +713,8 @@ Ficam para outras etapas:
 
   A lacuna 4 mexe na mesma consulta: o `LIMIT 1` impede escolher depois. Com
   ela, o `obterClientePorCPF` deixa de ser igual ao da 2.1 nesse trecho de
-  qualquer jeito, e a vantagem da (ii) fica só no `CpfCNPJ`. A escolha é do
-  usuário.
+  qualquer jeito, e a vantagem da (ii) fica só no `CpfCNPJ`. **Escolha de
+  21/10: (ii).**
 - **O que se perde:** o `OR` pegava máscaras parciais, espaço e parênteses. A
   dev só tem a máscara completa; a produção não foi medida.
 - **O que mais muda:** o flow de tela da Venda Genérica da 1.3 usa o mesmo
