@@ -389,6 +389,10 @@ existe, sem prospect, chegando antes do `cliente-insert`, volta 400
 Aparece no TC-040, nos perfis PA e ME
 ([relatório de 27/09](resultado-runbook-recorte-2.2-2026-09-27.md), seção 1).
 Com os commits, igual.
+- **Na reescrita (decisão 2, 21/10):** o parcial antes da Account da pessoa
+  volta com erro reentregável (500) e é aplicado na reentrega. A planilha
+  continua esperando 200. Ver o
+  [plano, seção 4.5](plano-branch-reescrita-2.2.md#45-decisão-2-o-parcial-que-chega-antes-do-cliente).
 
 <a id="k2"></a>
 

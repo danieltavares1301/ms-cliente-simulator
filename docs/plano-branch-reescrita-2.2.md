@@ -734,8 +734,11 @@ Contra o ponto zero:
   - "Nenhuma Account a mais";
   - "Proponente principal com o CPF e os contatos da PAC";
   - "Opportunity na Account aprovada", depois da lacuna 8.
-- **Somem** o B1, o B8 e o K1, este último se a decisão 2 de PO/QA mantiver o
-  200.
+- **Somem** o B1 e o B8.
+- **O K1 muda de forma** (decisão 2, seção 4.5). O contato antes do cliente
+  volta com erro reentregável e é aplicado na reentrega. No harness, ele some
+  quando o motor simula a reentrega. Na planilha, segue divergente, porque
+  ela espera 200 na primeira entrega.
 - **O B3 que o `c47170d879` traz não aparece** (lacuna 4). Conferir pela
   asserção "Account Y2 intacta" do TC-038.
 - **Seguem com o rótulo "pendente R4":** as asserções de Lead.
@@ -744,6 +747,84 @@ Contra o ponto zero:
 - **Fica latente até a R3 e a R4:** a pendência, pelo flow, passa a gravar o
   e-mail aprovado na Account Y quando o Proponente se liga. Isso é o passo 3
   do B9.
+
+### 4.5 Decisão 2: o parcial que chega antes do cliente
+
+**Decidido em 21/10:** um `contato-*` ou `endereco-*` que chega quando a
+Account da pessoa ainda não existe volta com erro reentregável e não grava
+nada. O Event Grid o entrega de novo, e ele é aplicado depois do
+`cliente-insert`. Antes, nesse mesmo dia, a escolha tinha sido o 200 sem DML,
+que nunca chegou a ser commitado.
+
+**No código** (lacuna 2):
+- **Commit:** `962e5993bc`, no `GV_909649_918914`.
+- **`NotificacaoCliente.executar`:** `this.lancarExcecao(
+  PARCIAL_ANTES_DO_CLIENTE + … )`. A constante tem o texto "Parcial antes do
+  cliente: a Account da pessoa ainda não existe no Salesforce.". O código não
+  tem comentário sobre a decisão: ela fica registrada aqui.
+- **`Error_Response_Mapping.Parcial_antes_do_cliente`:** registro novo de
+  metadado. Casa o texto e responde 500. Sem ele, o erro sai 400, como na dev
+  hoje, que não tem nenhum registro desse metadado.
+- **Testes:** o `contatoAntesDoClienteVoltaErroReentregavelTest` (500 com o
+  registro, 400 sem ele) e o `contatoComProspectDeOutraContaNaoAlteraXTest`,
+  no `NotificacaoClienteTest`.
+
+**As duas opções:**
+
+| | 200, sem DML | Erro reentregável (escolhida) |
+|---|---|---|
+| O contato que chega antes do cliente | se perde: o Event Grid não reentrega um 200 | é aplicado na reentrega, depois do `cliente-insert` |
+| O K1 da planilha | some, porque a planilha espera 200 | segue divergente da planilha; precisa ir à QA como mudança de expectativa |
+| Log | um registro de descarte | um erro por tentativa, até o cliente chegar |
+| Harness | nada a mudar | precisa simular a reentrega (abaixo) |
+
+**Por que o erro reentregável:**
+- **Contato antes do cliente é o caso comum.** Em staging, metade dos
+  `cliente-insert` só é aplicada depois dos contatos que chegam junto com ele
+  ([origem dos eventos](origem-dos-eventos-no-salesforce.md), seção 6.1).
+- **Até a R3, nada repõe os contatos de Y.** A PAC aprovada só passa a gravar
+  os contatos aprovados na Account com a R3.
+- **A base já usa esse padrão para problemas de ordem.** "Lead não
+  encontrado", "PAC não encontrada" e "Proponente não encontrado" respondem
+  500 pelo mesmo metadado. O `cliente-insert` com `DUPLICATE_VALUE`
+  (`Erro_de_Duplicate`, 500) é reentregue em segundos em staging.
+- **Por que 500, e não o 400 da opção como foi apresentada:** na MRV, o que se
+  quer reentregue responde 500. Pela documentação do Azure Event Grid, um 400
+  pode ir direto para a dead-letter. Isso não foi conferido na configuração da
+  MRV.
+
+**O que não se sabe:**
+- a política de reentrega da assinatura do `/Cliente`: quantas tentativas e
+  quanto tempo até a dead-letter;
+- se o erro gera trabalho manual para alguém.
+
+**Para voltar ao 200, sem DML:**
+1. No `NotificacaoCliente.executar`, trocar o `lancarExcecao` por:
+
+   ```apex
+   Logging.newStacktrace( super.detalhesEvento.eventType + ' sem a Account da pessoa: descartado, sem DML.' );
+   return;
+   ```
+
+   O `EventGrid` responde 200 quando o `executar` volta. A constante
+   `PARCIAL_ANTES_DO_CLIENTE` sai.
+2. Apagar o registro `Error_Response_Mapping.Parcial_antes_do_cliente`, com
+   um deploy destrutivo nas orgs em que ele já estiver.
+3. No `NotificacaoClienteTest`, os dois testes passam a esperar 200. As
+   asserções de "nenhuma Account criada" e "X intacta" continuam.
+4. No harness, desfazer a reentrega dos parciais (abaixo).
+5. Na seção 7, fechar a decisão 2 com 200, e no 4.4, voltar o K1 para "some".
+
+**O que muda no harness, antes da campanha da etapa 3:**
+- **O problema:** o perfil PA manda os parciais de Y antes do cliente, e o
+  K1 do TC-040 aparece no PA e no ME. Hoje, um erro de evento encerra o RUN. O
+  motor (`enviar`, no `engine.ts`) só aceita como recusa esperada uma resposta
+  4xx da PAC em análise.
+- **A mudança:** aceitar como recusa esperada o erro "Parcial antes do
+  cliente", com 400 ou 500, e reenviar esses parciais logo depois do evento de
+  cliente, como o Event Grid faria.
+- **Sem a mudança:** o PA para no primeiro parcial, e a etapa 3 fica sem
+  medição nesse perfil.
 
 ## 5. Etapas 4 a 6: R3, R4 e R5
 
@@ -929,7 +1010,7 @@ cada uma precisa estar fechada:
 |---|---|---|
 | 1 | quais perfis entram no critério | etapa 0, porque define o alvo |
 | 9 | versão do runbook, com 3 ou 6 perfis | etapa 0 |
-| 2 | K1: o 200 nos parciais sem Account | etapa 3 |
+| 2 | K1: o 200 nos parciais sem Account. **Fechada em 21/10: erro reentregável (500), sem DML** (seção 4.5) | etapa 3 |
 | 5 | os 9 `BLOCKED-FUNCIONAL` (008, 028, 029, 050, 052, 058, 060, 064 e 065), inclusive o desempate do TC-028 e a mutação Y→Z | etapa 3 |
 | 3 | K2: o Lead candidato no 045 e no 049 | etapa 5 |
 | 4 | contatos do Lead Y reutilizado onde a planilha não fala | etapa 5 |
