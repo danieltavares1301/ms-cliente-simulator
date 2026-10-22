@@ -68,9 +68,13 @@ async function leadYLivre(
   });
 }
 
-/** Cenário de verificação da reescrita, fora da planilha. */
+/** Cenários de verificação da reescrita, fora da planilha. */
 const X_SEM_ID_CLIENTE =
   'Variante do TC-001 para a lacuna 3 da R1: X sem IdCliente, achada só pelo prospect da jornada. Não está na planilha.';
+const ID_CLIENTE_NO_ID_PROPONENTE =
+  'Variante do TC-040 para a lacuna 1 da R1: as PACs de Y saem sem IdCliente, com um IdCliente no idProponente. Não está na planilha.';
+const MAQUINA_SEM_ID_CLIENTE =
+  'Variante do TC-001 para a lacuna 7 da R1: o jornadausuario-update sai sem IdCliente, com o prospect da jornada. Não está na planilha.';
 
 /** TCs da planilha que incluem um proponente adicional, cenário que o harness não modela. */
 const PROPONENTE_ADICIONAL =
@@ -138,6 +142,42 @@ export const CENARIOS: readonly Cenario[] = [
     massa: (e) => e.xSincronizado(undefined, { idCliente: false }),
     aprovacao: (e) =>
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
+    esperado: (v) => [
+      v.contaNova(),
+      v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+      leadSoCpf(v),
+      v.vinculo(),
+    ],
+  },
+  {
+    id: 'TC-001-MSI',
+    titulo: 'Jornada sem IdCliente, achada só pelo prospect de X, depois da PAC aprovada',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: MAQUINA_SEM_ID_CLIENTE,
+    massa: (e) => e.xSincronizado(),
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert', {
+        maquinaSemIdCliente: { proponenteCredito: false },
+      }),
+    esperado: (v) => [
+      v.contaNova(),
+      v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+      leadSoCpf(v),
+      v.vinculo(),
+    ],
+  },
+  {
+    id: 'TC-001-MPC',
+    titulo: 'Jornada sem IdCliente, com o CPF de Y no proponentecredito',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: MAQUINA_SEM_ID_CLIENTE,
+    massa: (e) => e.xSincronizado(),
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert', {
+        maquinaSemIdCliente: { proponenteCredito: true },
+      }),
     esperado: (v) => [
       v.contaNova(),
       v.contasDoCpf(1),
@@ -691,6 +731,68 @@ export const CENARIOS: readonly Cenario[] = [
     aprovacao: (e) =>
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert', {
         prospectDaJornada: null,
+      }),
+    esperado: (v, e) => [
+      v.preservado('accountX', 'Account X intacta, sem IdProspect'),
+      v.contaNova(),
+      v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+      v.leadNovo({ email: e.contatos.emailA, celular: e.contatos.celularB }),
+      v.vinculo(),
+    ],
+  },
+  {
+    id: 'TC-040-IDP',
+    titulo: 'Venda Genérica com o IdCliente de Y só no idProponente das PACs',
+    fluxo: 'VENDA_GENERICA',
+    xAlteravel: true,
+    foraDoModelo: ID_CLIENTE_NO_ID_PROPONENTE,
+    observacao:
+      'Sem Lead X e sem prospect na jornada: os eventos vão sem idprospectsalesforce.',
+    massa: async (e) => {
+      await e.criarAccount('accountX', {
+        pessoa: e.x,
+        idCliente: e.x.idCliente,
+        idProspect: null,
+        email: e.contatos.emailA,
+        celular: e.contatos.celularB,
+      });
+    },
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert', {
+        prospectDaJornada: null,
+        idClienteNoIdProponente: 'pessoa',
+      }),
+    esperado: (v, e) => [
+      v.preservado('accountX', 'Account X intacta, sem IdProspect'),
+      v.contaNova(),
+      v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+      v.leadNovo({ email: e.contatos.emailA, celular: e.contatos.celularB }),
+      v.vinculo(),
+    ],
+  },
+  {
+    id: 'TC-040-IDX',
+    titulo: 'Venda Genérica com o IdCliente de X no idProponente das PACs de Y',
+    fluxo: 'VENDA_GENERICA',
+    xAlteravel: true,
+    foraDoModelo: ID_CLIENTE_NO_ID_PROPONENTE,
+    observacao:
+      'Sem Lead X e sem prospect na jornada: os eventos vão sem idprospectsalesforce.',
+    massa: async (e) => {
+      await e.criarAccount('accountX', {
+        pessoa: e.x,
+        idCliente: e.x.idCliente,
+        idProspect: null,
+        email: e.contatos.emailA,
+        celular: e.contatos.celularB,
+      });
+    },
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert', {
+        prospectDaJornada: null,
+        idClienteNoIdProponente: 'x',
       }),
     esperado: (v, e) => [
       v.preservado('accountX', 'Account X intacta, sem IdProspect'),

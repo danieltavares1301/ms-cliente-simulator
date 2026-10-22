@@ -203,6 +203,18 @@ export type Aprovacao = {
   match?: boolean;
   /** Prospect da jornada nos eventos; `null` omite o campo (TC-040, TC-062). */
   prospectDaJornada?: string | null;
+  /**
+   * As PACs de Y saem sem IdCliente, com um IdCliente no `idProponente`, como a
+   * PAC de encerramento da Venda Genérica (lacuna 1 da R1): o da pessoa
+   * aprovada ou o de X.
+   */
+  idClienteNoIdProponente?: 'pessoa' | 'x';
+  /**
+   * O `jornadausuario-update` sai sem IdCliente, com o prospect da jornada
+   * (lacuna 7 da R1). Com `proponenteCredito`, ele leva o CPF da pessoa no
+   * Proponente de `idProponente` igual a esse prospect.
+   */
+  maquinaSemIdCliente?: { proponenteCredito: boolean };
 };
 
 export type Assercao = { nome: string; ok: boolean; detalhe?: unknown };
@@ -1117,6 +1129,22 @@ export class Execucao {
     });
   }
 
+  /** IdCliente e `idProponente` das PACs de Y, com a opção `idClienteNoIdProponente` da aprovação. */
+  private identidadeDaPacDeY(
+    aprovacao: Aprovacao,
+    idCliente: string | null,
+    prospectJornada: string | null,
+  ): { idCliente: string | null; idProponente: string | null } {
+    if (aprovacao.idClienteNoIdProponente === undefined) {
+      return { idCliente, idProponente: prospectJornada };
+    }
+    const idProponente =
+      aprovacao.idClienteNoIdProponente === 'x'
+        ? this.x.idCliente
+        : (aprovacao.idClienteEvento ?? aprovacao.pessoa.idCliente);
+    return { idCliente: null, idProponente };
+  }
+
   /**
    * Espera os jobs assíncronos do RUN assentarem (Queueable/Future da
    * criação do Lead, callback e reconciliação). A janela começa na criação
@@ -1377,14 +1405,19 @@ export class Execucao {
       await this.aguardarJobs(timeoutJobsMs);
       contestacoesAntes = await this.contestacoesPendentes();
     }
+    const identidade = this.identidadeDaPacDeY(
+      aprovacao,
+      this.perfil === 'C1' ? null : this.x.idCliente,
+      prospectJornada,
+    );
     const proponente = {
-      idCliente: this.perfil === 'C1' ? null : this.x.idCliente,
+      idCliente: identidade.idCliente,
       pessoa: aprovacao.pessoa,
       email: aprovacao.email,
       celular: aprovacao.celular,
     };
-    await this.enviarPacEmAnalise('pac-analise-1', -50, proponente, prospectJornada);
-    await this.enviarPacEmAnalise('pac-analise-2', -45, proponente, prospectJornada);
+    await this.enviarPacEmAnalise('pac-analise-1', -50, proponente, identidade.idProponente);
+    await this.enviarPacEmAnalise('pac-analise-2', -45, proponente, identidade.idProponente);
     return { precondicao: await this.snapshot(), contestacoesAntes };
   }
 
@@ -1469,15 +1502,20 @@ export class Execucao {
     rotulo = 'pac-update',
   ): Promise<void> {
     const { aprovacao, pessoa } = contexto;
+    const identidade = this.identidadeDaPacDeY(
+      aprovacao,
+      contexto.idClienteEvento,
+      contexto.prospectJornada,
+    );
     await this.enviar(
       'PAC',
       this.pacEnvelope('pac-update', 'CREDITO_APROVADO_CONDICIONADO', this.t(segundos), {
-        idCliente: contexto.idClienteEvento,
+        idCliente: identidade.idCliente,
         cpf: pessoa.cpf,
         nome: pessoa.nome,
         email: aprovacao.email,
         celular: aprovacao.celular,
-        idProponente: contexto.prospectJornada,
+        idProponente: identidade.idProponente,
       }),
       rotulo,
     );
@@ -1489,14 +1527,28 @@ export class Execucao {
     prospectY: string | null,
     segundos: number,
   ): Promise<void> {
+    const semIdCliente = contexto.aprovacao.maquinaSemIdCliente;
+    const prospectDaJornada = contexto.prospectJornada ?? this.x.idProspect;
+    const proponenteCredito = semIdCliente?.proponenteCredito
+      ? {
+          proponentecredito: {
+            proponentes: [
+              { idProponente: prospectDaJornada, idCliente: null, cpf: contexto.pessoa.cpf },
+            ],
+          },
+        }
+      : {};
     await this.enviar(
       'MaquinaEstado',
       this.envelope('jornadausuario-update', 'maquina', this.t(segundos), {
-        cliente: {
-          idCliente: contexto.idClienteEvento,
-          idProspectSalesforce:
-            prospectY ?? contexto.prospectJornada ?? contexto.pessoa.idProspect,
-        },
+        cliente: semIdCliente
+          ? { idCliente: null, idProspectSalesforce: prospectDaJornada }
+          : {
+              idCliente: contexto.idClienteEvento,
+              idProspectSalesforce:
+                prospectY ?? contexto.prospectJornada ?? contexto.pessoa.idProspect,
+            },
+        ...proponenteCredito,
         id: this.oportunidadeExterna,
         dataalteracao: this.t(segundos),
         estado: 'Documentacao',
@@ -1694,13 +1746,18 @@ export class Execucao {
       ['pac-analise-1', -50],
       ['pac-analise-2', -45],
     ] as const) {
+      const identidade = this.identidadeDaPacDeY(
+        aprovacao,
+        this.perfil === 'AM' ? idClienteEvento : null,
+        prospectJornada,
+      );
       const envelope = this.pacEnvelope('pac-update', 'EM_ANALISE_CREDITO', this.t(segundos), {
-        idCliente: this.perfil === 'AM' ? idClienteEvento : null,
+        idCliente: identidade.idCliente,
         cpf: pessoa.cpf,
         nome: pessoa.nome,
         email: aprovacao.email,
         celular: aprovacao.celular,
-        idProponente: prospectJornada,
+        idProponente: identidade.idProponente,
       });
       const aceita = await this.enviar('PAC', envelope, rotulo, {
         rejeicaoEsperada: CLIENTE_NAO_ENCONTRADO,
