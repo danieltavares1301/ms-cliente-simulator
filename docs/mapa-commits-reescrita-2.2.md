@@ -34,6 +34,10 @@ branch antiga.
 | 13 | `962e5993bc` | 3, seção 4.3, lacuna 2 | O `/Cliente` descarta o match pelo prospect de outra Account em todo evento; o parcial antes da Account da pessoa volta com erro reentregável | refaz o descarte do [`b372038f43`](inventario-commits-2.2.md#c9) (9), estendido a todos os eventos, sem descartar o evento inteiro | commit novo (2.11) |
 | 14 | `0a18d28a48` | 3, seção 4.3, lacuna 3 | A Account achada só pelo prospect é descartada quando o IdCliente ou o CPF divergem; o parcial não dá IdCliente a uma Account sem IdCliente | mistura do CPF no descarte do [`1f6844e910`](inventario-commits-2.2.md#c43) (43) e do ramo sem IdCliente e sem CPF do [`9210581ea5`](inventario-commits-2.2.md#c45) (45); a parte do parcial não tem equivalente | commit novo (2.12) |
 | 15 | `946cf8bdc1` | 3, seção 4.3, lacuna 6 | O evento do `/Cliente` só grava o prospect no IdProspect vazio se ele não for o eco do IdCliente, não estiver em outra Account e o Lead dele não tiver outro CPF | mistura do `prospectPertenceAOutraConta` e da guarda da gravação do [`09dadb24bf`](inventario-commits-2.2.md#c8) (8), da extensão a todo evento do [`b372038f43`](inventario-commits-2.2.md#c9) (9) e da guarda do eco do [`de3731957d`](inventario-commits-2.2.md#c17) (17); o CPF do Lead não tem equivalente | commit novo (2.13) |
+| 16 | `1749168299` | 3, seção 4.3, lacuna 4 | Entre Accounts do mesmo CPF, a busca prefere a que tem IdCliente e, empatando, a modificada por último | sem equivalente: o B3 segue na ponta da 2.2 | commit novo (2.14) |
+| 17 | `37246536b2` | 3, seção 4.3, lacuna 5 | A busca por CPF usa o índice do `CPF__pc` com os formatos expandidos, sem o `OR` na fórmula | o `CpfCNPJ` e o `CpfCNPJTest` do `56813a221e` (2.1, US 918899), iguais byte a byte, e a mudança de duas linhas dele no `ClienteSelector`; substitui o [`85e4c3ba5f`](inventario-commits-2.2.md#c10) (10) e a busca do [`da90427ced`](inventario-commits-2.2.md#c34) (34) | parte de um commit da 2.1, mais testes (2.15) |
+| 18 | `ea5495b870` | 3, seção 4.3, lacuna 7 | A jornada lê o CPF também pelo `idProponente` e, sem IdCliente, não move a Opportunity que já existe | mistura da leitura do CPF e dos testes do [`9210581ea5`](inventario-commits-2.2.md#c45) (45), do `obterOportunidadePorPayload` do [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) e da intenção do [`12182e7e78`](inventario-commits-2.2.md#c13) (13) e do [`7c86318a05`](inventario-commits-2.2.md#c46) (46), refeitos numa regra só | commit novo (2.16) |
+| 19 | `0d4d046b9d` | 3, seção 4.3, lacuna 8 | Na PAC aprovada, a Opportunity vai para a Account que o IdCliente e o CPF do proponente principal apontam | refaz o [`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36), com a Account vinda da busca pela identidade da PAC, e não do vínculo do Proponente | commit novo (2.17) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -179,7 +183,14 @@ método (plano, seção 4).
   risco que o inventário apontava no `fc7077f94d`.
 - **A conferência fica no `getClientePosPac`,** e não só na PAC. Assim ela
   vale para a PAC, o `/Cliente` e a máquina.
-- **Falta:** o cenário de catálogo que o plano pede, no simulador.
+- **Verificação na dev (22/10):** no lugar do cenário de catálogo, que só
+  roda com o app e um Postgres, duas variantes do TC-040 no harness, nos 12
+  perfis. As PACs de Y saem sem IdCliente e com um IdCliente no `idProponente`:
+  - **TC-040-IDP,** com o IdCliente de Y: o Proponente e a Opportunity vão
+    para Y;
+  - **TC-040-IDX,** com o IdCliente de X: X fica intacta em todos os perfis.
+    No C1, a PAC em análise chega antes de Y existir, o recurso acha X pelo
+    IdCliente, e a conferência de CPF a recusa.
 
 ### 2.11 `962e5993bc` ← refaz o descarte do `b372038f43`
 
@@ -280,6 +291,130 @@ método (plano, seção 4).
     tomava o Lead X e gravava nele o CPF de Y. Agora o Lead X fica intacto, e
     as duas falham como "pendente R4".
 
+### 2.14 `1749168299`: lacuna 4, commit novo
+
+- **O defeito (B3):** o `obterClientePorCPF` pegava a Account modificada por
+  último (`LIMIT 1`). Com duas Accounts do mesmo CPF, a PAC em análise sem
+  IdCliente ia para a duplicada sem IdCliente, e a pendência gravava nela. Na
+  2.2, isso segue igual na ponta.
+- **Aqui:** a consulta traz até 100 Accounts do CPF, da modificada por último
+  para a mais antiga, e o `escolherContaDoCpf` fica com a primeira que tem
+  IdCliente. Sem nenhuma com IdCliente, fica a modificada por último, como
+  antes. O limite de 100 só protege contra CPFs genéricos repetidos em massa.
+- **Onde vale:** em toda busca por CPF. São a PAC (inclusive a nova busca de
+  quando ela acha X com outro CPF, que é o caminho do B3 no C2 e no C3), o
+  `/Cliente`, a máquina e o flow de tela da Venda Genérica
+  (`VG_MSClienteCriarAtualizarInvocable`).
+- **Testes:** o `obterClientePorCPFPrefereAContaComIdClienteTest` e o
+  `escolherContaDoCpfTest`, no `ClienteSelectorTest`.
+- **Verificação na dev (22/10):** no TC-038, a Account Y2 fica intacta e a
+  aprovada é a Y1 nos 13 RUNs. O B3 sai do C1, do C2, do C3, do AR e do FW. No
+  TC-025, com as duas sem IdCliente, a escolhida segue a Y2, a mais recente.
+
+### 2.15 `37246536b2` ← parte do `56813a221e` (2.1)
+
+- **Do `56813a221e`** (2.1, US 918899, 18/08), escolha (ii) do plano:
+  - **`CpfCNPJ` e `CpfCNPJTest`:** o trecho do commit aplicado pelo git. Os
+    dois arquivos ficaram iguais aos do `56813a221e` byte a byte, conferidos
+    por hash. Quando a 2.1 entrar, não há conflito neles.
+  - **`ClienteSelector`:** a mesma mudança de duas linhas, com o mesmo nome de
+    variável (`setCPFExpandido`). A consulta passa a ser
+    `WHERE CPF__pc IN :setCPFExpandido`, e o `OR CPFSemFormatacao__c` sai.
+  - **Ficou de fora:** o teste que ele acrescentou ao `ClienteSelectorTest`.
+    Ele estende um teste que a base não tem, então entrou um teste próprio.
+- **Na 2.2:** o [`85e4c3ba5f`](inventario-commits-2.2.md#c10) pôs o `OR` na
+  fórmula, e a busca do [`da90427ced`](inventario-commits-2.2.md#c34) trocou o
+  `OR` pelo mesmo `expandirFormatosCPF`. Na base 1.3, o `OR` já vinha do
+  `6af00f4bc3`.
+- **Diferente do `56813a221e`:** a consulta mantém o `LIMIT 100` e a escolha
+  do commit 16 (lacuna 4), em vez do `LIMIT 1`.
+- **Testes:**
+  - o `obterClientePorCPFComMascaraDosDoisLadosTest`, no `ClienteSelectorTest`:
+    máscara dos dois lados e menos de 11 dígitos;
+  - o `chamarServicoReaproveitaContaComCpfMascaradoTest`, no
+    `VG_MSClienteCriarAtualizarInvocableTest`, que o plano pedia para o flow de
+    tela da Venda Genérica.
+- **Verificação na dev (22/10):**
+  - **Explain:** a consulta antiga só tem planos de varredura da tabela. A nova
+    tem como primeiro plano o índice do `CPF__c`, com custo 0.
+  - **Harness:** o TC-001, o 009, o 025 e o 038, nos 12 perfis, sem nenhuma
+    mudança contra as campanhas anteriores. Nenhum TC usa CPF com máscara.
+
+### 2.16 `ea5495b870`: mistura do `9210581ea5`, do `ec9d1a6a7c`, do `12182e7e78` e do `7c86318a05`
+
+- **Do [`9210581ea5`](inventario-commits-2.2.md#c45):** o
+  `obterCpfProponentePorIdCliente` com o prospect, igual ao da ponta da 2.2.
+  O CPF vem do Proponente de mesmo IdCliente ou, sem ele, do de `idProponente`
+  igual ao prospect. Os três testes dele entraram iguais.
+- **Do [`ec9d1a6a7c`](inventario-commits-2.2.md#c24):** o
+  `obterOportunidadePorPayload`, igual, e a exceção do vínculo histórico. Com
+  IdCliente obsoleto, se a Account achada pelo prospect foi descartada mas a
+  Opportunity já está nela, ela continua lá, sem fila manual.
+- **No lugar do [`12182e7e78`](inventario-commits-2.2.md#c13) e do
+  [`7c86318a05`](inventario-commits-2.2.md#c46):** uma regra só, o
+  `contaQueAJornadaMantem`. A jornada sem IdCliente não move a Opportunity que
+  já existe: ela fica na Account em que está, seja qual for a Account achada.
+  Sem Account achada, o evento é aplicado na Account da Opportunity, sem fila
+  manual.
+  - **Diferente do `12182e7e78`:** ele só mantinha a Opportunity se a Account
+    atual tivesse IdCliente, condição que X também cumpre. O
+    `deveManterOportunidadeNaContaAprovada` não entrou.
+  - **Diferente do `7c86318a05`:** o `devePreservarContaAtualDaOportunidade`
+    não entrou. Sem IdCliente, a regra nova já mantém a Opportunity, com o
+    match descartado ou não.
+  - **Não mexe no `OportunidadeSelector`,** como o `12182e7e78` fazia. A
+    Account da Opportunity vem pelo `pesquisaContaPorId`.
+- **Testes:** os três do `9210581ea5`; o
+  `jornadaSemIdClienteNaoMoveAOportunidadeTest`, o
+  `jornadaSemIdClienteComCpfDivergenteMantemAContaDaOportunidadeTest` e o
+  `jornadaComIdClienteObsoletoMantemAContaDaOportunidadeTest`, no lugar dos
+  testes do `12182e7e78`, do `7c86318a05` e do `ec9d1a6a7c`; e o
+  `jornadausuarioSemIdClienteNaoTiraAOportunidadeDaContaAprovadaTest`, de ponta
+  a ponta pelo `realizaPost`. Este último tira do payload o corretor e o cupom,
+  que barram em validações sem relação com a regra, e simula a busca de
+  campanhas que o trigger da Opportunity enfileira.
+- **Ficou de fora:** mover a Opportunity na PAC aprovada, que é a lacuna 8.
+- **Verificação na dev (22/10):** o TC-001, o 009, o 025 e o 038, nos 12
+  perfis, sem mudança contra a lacuna 5. O harness sempre manda a jornada com
+  IdCliente, então o caminho novo só é exercitado pelos testes Apex.
+- **Variantes no harness (22/10),** no lugar do cenário de catálogo, que só
+  roda com o app e um Postgres. Nos 12 perfis, o `jornadausuario-update` final
+  sai sem IdCliente, depois da PAC aprovada, e a Opportunity fica em Y:
+  - **TC-001-MSI,** só com o prospect de X: vale a regra do
+    `contaQueAJornadaMantem`;
+  - **TC-001-MPC,** com o CPF de Y no `proponentecredito`, no Proponente de
+    `idProponente` igual ao prospect: a busca acha Y pelo CPF.
+
+### 2.17 `0d4d046b9d` ← refaz o `4d54e3b7d9`
+
+- **Igual ao [`4d54e3b7d9`](inventario-commits-2.2.md#c36):** com a PAC em
+  `CREDITO_APROVADO_CONDICIONADO`, depois do upsert dos Proponentes, a
+  Opportunity vai para a Account da pessoa aprovada, com o bypass do
+  `ClienteTriggerHandler`.
+- **Diferente:**
+  - **A Account:** lá era a ligada ao Proponente principal, se tivesse
+    IdCliente. Aqui é a que o IdCliente e o CPF do principal apontam, pela
+    mesma busca do Proponente, sem prospect: se a Account do IdCliente tiver
+    outro CPF, vale a do CPF.
+  - **O prospect não move a Opportunity.** Sem IdCliente e sem CPF, nada
+    muda. É o "não move Opportunity existente" que tinha ficado de fora do
+    commit 14.
+  - **DML parcial:** a falha no update vai para o log e não derruba a PAC
+    (plano, seção 4.2). Lá era um `update` que lançava exceção.
+  - **Sem os ganchos de teste** `statusPacParaTeste` e `oportunidadeParaTeste`
+    e sem o `statusPacAutorizaProjecaoContatos`, que é do `07608bac4a`. O
+    método lê o status do payload, e os testes passam pelo `realizaPost`.
+- **Testes:** no `NotificacaoPACTest`, o
+  `pacAprovadaLevaAOportunidadeParaAContaDaPessoaTest`, o
+  `pacAprovadaSemContaDaPessoaNaoMoveAOportunidadeTest`, o
+  `pacEmAnaliseNaoMoveAOportunidadeTest` e o
+  `pacAprovadaSoComOProspectNaoMoveAOportunidadeTest`.
+- **Verificação na dev (22/10):** nos 10 TCs de Venda Genérica (040 a 048 e
+  062), nos 12 perfis, "Opportunity na Account aprovada" passa nos 121 RUNs,
+  inclusive nos 20 do AR e do FW, que não têm evento de máquina. No ponto zero,
+  o 040 e o 062 falhavam ali, e o 041 a 048 passavam por engano, porque X tinha
+  sido sobrescrita por Y.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -292,8 +427,11 @@ método (plano, seção 4).
 | [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; a guarda do prospect em todo evento, no commit 15 |
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
 | [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal` do `/Cliente` fica para a R4 |
-| [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | pendente: lacuna 7 da R1 |
+| [`12182e7e78`](inventario-commits-2.2.md#c13) (13) | substituído pelo `contaQueAJornadaMantem` do commit 18 |
+| [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | o `obterOportunidadePorPayload` e a exceção do vínculo histórico, no commit 18; o `devePreservarContaAtualDaOportunidade` não entra |
+| [`85e4c3ba5f`](inventario-commits-2.2.md#c10) (10) | substituído pelo commit 17 |
 | [`fc7077f94d`](inventario-commits-2.2.md#c16) (16) | refeito no commit 12, com conferência de CPF |
+| [`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36) | refeito no commit 19, com a Account vinda da identidade da PAC |
 | [`de3731957d`](inventario-commits-2.2.md#c17) (17) | a guarda do eco, no commit 15; a criação de Lead no `vincularLeadExistente` fica para a R4 |
 | [`dea0460ade`](inventario-commits-2.2.md#c26) (26) | commit 3 |
 | [`7694d36312`](inventario-commits-2.2.md#c27) (27) e [`d0e2635a70`](inventario-commits-2.2.md#c28) (28) | não entram (contra a R2) |
@@ -304,4 +442,5 @@ método (plano, seção 4).
 | [`9f0ba21f38`](inventario-commits-2.2.md#c38) (38) | commit 4 |
 | [`c04b6add92`](inventario-commits-2.2.md#c39) (39) | o trecho das 3h, no commit 6; o resto é da R4 |
 | [`1f6844e910`](inventario-commits-2.2.md#c43) (43) | a recusa da PAC em análise é substituída pelo commit 8; o CPF no descarte, no commit 14; o guard de parciais é da R3 |
-| [`9210581ea5`](inventario-commits-2.2.md#c45) (45) | o ramo sem IdCliente e sem CPF, no commit 14; a parte da máquina e o "não move Opportunity existente" ficam para a lacuna 7 |
+| [`9210581ea5`](inventario-commits-2.2.md#c45) (45) | o ramo sem IdCliente e sem CPF, no commit 14; a leitura do CPF pelo `idProponente` e os testes, no commit 18 |
+| [`7c86318a05`](inventario-commits-2.2.md#c46) (46) | substituído pelo `contaQueAJornadaMantem` do commit 18 |

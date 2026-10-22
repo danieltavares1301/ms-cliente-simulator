@@ -188,6 +188,10 @@ branches mudaram e os deploys conhecidos pelo ID. Horários em UTC.
 | **20/10 23:46** | `LeadSelector`, `NotificacaoMaquinaEstado`, os testes deles, `OportunidadeSelectorTest`, `PesquisarContaControllerTest` e o flow `PermutaCadastroCliente` (v15). A `NotificacaoPAC` e o teste dela foram no pacote, mas já estavam iguais | ponto zero; deploy `0AfHZ00000QxNw60AF` |
 | **22/10 02:21 e 02:33** | Parte da etapa 3, do working tree, com a lacuna 3 ainda sem commit: `AtualizaClientesRelacionadosService`, `ClienteService`, `NotificacaoCliente`, `NotificacaoMaquinaEstado`, `NotificacaoPAC`, `ProponenteSelector`, `ProponenteTriggerHandler`, os testes deles, o `ProponenteTrigger`, o flow `Proponente_1` (v5) e o metadado `Error_Response_Mapping.Parcial_antes_do_cliente` | etapa 3 parcial, para validar a lacuna 3; deploys `0AfHZ00000QzQUr0AN` e `0AfHZ00000QzQkz0AF`. Ficaram fora o `OportunidadeTriggerHandler`, que não compila na dev, e o `NotificacaoPendenciasTest` |
 | **22/10 02:59** | `ClienteService`, `NotificacaoCliente` e os testes deles, com a lacuna 6 ainda sem commit | para validar a lacuna 6; deploy `0AfHZ00000QzRkH0AV`, depois da validação `0AfHZ00000QzRdp0AF` (80 testes) |
+| **22/10 10:09** | `ClienteSelector` e `ClienteSelectorTest`, com a lacuna 4 ainda sem commit | para validar a lacuna 4; deploy `0AfHZ00000QzaFh0AJ`, depois da validação `0AfHZ00000QzaAr0AJ` (123 testes) |
+| **22/10 10:27** | `CpfCNPJ`, `ClienteSelector`, os testes deles e o `VG_MSClienteCriarAtualizarInvocableTest`, com a lacuna 5 ainda sem commit | para validar a lacuna 5; deploy `0AfHZ00000QzaUD0AZ`, depois da validação `0AfHZ00000QzaSb0AJ` (127 testes) |
+| **22/10 11:10** | `NotificacaoMaquinaEstado` e o teste dela, com a lacuna 7 ainda sem commit | para validar a lacuna 7; deploy `0AfHZ00000QzbbZ0AR`, depois da validação `0AfHZ00000QzbJq0AJ` (87 testes) |
+| **22/10 11:26** | `NotificacaoPAC` e o teste dela, com a lacuna 8 ainda sem commit | para validar a lacuna 8; deploy `0AfHZ00000QzcML0AZ`, depois da validação `0AfHZ00000QzcB30AJ` (91 testes) |
 
 Fora do Apex e dos branches:
 
@@ -354,3 +358,7 @@ As quatro classes da seção 3.1 do plano, em 20/10:
 | 21/10 e 22/10 | Deploys do outro trabalho (SLA, deslocamento, list views) e o usuário de novo em `en_US` | em 22/10, pelo `DeployRequest` |
 | 22/10 02:21 e 02:33 | Etapa 3 parcial, para validar a lacuna 3 (seção 3) | em 22/10, pelo `DeployRequest`; o retrato arquivo por arquivo não foi refeito |
 | 22/10 02:59 | Lacuna 6, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 10:09 | Lacuna 4, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 10:27 | Lacuna 5, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 11:10 | Lacuna 7, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |
+| 22/10 11:26 | Lacuna 8, do working tree (seção 3) | em 22/10, pelo `DeployRequest` |

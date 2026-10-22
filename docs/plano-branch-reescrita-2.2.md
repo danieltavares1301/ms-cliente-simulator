@@ -743,6 +743,25 @@ Ficam para outras etapas:
   - **Sem CPF no evento e na Account:** grava, porque não há com que comparar.
 - **Ficou de fora:** o `criarLeadDoCliente` do `09dadb24bf` e a criação de
   Lead do `de3731957d`. Os dois são da R4 e da R5.
+
+**Os cenários novos das lacunas 1 e 7 (22/10).** O catálogo só roda pelo app,
+com um Postgres, e o ambiente local não tem um. Por isso os dois viraram
+variantes no harness, fora do `--todos`, com duas opções novas na
+`Aprovacao` do `engine.ts`:
+- **Lacuna 1, `idClienteNoIdProponente`:** o TC-040-IDP e o TC-040-IDX. As
+  PACs de Y saem sem IdCliente e com o IdCliente de Y ou o de X no
+  `idProponente`.
+- **Lacuna 7, `maquinaSemIdCliente`:** o TC-001-MSI e o TC-001-MPC. O
+  `jornadausuario-update` sai sem IdCliente, só com o prospect da jornada ou
+  com o CPF de Y no `proponentecredito`.
+- **Resultado:** 48 RUNs, todos com a Account X intacta, o Proponente e a
+  Opportunity em Y. Só ficam as falhas de Lead ("pendente R4") e, no RC, o
+  contato atrasado ("pendente R3").
+- **Rodar de novo:**
+
+  ```bash
+  npm run runbook -- --tcs TC-040-IDP,TC-040-IDX,TC-001-MSI,TC-001-MPC --perfis PA,CA,ME,C1,C2,C3,C4,AR,AM,FW,RC,EP,RL --paralelo 6 --org-alias mrv-devDan --saida ../campanhas-runbook/etapa-3-variantes-AAAA-MM-DD.jsonl
+  ```
 - **Defeito latente da 1.3, achado no teste:** o `refletirAlteracoesLead`
   indexa as Accounts pelo prospect em minúsculas e os Leads pelo `Id__c` como
   está gravado. Um Lead com maiúscula no `Id__c` dá `NullPointerException` no
@@ -772,6 +791,31 @@ Contra o ponto zero:
 - **Fica latente até a R3 e a R4:** a pendência, pelo flow, passa a gravar o
   e-mail aprovado na Account Y quando o Proponente se liga. Isso é o passo 3
   do B9.
+
+**O que deu (22/10):** está no
+[relatório da etapa 3](resultado-runbook-etapa-3-2026-10-22.md). A campanha
+rodou com o branch até o `0d4d046b9d` na dev, menos o `OportunidadeTriggerHandler`
+e o `NotificacaoPendenciasTest` (seção 4). Foram 484 RUNs, 68 conformes (eram
+24 no ponto zero), nenhum com erro e nenhum evento fora do 200, fora as recusas
+esperadas.
+- **Passam em todos os RUNs em que valem:** "Account X intacta" (434),
+  "Lead X intacto" (447), "PACs em análise aplicadas ao Proponente" (250),
+  "Nenhuma Account a mais" (484), "Proponente principal com o CPF e os
+  contatos da PAC" (484), "Proponente principal na Account aprovada" (433) e
+  "Opportunity na Account aprovada" (484).
+- **Somem** o B1, o B8, o K1 e todo o "pendente R1". O B3 não aparece.
+- **Ficam:**
+  - "pendente R4" (412 pares): as asserções de Lead;
+  - "pendente R3" (39 pares, todos no RC): o contato atrasado vence;
+  - **B4 no TC-021, nos 13 perfis:** o "Lead Z intacto" que esta seção dizia
+    que podia falhar. No C3, no AR e no FW, ele passava no ponto zero só
+    porque os eventos de Y caíam em X.
+- **Conformes:** o 003, o 039, o 004 e o Caso C (024, 027 e 048), em todos os
+  perfis menos o RC e o AM.
+- **Asserções que "passavam" e agora falham:** "1 Lead com o CPF aprovado"
+  (134 pares) e "Account aprovada → Lead" (120). No ponto zero, Y tomava o
+  Lead X e gravava nele o próprio CPF. Agora o Lead X fica intacto, e as duas
+  aguardam a R4.
 
 ### 4.5 Decisão 2: o parcial que chega antes do cliente
 
