@@ -28,6 +28,8 @@ branch antiga.
 | 7 | `2ea12a6a59` | 3, seção 4.1 | Busca do pós-PAC por IdCliente, CPF e prospect ligada no `/Cliente`, na PAC e na máquina | [`c47170d879`](inventario-commits-2.2.md#c6) (6) | cherry-pick com ajustes (2.5) |
 | 8 | `784c14d7f6` | 3, seção 4.2, R2 (a) | A PAC confere o CPF da Account achada; sem Account da pessoa, o Proponente fica sem Account | mistura de [`542df3b1d1`](inventario-commits-2.2.md#c30) (30) e [`b4be1623d2`](inventario-commits-2.2.md#c20) (20); substitui na PAC a recusa do [`1f6844e910`](inventario-commits-2.2.md#c43) (43) | commit novo (2.6) |
 | 9 | `a58b32caa4` | 3, seção 4.2, R2 (b) | Guardas para o Proponente sem Account no flow `Proponente_1` e no compartilhamento da Opportunity; compartilhamento quando o vínculo chega por update | sem equivalente direto; a guarda da pendência tem par no [`07608bac4a`](inventario-commits-2.2.md#c32) (32) | commit novo (2.7) |
+| 10 | `c082172e87` | 3, seção 4.2, R2 (c) | O `/Cliente` liga à Account da pessoa os Proponentes que a PAC gravou sem Account | sem equivalente; o mais próximo é o `sincronizarIdProponentePrincipal` do [`b4be1623d2`](inventario-commits-2.2.md#c20) (20), que é da R4 | commit novo (2.8) |
+| 11 | `7185fbbe79` | 3, seção 4.2, R2 (d) | Na Venda Genérica, o cliente relacionado vem da Account do Proponente, conferida pelo CPF | sem equivalente: a 2.2 não mexeu no `AtualizaClientesRelacionadosService` | commit novo (2.9) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -133,6 +135,32 @@ O `OportunidadeTriggerHandler` do branch não compila na dev, que tem uma versã
 de 03/11/2025. A guarda foi validada sobre a versão da dev, que tem o mesmo
 método (plano, seção 4).
 
+### 2.8 `c082172e87`: R2 (c), commit novo
+
+- **No `/Cliente`:** depois do DML da Account, no `cliente-insert` e no
+  `cliente-update`, os Proponentes sem Account do mesmo CPF são ligados à
+  Account. A Account precisa ter sido criada pelo evento ou achada pelo
+  IdCliente ou pelo CPF. Se ela não tiver CPF, vale o mesmo IdCliente. O CPF é
+  comparado com e sem máscara, e a gravação usa DML parcial com log.
+- **Na PAC:** nada muda. O upsert do commit 8 já liga o Proponente quando a
+  Account aparece. O commit só acrescenta o teste disso.
+- **Na 2.2:** não havia Proponente sem Account para ligar. O
+  [`b4be1623d2`](inventario-commits-2.2.md#c20) atualizava, pelo
+  `sincronizarIdProponentePrincipal`, o `IdProponente__c` dos Proponentes já
+  ligados depois do vínculo do Lead. Isso é da R4 e não entrou.
+
+### 2.9 `7185fbbe79`: R2 (d), commit novo
+
+- **O defeito:** o `AtualizaClientesRelacionadosService` achava a Account do
+  cliente relacionado pela própria busca, por IdCliente ou prospect e sem CPF.
+  A PAC de Y com o IdCliente de X ligava X: o B1 por outro objeto. Ele vinha
+  da 1.3 e continuou na 2.2, que não mexeu nessa classe.
+- **Aqui:** o serviço usa a Account de cada Proponente da PAC, que o commit 8
+  conferiu pelo CPF. A comparação que decide se a lista muda também passou a
+  usar essa Account.
+- **O que fica:** quando o `/Cliente` liga o Proponente depois (commit 10), o
+  cliente relacionado segue sem Account até o próximo evento de PAC.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -142,7 +170,7 @@ método (plano, seção 4).
 | [`fbbde9da5c`](inventario-commits-2.2.md#c4) (4) | já na base, pelo `0f9014e393`; o cherry-pick sairia vazio |
 | [`c47170d879`](inventario-commits-2.2.md#c6) (6) | commit 7 |
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
-| [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8 |
+| [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal` do `/Cliente` fica para a R4 |
 | [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | pendente: lacuna 7 da R1 |
 | [`dea0460ade`](inventario-commits-2.2.md#c26) (26) | commit 3 |
 | [`7694d36312`](inventario-commits-2.2.md#c27) (27) e [`d0e2635a70`](inventario-commits-2.2.md#c28) (28) | não entram (contra a R2) |
