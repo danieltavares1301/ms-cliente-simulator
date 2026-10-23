@@ -1177,10 +1177,12 @@ na etapa 4), nenhum com erro.
 - **O achado do TC-013 (CA e ME):** sem o Proponente de Y, a política usa os
   contatos que a Account tem no instante. Nos dois RUNs, ela rodou entre o
   `contato-email` e o `contato-celular`: com só o e-mail, não achou o candidato
-  sem CPF pelo celular e criou um Lead novo. A correção proposta segue a P5:
-  sem o Proponente, a política só liga o Lead livre do mesmo CPF; reutilizar
-  um candidato ou criar um Lead espera a PAC aprovada, que desde o item 6
-  roda a política com os contatos aprovados.
+  sem CPF pelo celular e criou um Lead novo. **Corrigido no `8f4a205492`**
+  (commit 31 do mapa), pela P5: sem o Proponente, a política só liga o Lead
+  livre do mesmo CPF; reutilizar um candidato ou criar um Lead espera a PAC
+  aprovada, que desde o item 6 roda a política com os contatos aprovados. Na
+  amostra depois da correção (10 TCs em 5 perfis, e o 013 três vezes no CA e
+  no ME), tudo conforme.
 
 ### 5.3 R5: prospect de outra pessoa
 
@@ -1196,6 +1198,35 @@ na etapa 4), nenhum com erro.
 - **Esperado:**
   - o FW fica conforme;
   - o EP e o RL não trocam o prospect nem criam Account ou Lead.
+
+**O que deu (23/10): a R5 já tinha vindo, e não teve código novo.** Está no
+[relatório da etapa 6](resultado-runbook-etapa-6-2026-10-23.md). Quem faz o
+que ela pede:
+- **o prospect de outra pessoa é ignorado:** a lacuna 6 (`946cf8bdc1`, commit
+  15 do [mapa](mapa-commits-reescrita-2.2.md)) só grava o prospect do evento
+  num IdProspect vazio, e nunca o de outra Account, o de um Lead de outro CPF
+  ou o eco do IdCliente;
+- **o resto do evento é aplicado, sem descartar o evento inteiro:** a lacuna 2
+  (`962e5993bc`, commit 13) descarta só o match pelo prospect de outra
+  Account, em todo evento;
+- **o evento não reenfileira criação de Lead nem troca vínculo:** o `/Cliente`
+  só enfileira a política se a Account precisa do Lead do mesmo CPF
+  (`precisaVincularLead`, commit 27), olhando o prospect da Account, e não o
+  do evento. O Queueable relê a Account com `FOR UPDATE` e não faz nada se ela
+  já estiver ligada (commit 25). É o que fecha o B6 e o B7.
+
+A campanha da etapa 6 rodou com o branch até o `8f4a205492` (commit 31), nos
+44 TCs (os 39 do `--todos` e os 053 a 057) e em 16 perfis: os 13 de antes e
+três novos de reentrega atrasada do Event Grid (RP, RE e RF, sobre a ordem do
+PA; README, seção dos perfis). Foram 626 pares, todos conformes (eram 482 de
+484 na etapa 5), e nenhum erro.
+- **O FW, o EP e o RL** ficam conformes nos 44 TCs.
+- **O B7:** o FW do 040 rodou mais 5 vezes ao mesmo tempo, todas com 1 Lead
+  do CPF; são 12 conformes desde a R4.
+- **A reentrega atrasada** (RP, RE e RF, 81 pares) não altera nem cria
+  Account ou Lead: o contato reentregue perde para a data da PAC aprovada.
+- **Sobra para o "pronto"** (seção 6): os dez comportamentos sem TC com teste
+  e a cadeia real pela 2.1 e pela 1.3.
 
 ## 6. Como medir cada etapa e quando está pronto
 

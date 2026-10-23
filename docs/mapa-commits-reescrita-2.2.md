@@ -49,6 +49,7 @@ branch antiga.
 | 28 | `2ed8b04e05` | 5, seção 5.2, item 5 | O reflexo da Account para o Lead grava cada contato só onde o Lead está vazio ou acompanhava a Account, e nunca o contato de outro Lead (P7) | no lugar do reflexo "tudo ou nada" da 1.3 e da heurística "diverge nos dois" do `d6f147d303`; resolve o que o `78a25da643` tentava (o reflexo trocava os contatos do Lead Y) | commit novo (2.26) |
 | 29 | `e3cbc42e54` | 5, seção 5.2, item 4 | Quando a Account ganha o Lead da pessoa, o Proponente principal recebe o mesmo prospect e o MS Clientes é avisado (P6) | a `MSClienteService` do [`d914e60785`](inventario-commits-2.2.md#c2) (2) e o teste do [`1792eaa62d`](inventario-commits-2.2.md#c5) (5), iguais byte a byte; refaz o `sincronizarIdProponentePrincipal` do [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) e o retry do [`fe1d5a610c`](inventario-commits-2.2.md#c23) (23) e do [`72cbd884f6`](inventario-commits-2.2.md#c44) (44); o Lead reutilizado sem `Id__c` ganha um, como no [`509c87ad24`](inventario-commits-2.2.md#c18) (18) | commit novo (2.27) |
 | 30 | `753b1e272a` | 5, seção 5.2, item 6 | Na PAC aprovada, a Account do proponente principal sem prospect, ou com o prospect de um Lead de outro CPF, ganha um Lead do mesmo CPF, reutilizado ou criado | sem equivalente: na 2.2, só o `/Cliente` criava ou ligava o Lead depois da aprovação | commit novo (2.28) |
+| 31 | `8f4a205492` | 5, seção 5.2 (achado da campanha) | Sem o Proponente do CPF da Account, o pós-PAC só liga o Lead livre do mesmo CPF; reutilizar um Lead pelo contato ou criar um novo espera a PAC aprovada | sem equivalente: na 2.2, o `insertLeadQueueable` decidia com os contatos que tivesse, como o item 2 daqui | commit novo (2.29) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -713,6 +714,33 @@ método (plano, seção 4).
   conferir o PROS-Y. O 024 fica sem eco nos três perfis, porque o Lead do CPF
   está preso a outra Account.
 
+### 2.29 `8f4a205492`: a corrida do TC-013
+
+- **O achado:** na campanha da etapa 5, o TC-013 divergiu no CA e no ME. A
+  política rodou no `/Cliente` entre o `contato-email` e o `contato-celular`,
+  sem o Proponente de Y, com os contatos que a Account tinha no instante: só o
+  e-mail C. Não achou o candidato sem CPF pelo celular B e criou um Lead novo.
+  Era corrida: na amostra do item 3, o mesmo TC tinha passado no CA.
+- **Aqui:** sem o Proponente do CPF da Account, a política decide só pelo CPF.
+  Liga o Lead livre do mesmo CPF, se houver; o candidato achado por contato e
+  o Lead novo esperam a PAC aprovada, que desde o commit 30 roda a política
+  com os contatos aprovados. Os contatos da Account deixam de entrar na
+  decisão (P5 à risca). Sai a regra do item 2 de esperar só quando não havia
+  contato nenhum.
+- **Testes:** no `UnificacaoLeadServiceTest`, os casos do candidato, do
+  prospect de outro CPF e do Queueable ganharam o Proponente; entrou o caso
+  do TC-013 (sem Proponente, com contato parcial na Account: nada é ligado, o
+  candidato fica como estava). No `NotificacaoClienteTest`, a pessoa nova
+  passa a ter o Proponente.
+- **Deploy:** pediu `--ignore-conflicts`, porque o source tracking local não
+  registrou o deploy assíncrono do commit 29. A versão da org foi comparada
+  antes com o `e3cbc42e54` ([estado da dev](estado-da-mrv-devDan.md)).
+- **Verificação na dev (23/10):** 10 TCs (013, 001, 006, 010, 012, 019, 021,
+  040, 045 e 047) no PA, no CA, no ME, no AR e no FW: 50 conformes em 50. O
+  013 no CA e no ME rodou mais duas vezes, conforme nas duas. Nos logs, 25
+  vínculos adiados para a PAC aprovada, 54 Leads ligados (34 reutilizados e
+  20 novos) e nenhuma falha.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -721,8 +749,8 @@ método (plano, seção 4).
 | [`dcb966ddd9`](inventario-commits-2.2.md#c3) (3) | já na base, pelo `0ee6d92b81` (13/02) |
 | [`fbbde9da5c`](inventario-commits-2.2.md#c4) (4) | já na base, pelo `0f9014e393`; o cherry-pick sairia vazio |
 | [`c47170d879`](inventario-commits-2.2.md#c6) (6) | commit 7 |
-| [`09dadb24bf`](inventario-commits-2.2.md#c8) (8) | o `prospectPertenceAOutraConta` e a guarda da gravação do prospect, no commit 15; o `criarLeadDoCliente` fica para a R4 e a R5 |
-| [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; a guarda do prospect em todo evento, no commit 15 |
+| [`09dadb24bf`](inventario-commits-2.2.md#c8) (8) | o `prospectPertenceAOutraConta` e a guarda da gravação do prospect, no commit 15; o `criarLeadDoCliente`, reescrito pela política da R4 (commits 24 a 31); a repetição dele (B6) não volta, conferido na etapa 6 |
+| [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; a guarda do prospect em todo evento, no commit 15. É toda a R5, conferida na etapa 6 sem código novo |
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
 | [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal`, refeito no commit 29 |
 | [`12182e7e78`](inventario-commits-2.2.md#c13) (13) | substituído pelo `contaQueAJornadaMantem` do commit 18 |
@@ -747,3 +775,4 @@ método (plano, seção 4).
 | [`d914e60785`](inventario-commits-2.2.md#c2) (2) | a `MSClienteService` e o `ATUALIZAR_CLIENTE` do `GraphQLCreator`, no commit 29; o resto é reescrito pela política da R4 (commits 24 a 29) |
 | [`1792eaa62d`](inventario-commits-2.2.md#c5) (5) | a `MSClienteServiceTest` e a mudança do `GraphQLCreatorTest`, no commit 29; os testes de seletores não entram |
 | [`fe1d5a610c`](inventario-commits-2.2.md#c23) (23) e [`72cbd884f6`](inventario-commits-2.2.md#c44) (44) | o padrão do retry, refeito no `atualizarComRetry` do commit 29 |
+| [`0dd2e9a338`](inventario-commits-2.2.md#c12) (12) | não entra: o `cliente-update` de Y com o prospect da jornada não é mais descartado (commit 13), e a Account de Y ganha o Lead dela pela política (commits 25, 27 e 30). Conferido na etapa 6 |
