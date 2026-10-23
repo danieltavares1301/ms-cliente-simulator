@@ -265,6 +265,16 @@ Esta simulação possui duas direções independentes:
 
 O mock GraphQL **não** publica eventos de retorno. Depois do callback, o executor deve enviar manualmente `cliente-update(PROS-Y)`, `pac-update` e máquina. Sem esses eventos, a execução é parcial.
 
+O `cliente-update(PROS-Y)` é o eco do callback (seção 6.5 do [doc de origem dos eventos](origem-dos-eventos-no-salesforce.md)): ele só existe se o Salesforce chamou o `atualizarCliente`. Desde 23/10, o harness segue essa regra:
+
+- **Quando ecoar:** depois de cada passo que pode ligar o Lead (os eventos de cliente, a repetição do WebJob no FW e o fim da cadeia, depois da PAC aprovada), o harness procura avisos novos ao MS Clientes. Para cada um, manda um eco. Sem aviso, não há eco: se a política adiou o Lead, quem o liga é a PAC aprovada, e o eco vem depois dela.
+- **De onde vem o aviso:** do log `MicroServicoCliente_ATUALIZAR_CLIENTE`, que guarda o corpo da chamada. O harness filtra pelo IdCliente do RUN e espera até haver um log para cada `avisarMsClientes` concluído.
+- **O PROS-Y:** é o prospect do último aviso, como o MS Clientes o recebe (em maiúsculas). As asserções comparam prospects sem diferenciar maiúsculas. Num RUN sem aviso, o principal é conferido com o prospect da Account aprovada.
+
+- **A repostagem do RL:** o cliente volta com a `DataAlteracao` que o MS Clientes tem gravada, que é a do último evento de cliente que ele publicou: o eco, se houve, ou o evento de cliente da cadeia. Até 22/10, ela ia sempre em t+20, a hora fixa do eco.
+
+Até 22/10, o eco saía sempre, com o prospect lido na Account depois dos eventos de cliente. No TC-021 do CA, isso mandava o prospect do Lead de Z num eco que, no real, não existiria.
+
 #### 4.6.1 Salvaguardas obrigatórias
 
 1. Execute somente em `mrv_devDan`; staging permanece somente leitura.
@@ -302,7 +312,7 @@ Na etapa 2.2, o callback espera:
 }
 ```
 
-O `id` da resposta precisa ser não nulo para validar o parser. Na 1.3, ele deve ser o `IDCLI` sintético reservado para o cliente do RUN. O `PROS-Y` usado nos eventos posteriores deve ser sempre consultado na Account/Lead resultante; não derive `PROS-Y` do IdCliente retornado.
+O `id` da resposta precisa ser não nulo para validar o parser. Na 1.3, ele deve ser o `IDCLI` sintético reservado para o cliente do RUN. Não derive `PROS-Y` do IdCliente retornado. Ele é o `idProspectSalesforce` que o Salesforce mandou no `atualizarCliente` (acima).
 
 Exemplo de mock local:
 

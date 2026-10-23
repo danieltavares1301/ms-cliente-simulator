@@ -49,6 +49,11 @@ function celularDoLead(lead: LeadRegistro): string {
   return digitos(lead.CelularSemFormatacao__c) || digitos(lead.MobilePhone);
 }
 
+/** O `atualizarCliente` manda o prospect em maiúsculas; o Salesforce grava o do Lead. */
+function mesmoProspect(atual: string | null | undefined, esperado: string | null): boolean {
+  return !vazio(atual) && esperado !== null && atual!.toUpperCase() === esperado.toUpperCase();
+}
+
 function mesmoCelular(atual: string, esperado: string): boolean {
   // O celular pode voltar com DDI (55) na frente.
   return atual === esperado || atual === `55${esperado}`;
@@ -384,17 +389,21 @@ export class Verificador {
     });
     const proponente = this.final.proponente;
     const problemasProponente: string[] = [];
+    // Sem aviso ao MS Clientes no RUN, o principal confere com o prospect da Account.
+    const prospectEsperado = this.prospectY ?? conta?.IdProspectSalesforce__c ?? null;
     if (proponente === null) problemasProponente.push('Proponente não encontrado');
     else {
       if (proponente.Proponente__c !== conta?.Id) {
         problemasProponente.push(`Proponente__c ${proponente.Proponente__c ?? 'vazio'}`);
       }
-      if (this.prospectY !== null && proponente.IdProponente__c !== this.prospectY) {
+      if (prospectEsperado !== null && !mesmoProspect(proponente.IdProponente__c, prospectEsperado)) {
         problemasProponente.push(`IdProponente__c ${proponente.IdProponente__c ?? 'vazio'}`);
       }
     }
     assercoes.push({
-      nome: `Proponente principal na Account aprovada${this.prospectY ? ' com PROS-Y' : ''}`,
+      nome: `Proponente principal na Account aprovada${
+        this.prospectY ? ' com PROS-Y' : prospectEsperado ? ' com o prospect da Account' : ''
+      }`,
       ok: problemasProponente.length === 0,
       ...(problemasProponente.length ? { detalhe: problemasProponente } : {}),
     });
@@ -545,12 +554,15 @@ export class Verificador {
       }
       // No FW, o que vale é o prospect do fim, depois do eco e da PAC aprovada.
       const prospectFinal = perfil === 'FW' ? prospectDa(this.final) : prospectDa(depois);
+      // No EP, o parcial chega antes da PAC aprovada, que pode ligar o Lead depois:
+      // vale o prospect de antes dele. No FW, o PROS-Y do último aviso.
+      const esperado = perfil === 'FW' ? (this.prospectY ?? prospectDa(antes)) : prospectDa(antes);
       const { novos, alterados } = mudancasEntre(antes, depois);
       return [
         {
           nome: nomeProspect,
-          ok: this.prospectY !== null && prospectFinal === this.prospectY,
-          detalhe: { esperado: this.prospectY, antes: prospectDa(antes), depois: prospectFinal },
+          ok: mesmoProspect(prospectFinal, esperado),
+          detalhe: { esperado, antes: prospectDa(antes), depois: prospectFinal },
         },
         {
           nome: nomeNovos,

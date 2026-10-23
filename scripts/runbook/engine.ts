@@ -358,6 +358,7 @@ const logSchema = z
   .object({ Id: z.string(), EventType__c: texto, Status2__c: texto })
   .passthrough();
 const idSchema = z.object({ Id: z.string() }).passthrough();
+const avisoSchema = z.object({ BodyRequest__c: texto }).passthrough();
 
 function registros<T extends z.ZodTypeAny>(schema: T) {
   return z.object({
@@ -412,6 +413,8 @@ export type ResultadoCadeia = {
 // commit em que o anterior termina. Duas leituras vazias seguidas bastam.
 const INTERVALO_JOBS_MS = 1_500;
 const LEITURAS_VAZIAS_JOBS = 2;
+/** Espera máxima para o aviso ao MS Clientes, que sai do `@future`, virar log. */
+const ESPERA_LOG_AVISO_MS = 15_000;
 
 type ConstantesDaOrg = {
   recordTypeConta: string;
@@ -540,6 +543,11 @@ export class Execucao {
   private inicioServidorMs: number | null = null;
   /** A cadeia chegou ao fim e os jobs dela assentaram. */
   private cadeiaConcluida = false;
+  /** Avisos ao MS Clientes que já tiveram eco, e o prospect do último (PROS-Y). */
+  private avisosEcoados = 0;
+  private prospectAvisado: string | null = null;
+  /** DataAlteracao que o MS Clientes tem gravada no cliente: a do último evento de cliente que ele publicou. */
+  private dataClienteNoMsClientes: string | null = null;
   /** Contatos que a massa deu a X; a 1ª PAC de X sai com eles. */
   private contatosDeX = { email: '', celular: '' };
   /** Parciais recusados por chegarem antes do cliente, reenviados depois dele. */
@@ -1234,27 +1242,6 @@ export class Execucao {
     };
   }
 
-  /**
-   * IdProspect da Account aprovada, com a mesma regra de `contaDaPessoa`
-   * (IdCliente em qualquer caixa, senão CPF), sem um snapshot completo.
-   */
-  private async prospectDaContaAprovada(
-    pessoa: Pessoa,
-    idClienteEvento: string,
-  ): Promise<string | null> {
-    const idClientes = [pessoa.idCliente, idClienteEvento].flatMap((idCliente) => [
-      idCliente,
-      idCliente.toUpperCase(),
-      idCliente.toLowerCase(),
-    ]);
-    const contas = await this.consultar(
-      accountSchema,
-      `SELECT ${accountCampos} FROM Account WHERE Id__c IN (${lista(idClientes)}) OR CPF__pc = ${literal(pessoa.cpf)} ORDER BY CreatedDate`,
-    );
-    const estado: Snapshot = { accounts: contas, leads: [], oportunidade: null, pac: null, proponente: null };
-    return contaDaPessoa(estado, pessoa, idClienteEvento)?.IdProspectSalesforce__c ?? null;
-  }
-
   /** Opportunity da jornada em X e PAC/Proponente de X antes da cadeia (runbook, TC-001). */
   private async iniciarJornada(prospectJornada: string | null): Promise<void> {
     await this.criarOportunidade();
@@ -1476,12 +1463,64 @@ export class Execucao {
     });
   }
 
+  /**
+   * Prospects que o Salesforce mandou ao MS Clientes no `atualizarCliente` para
+   * o IdCliente da pessoa, na ordem, lidos no log da chamada. O log sai do
+   * `@future` por evento de plataforma, então a leitura espera até haver um log
+   * para cada aviso concluído.
+   */
+  private async prospectsAvisados(idCliente: string): Promise<string[]> {
+    const desde = new Date((this.inicioServidorMs ?? Date.now()) - 5_000)
+      .toISOString()
+      .replace(/\.\d{3}Z$/, 'Z');
+    const limite = Date.now() + ESPERA_LOG_AVISO_MS;
+    let logs: Array<z.infer<typeof avisoSchema>> = [];
+    for (;;) {
+      const [avisos, registros] = await Promise.all([
+        this.consultar(
+          idSchema,
+          `SELECT Id FROM AsyncApexJob WHERE CompletedDate >= ${desde}${this.filtroJobsDoUsuario} AND JobType = 'Future' AND MethodName = 'avisarMsClientes' AND Status = 'Completed'`,
+        ),
+        this.consultar(
+          avisoSchema,
+          `SELECT BodyRequest__c FROM LogIntegracao__c WHERE CreatedDate >= ${desde} AND EventType__c = 'MicroServicoCliente_ATUALIZAR_CLIENTE' ORDER BY CreatedDate`,
+        ),
+      ]);
+      logs = registros;
+      if (logs.length >= avisos.length || Date.now() >= limite) break;
+      await sleep(INTERVALO_JOBS_MS);
+    }
+    const alvo = idCliente.toUpperCase();
+    return logs.flatMap(({ BodyRequest__c: corpo }) => {
+      const id = /\bid:"([^"]*)"/.exec(corpo ?? '')?.[1];
+      const prospect = /\bidProspectSalesforce:"([^"]*)"/.exec(corpo ?? '')?.[1];
+      return id?.toUpperCase() === alvo && prospect ? [prospect] : [];
+    });
+  }
+
+  /**
+   * O eco do callback (seção 6.5 do doc de origem): para cada aviso novo ao MS
+   * Clientes, ele publica um `cliente-update` com o prospect que recebeu. Sem
+   * aviso novo, não há eco. Devolve o prospect do último eco, ou null.
+   */
+  private async ecoDoAviso(contexto: ContextoCadeia, segundos: number): Promise<string | null> {
+    const avisados = await this.prospectsAvisados(contexto.idClienteEvento);
+    const novos = avisados.slice(this.avisosEcoados);
+    for (const prospect of novos) {
+      await this.enviarEco(contexto, prospect, segundos);
+      this.prospectAvisado = prospect;
+    }
+    this.avisosEcoados = avisados.length;
+    return novos.length ? this.prospectAvisado : null;
+  }
+
   /** `cliente-update` com o prospect gravado pelo callback do Salesforce: o eco (seção 6.5 do doc de origem). */
   private async enviarEco(
     contexto: ContextoCadeia,
     prospect: string | null,
     segundos: number,
   ): Promise<void> {
+    this.dataClienteNoMsClientes = this.t(segundos);
     await this.enviar(
       'Cliente',
       this.eventoCliente(
@@ -1593,8 +1632,10 @@ export class Execucao {
     const ordem = this.perfil === 'PA' || this.perfil === 'ME' ? this.perfil : 'CA';
 
     const identidade = { idCliente: idClienteEvento, prospect: prospectJornada };
-    const cliente = (quando: string) =>
-      this.eventoCliente(aprovacao.tipoEventoCliente, 'cliente', quando, identidade, pessoa);
+    const cliente = (quando: string) => {
+      this.dataClienteNoMsClientes = quando;
+      return this.eventoCliente(aprovacao.tipoEventoCliente, 'cliente', quando, identidade, pessoa);
+    };
     const sufixoParcial = aprovacao.match ? 'update' : 'insert';
     const contato = (tipo: 'Email' | 'Celular', quando: string) =>
       this.eventoContato(
@@ -1641,9 +1682,8 @@ export class Execucao {
 
     await this.aguardarJobs(timeoutJobsMs);
 
-    // PROS-Y é sempre lido na Account resultante (runbook §4.6.2).
-    const prospectY = await this.prospectDaContaAprovada(pessoa, idClienteEvento);
-    await this.enviarEco(contexto, prospectY, 20);
+    // PROS-Y é o prospect que o Salesforce mandou ao MS Clientes; sem aviso, não há eco.
+    const prospectY = await this.ecoDoAviso(contexto, 20);
 
     if (this.perfil === 'EP') {
       // O celular foi publicado antes do callback e chega depois do eco, ainda
@@ -1684,15 +1724,23 @@ export class Execucao {
 
     await this.enviarMaquina(contexto, prospectY, 30);
     await this.aguardarJobs(timeoutJobsMs);
+    // O Lead ligado depois do primeiro eco (pela PAC aprovada, por exemplo) também tem eco.
+    if (await this.ecoDoAviso(contexto, 32)) await this.aguardarJobs(timeoutJobsMs);
 
     if (this.perfil === 'RL') {
       // O MS Clientes reposta o cliente, os contatos e o endereço, cada um com
       // a DataAlteracao que tem gravada (seção 3.4 do doc de origem).
       const antesDoGatilho = await this.snapshot();
-      const atual = { idCliente: idClienteEvento, prospect: prospectY ?? prospectJornada };
+      const atual = { idCliente: idClienteEvento, prospect: this.prospectAvisado ?? prospectJornada };
       await this.enviar(
         'Cliente',
-        this.eventoCliente('cliente-update', 'repostagem-cliente', this.t(20), atual, pessoa),
+        this.eventoCliente(
+          'cliente-update',
+          'repostagem-cliente',
+          this.dataClienteNoMsClientes ?? this.t(0),
+          atual,
+          pessoa,
+        ),
         'repostagem-cliente',
       );
       await this.enviar(
@@ -1715,7 +1763,7 @@ export class Execucao {
     }
 
     this.cadeiaConcluida = true;
-    return { intermediario, final: await this.snapshot(), prospectY, evidencia };
+    return { intermediario, final: await this.snapshot(), prospectY: this.prospectAvisado, evidencia };
   }
 
   /**
@@ -1784,9 +1832,8 @@ export class Execucao {
     await this.enviar('Pendencia', semMetadataVersion(pendencia), 'notificacaopendencia-2a-rota');
     await this.aguardarJobs(timeoutJobsMs);
 
-    // PROS-Y é sempre lido na Account resultante (runbook §4.6.2).
-    const prospectY = await this.prospectDaContaAprovada(pessoa, idClienteEvento);
-    await this.enviarEco(contexto, prospectY, 20);
+    // PROS-Y é o prospect que o Salesforce mandou ao MS Clientes; sem aviso, não há eco.
+    const prospectY = await this.ecoDoAviso(contexto, 20);
 
     let antesDoGatilho: Snapshot | null = null;
     let depoisDoGatilho: Snapshot | null = null;
@@ -1801,12 +1848,8 @@ export class Execucao {
       });
       await this.aguardarJobs(timeoutJobsMs);
       depoisDoGatilho = await this.snapshot();
-      // Se o Salesforce chamou o MS Clientes de novo, o eco traz o prospect da Account.
-      await this.enviarEco(
-        contexto,
-        await this.prospectDaContaAprovada(pessoa, idClienteEvento),
-        48,
-      );
+      // Se o Salesforce avisou o MS Clientes de novo, há outro eco.
+      await this.ecoDoAviso(contexto, 48);
     }
 
     await this.enviarPacAprovada(contexto, this.perfil === 'FW' ? 50 : 25);
@@ -1820,11 +1863,14 @@ export class Execucao {
       await this.enviarMaquina(contexto, prospectY, this.perfil === 'FW' ? 55 : 30);
     }
     await this.aguardarJobs(timeoutJobsMs);
+    if (await this.ecoDoAviso(contexto, this.perfil === 'FW' ? 57 : 32)) {
+      await this.aguardarJobs(timeoutJobsMs);
+    }
     this.cadeiaConcluida = true;
     return {
       intermediario: null,
       final: await this.snapshot(),
-      prospectY,
+      prospectY: this.prospectAvisado,
       evidencia: {
         precondicao,
         contestacoesAntes: null,
