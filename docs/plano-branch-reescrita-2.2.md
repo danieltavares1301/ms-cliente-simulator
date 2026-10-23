@@ -1100,10 +1100,54 @@ rodam com `--tcs`.
 | `de3731957d` (parte de Lead) | Na Venda Genérica com cliente existente, a Account ficava sem Lead. | P1, P2 | TC-062 e TC-040 ("Lead novo vinculado") |
 | `b4be1623d2` (parte de Lead) | O Proponente principal ficava com o prospect da jornada, não com o do Lead de Y. | P6 | "Proponente principal na Account aprovada com PROS-Y", que roda em todo TC |
 
+#### Levantamento e decisões (22/10)
+
+**O que o branch tem.** No pós-PAC, nada cria nem liga Lead: o `/Cliente` cria
+ou atualiza a Account de Y e para aí. A base 1.3 já tem a árvore de decisão da
+política, mas só no flow de tela da Venda Genérica
+(`VG_MSClienteCriarAtualizarInvocable`, a "regra 6.6"):
+- **`vincularLeadExistenteAoCliente`:** reutiliza o Lead livre do mesmo CPF;
+  com todos os do CPF presos a outra Account, não reutiliza nem cria; sem Lead
+  do CPF, reutiliza o candidato sem CPF e sem Account achado por e-mail ou
+  celular; sem nada, decide criar. Marca o contato que já é de outro CPF.
+- **`criarLeadDoCliente`:** cria com o CPF e sem o contato que colide; sem
+  contato nenhum, com a origem `InsertClientePAC`.
+- **Faltam no branch:** a `MSClienteService` e o `ATUALIZAR_CLIENTE` do
+  `GraphQLCreator` (do `d914e60785`).
+
+**Decisões de 22/10:**
+- **Decisão 3 (K2):** o candidato sem CPF achado pelo contato aprovado é
+  reutilizado no 045 e no 049, como a planilha manda (P1).
+- **Decisão 4:** o Lead Y reutilizado mantém os próprios contatos também onde a
+  planilha é omissa, como no 047 (P3).
+- **O núcleo:** a árvore da Venda Genérica sai do invocable para um serviço
+  usado pelo flow de tela e pelo pós-PAC, sem mudar o comportamento do flow. A
+  política fica uma só. Acrescenta-se P3, P5 e P6.
+- **Quando roda no pós-PAC:** no `cliente-insert` ou `cliente-update` da
+  pessoa, quando a Account dela ainda não tem prospect, num Queueable, como na
+  2.2. O harness lê o PROS-Y logo depois dos eventos de cliente para mandar o
+  eco. O Queueable relê a Account e não faz nada se ela já tiver prospect, o
+  que evita o Lead duplicado (B7) e atende a R5. A PAC aprovada roda a
+  política de novo só se a Account ainda estiver sem prospect.
+
+**Ordem dos commits:**
+1. Extrair a árvore para o serviço, sem mudar o flow de tela.
+2. Ligar a política no pós-PAC (o Queueable no `/Cliente`), com os contatos
+   aprovados do Proponente principal achado pelo CPF ou pelo IdCliente (P5) e
+   o vínculo na Account (P1, P2, P4 e parte da P6).
+3. P3: o Lead reutilizado só recebe contato onde está vazio, e o candidato
+   sem CPF ganha o CPF.
+4. O resto da P6: o `IdProponente__c` do principal, a `MSClienteService`, o
+   retry em `UNABLE_TO_LOCK_ROW` e o prospect novo para o Lead reutilizado sem
+   `Id__c` (o caso do `509c87ad24`; até o item 3, esse Lead deixava a Account
+   sem prospect).
+5. P7: o reflexo para o Lead obedece a P3 e a P4.
+6. A PAC aprovada roda a política se a Account ainda estiver sem prospect.
+
 #### Antes e depois
 
 - **Decidir antes:** as decisões 3 (K2) e 4 (contatos do Lead Y reutilizado)
-  de PO/QA.
+  de PO/QA. **Fechadas em 22/10** (acima).
 - **Testes Apex a escrever antes:** os quatro casos sem TC da tabela
   (`8b06b4cd2b`, `509c87ad24`, `af28349332`, `a6d1f4c64c`) e o lock simulado
   para o retry do `fe1d5a610c` e do `72cbd884f6`, que nunca foi reproduzido.
@@ -1114,6 +1158,29 @@ rodam com `--tcs`.
   - o B5 e o K2 só contam como resolvidos nos pares em que aparecem na
     campanha de 12/10. Antes da R4, esses rótulos vêm da falta de Lead, não
     do mecanismo.
+
+**O que deu (23/10):** está no
+[relatório da etapa 5](resultado-runbook-etapa-5-2026-10-23.md). A campanha
+rodou com o branch até o `753b1e272a` na dev (commits 24 a 30 do
+[mapa](mapa-commits-reescrita-2.2.md)). Foram 484 pares, 482 conformes (eram 74
+na etapa 4), nenhum com erro.
+- **Some todo o "pendente R4"** (410 pares) e o K2 (36). Todas as asserções
+  de Lead passam, menos as 2 do TC-013 abaixo.
+- **O B4, o B6, o B9 e o B10 não voltam** com a criação e o reuso de Lead.
+- **O B5 da campanha de 12/10 (AR e FW do 013) some.** Sobram 2 pares de B5
+  em outro lugar: o TC-013 no CA e no ME, por uma corrida na política (abaixo).
+- **Harness:** o eco do MS Clientes passou a sair só quando o Salesforce chama
+  o `atualizarCliente` (runbook, seção 4.6). Duas asserções dependiam da hora
+  fixa do eco antigo e foram corrigidas: a repostagem do RL (6 pares) e o
+  parcial atrasado do EP (TC-021). O perfil RL inteiro e o EP do 021 rodaram
+  de novo, todos conformes; o JSONL guarda as duas rodadas.
+- **O achado do TC-013 (CA e ME):** sem o Proponente de Y, a política usa os
+  contatos que a Account tem no instante. Nos dois RUNs, ela rodou entre o
+  `contato-email` e o `contato-celular`: com só o e-mail, não achou o candidato
+  sem CPF pelo celular e criou um Lead novo. A correção proposta segue a P5:
+  sem o Proponente, a política só liga o Lead livre do mesmo CPF; reutilizar
+  um candidato ou criar um Lead espera a PAC aprovada, que desde o item 6
+  roda a política com os contatos aprovados.
 
 ### 5.3 R5: prospect de outra pessoa
 
@@ -1177,8 +1244,8 @@ cada uma precisa estar fechada:
 | 9 | versão do runbook, com 3 ou 6 perfis | etapa 0 |
 | 2 | K1: o 200 nos parciais sem Account. **Fechada em 21/10: erro reentregável (500), sem DML** (seção 4.5) | etapa 3 |
 | 5 | os 9 `BLOCKED-FUNCIONAL` (008, 028, 029, 050, 052, 058, 060, 064 e 065), inclusive o desempate do TC-028 e a mutação Y→Z | etapa 3 |
-| 3 | K2: o Lead candidato no 045 e no 049 | etapa 5 |
-| 4 | contatos do Lead Y reutilizado onde a planilha não fala | etapa 5 |
+| 3 | K2: o Lead candidato no 045 e no 049. **Fechada em 22/10: reutilizar o candidato** (seção 5.2) | etapa 5 |
+| 4 | contatos do Lead Y reutilizado onde a planilha não fala. **Fechada em 22/10: mantém os próprios** (seção 5.2) | etapa 5 |
 | 7 | aceite pela cadeia real | pronto, com a 2.1 |
 
 **Respostas de 18/10:**

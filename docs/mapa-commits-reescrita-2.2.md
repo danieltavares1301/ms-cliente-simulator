@@ -42,6 +42,13 @@ branch antiga.
 | 21 | `d363515af3` | 4, seção 5.1, item 2 | A pendência grava o e-mail da PAC na Account pelo ponto único, com a data do evento da PAC, no lugar da ação do flow `Proponente_1` | do [`07608bac4a`](inventario-commits-2.2.md#c32) (32), a troca do flow pelo `sincronizarEmailContatoPendencia` na `ProponenteTrigger` | commit novo (2.19) |
 | 22 | `a920622615` | 4, seção 5.1, item 3 | Com contestação pendente, a PAC leva à Account de cada Proponente o e-mail e o celular do payload pelo ponto único, conferindo o CPF | mistura do `sincronizarContatosContestacao` do [`6612bab1b3`](inventario-commits-2.2.md#c29) (29) e da versão dele refeita no [`07608bac4a`](inventario-commits-2.2.md#c32) (32) | commit novo (2.20) |
 | 23 | `0949e50a55` | 4, seção 5.1, item 5 | O reflexo da Account para o Lead do prospect só vale para o Lead do mesmo CPF ou sem CPF, e não quebra com maiúsculas no `Id__c` do Lead | sem equivalente: na 2.2, o `refletirAlteracoesLead` ganhou escopos e passou a gravar campo a campo ([`07608bac4a`](inventario-commits-2.2.md#c32) e `78a25da643`), mas nunca conferiu o CPF | commit novo (2.21) |
+| 24 | `f78c8b75cc` | 5, seção 5.2, item 1 | Árvore de decisão do Lead da Venda Genérica extraída para o `PoliticaLeadService`, sem mudar o comportamento do flow de tela | sem equivalente: refatora a "regra 6.6" que a base 1.3 já tinha no `VG_MSClienteCriarAtualizarInvocable` | commit novo (2.22) |
+| 25 | `c5abb331d3` | 5, seção 5.2, item 2 | No pós-PAC, a Account da pessoa ganha o Lead dela pela política única, com os contatos aprovados do Proponente da pessoa | reescreve o `criarLeadDoCliente` e o `insertLeadQueueable` da 2.2 (`d914e60785`, [`8b06b4cd2b`](inventario-commits-2.2.md#c11), `1195c8984b`, `509c87ad24`, `2eef5b7ba2`, `3029bcfb6d` e a parte de Lead do [`de3731957d`](inventario-commits-2.2.md#c17)), sem trazer o código | commit novo (2.23) |
+| 26 | `f752cd0e94` | 5, seção 5.2, item 3 | O Lead reutilizado pela política ganha o CPF da pessoa e só recebe o contato aprovado onde está vazio e se não for de outro Lead | no lugar do `509c87ad24` (o Lead reutilizado ganha o CPF) e da heurística "diverge nos dois" do `d6f147d303`, com a regra explícita da P3 | commit novo (2.24) |
+| 27 | `2c34f6f7c9` | 5, seção 5.2, item 5 (parte) | `PoliticaLeadService` renomeado para `UnificacaoLeadService`, e a Account ligada ao Lead de outro CPF ganha o Lead da pessoa | sem equivalente: na 2.2, o TC-021 ficava com Y ligada ao Lead de Z | commit novo (2.25) |
+| 28 | `2ed8b04e05` | 5, seção 5.2, item 5 | O reflexo da Account para o Lead grava cada contato só onde o Lead está vazio ou acompanhava a Account, e nunca o contato de outro Lead (P7) | no lugar do reflexo "tudo ou nada" da 1.3 e da heurística "diverge nos dois" do `d6f147d303`; resolve o que o `78a25da643` tentava (o reflexo trocava os contatos do Lead Y) | commit novo (2.26) |
+| 29 | `e3cbc42e54` | 5, seção 5.2, item 4 | Quando a Account ganha o Lead da pessoa, o Proponente principal recebe o mesmo prospect e o MS Clientes é avisado (P6) | a `MSClienteService` do [`d914e60785`](inventario-commits-2.2.md#c2) (2) e o teste do [`1792eaa62d`](inventario-commits-2.2.md#c5) (5), iguais byte a byte; refaz o `sincronizarIdProponentePrincipal` do [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) e o retry do [`fe1d5a610c`](inventario-commits-2.2.md#c23) (23) e do [`72cbd884f6`](inventario-commits-2.2.md#c44) (44); o Lead reutilizado sem `Id__c` ganha um, como no [`509c87ad24`](inventario-commits-2.2.md#c18) (18) | commit novo (2.27) |
+| 30 | `753b1e272a` | 5, seção 5.2, item 6 | Na PAC aprovada, a Account do proponente principal sem prospect, ou com o prospect de um Lead de outro CPF, ganha um Lead do mesmo CPF, reutilizado ou criado | sem equivalente: na 2.2, só o `/Cliente` criava ou ligava o Lead depois da aprovação | commit novo (2.28) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -522,6 +529,190 @@ método (plano, seção 4).
   "1 Lead com o CPF aprovado" passa a falhar ("pendente R4"): ele só passava
   porque o Lead Z recebia o CPF de Y.
 
+### 2.22 `f78c8b75cc`: R4, item 1, refatoração
+
+- **O que é:** a árvore de decisão do Lead que a base 1.3 tinha no flow de tela
+  da Venda Genérica (`VG_MSClienteCriarAtualizarInvocable`, a "regra 6.6") sai
+  para o `PoliticaLeadService`, para o pós-PAC usar a mesma política (decisão
+  de 22/10, plano, seção 5.2).
+  - **`decidir(cpf, email, celular)`:** a árvore, com o mesmo código. Reutiliza
+    o Lead livre do mesmo CPF; com todos presos, não reutiliza nem cria; sem
+    Lead do CPF, reutiliza o candidato sem CPF e sem Account achado pelo
+    contato; sem nada, decide criar, marcando o contato que já é de outro CPF.
+    Só a entrada mudou: CPF, e-mail e celular explícitos, no lugar da Account.
+  - **`criarLead(...)`:** a criação, também com os contatos explícitos, e
+    devolvendo o Id do Lead.
+- **O invocable** mantém o `vincularLeadExistenteAoCliente`, o
+  `criarLeadDoCliente` e o `VinculacaoLeadResult`, que delegam ao serviço com
+  os dados da Account. O flow de tela não muda.
+- **Testes:** os 25 do `VG_MSClienteCriarAtualizarInvocableTest`, sem mudança.
+  Um deles pegou um `NullPointerException` que o código original engolia
+  dentro do `try`; a delegação passou a usar navegação segura.
+
+### 2.23 `c5abb331d3`: R4, item 2, a política no pós-PAC
+
+- **Na 2.2:** o `/Cliente` ligava a flag `criarLeadDoCliente` e o
+  `insertLeadQueueable` criava ou reutilizava o Lead de Y. Os contatos vinham
+  do Proponente achado pelo prospect do evento, que era o de X (o passo 1 do
+  B9), e a repetição do WebJob rodava a criação de novo (o B6 e o B7). Esses
+  commits não entram; a política nova resolve o problema de cada um (plano,
+  seção 5.2, "O que é reescrito").
+- **Aqui:**
+  - **Quando:** o `/Cliente` enfileira o `VinculoLeadPosPacQueueable` no
+    `cliente-insert` ou `cliente-update` da pessoa (Account achada pelo
+    IdCliente, pelo CPF ou criada), quando a Account ficou sem prospect.
+  - **O que roda:** o `PoliticaLeadService.vincularLeadPosPac`. Ele relê a
+    Account com `FOR UPDATE` e não faz nada se ela já tiver prospect, o que
+    evita o Lead duplicado e a repetição da R5.
+  - **De onde vêm os contatos (P5):** do Proponente principal da pessoa,
+    achado pelo CPF ou, sem CPF, pelo IdCliente
+    (`getProponentePrincipalPorCpfOuIdCliente`), nunca pelo prospect. Sem
+    Proponente, os da Account.
+  - **A decisão (P1, P2, P4):** a árvore do commit 24.
+  - **O vínculo (parte da P6):** o prospect do Lead vai para a Account.
+  - **Sem contato de fonte nenhuma e sem Lead do CPF,** a política espera o
+    próximo evento da pessoa em vez de criar um Lead vazio. No CA, o
+    Queueable rodava antes de os contatos chegarem e criava o Lead errado.
+- **Nomes:** o Queueable chegou a se chamar `VincularLeadDaPessoaQueueable`
+  e foi renomeado antes do commit.
+- **Testes:** o `PoliticaLeadServiceTest` (novo, seis casos) e, no
+  `NotificacaoClienteTest`, o cliente da pessoa nova acabando com o Lead
+  ligado. O `clienteUpdateNaoGravaProspectDeLeadDeOutroCpfTest` exigia a
+  Account de Y sem prospect; agora Y ganha o Lead dela, e o teste confere só
+  que não é o Lead de outro CPF.
+- **Verificação na dev (22/10):** uma amostra de 10 TCs (001, 002, 006, 010,
+  012, 019, 024, 026, 040 e 045) no CA, no AR e no FW: 27 conformes em 30,
+  contra 3 na etapa 4. Sobra o 012, com o candidato reutilizado sem o CPF da
+  pessoa (item 3).
+
+### 2.24 `f752cd0e94`: R4, item 3, a P3
+
+- **Aqui:** quando a política reutiliza um Lead, o `completarLeadReutilizado`
+  dá ao candidato sem CPF o CPF da pessoa e preenche o e-mail e o celular
+  aprovados só onde o Lead está vazio, e só se o contato não estiver em outro
+  Lead que não tenha o CPF da pessoa (P4).
+- **Na 2.2:** o `509c87ad24` dava o CPF ao Lead reutilizado, e o `d6f147d303`
+  separava contato próprio de contato velho pela heurística "diverge nos dois"
+  (com e-mail e celular divergindo, o Lead ficava como estava). A P3 troca a
+  heurística pela regra: o Lead reutilizado só recebe contato onde está vazio
+  (decisão 4).
+- **Testes:** no `PoliticaLeadServiceTest`, o candidato ganha o CPF, o Lead Y
+  mantém o e-mail próprio e recebe o celular no campo vazio, e o celular que
+  já é de outro Lead não vai para o Lead Y.
+- **Verificação na dev (23/10):** os TCs do candidato (012, 013, 045, 046 e
+  049) e do Lead Y com contatos preservados (009, 019, 022, 023 e 047) no CA,
+  no AR e no FW: 27 conformes em 30. Sobra o 047, em que o reflexo da Account
+  para o Lead troca os contatos próprios do Lead Y depois do vínculo (item 5).
+
+### 2.25 `2c34f6f7c9`: rename e o prospect de outro CPF
+
+- **O rename:** o `PoliticaLeadService` e o teste dele passam a
+  `UnificacaoLeadService` e `UnificacaoLeadServiceTest`, o termo que o código
+  já usa para esse domínio (`getClienteUnificacaoLead` e outros). O invocable
+  da Venda Genérica e o Queueable seguem o nome novo.
+- **O prospect de outro CPF:** o `precisaVincularLead` diz se a Account
+  precisa do Lead da pessoa: sem prospect, ou com o prospect de um Lead de
+  outro CPF. O `vincularLeadPosPac` e o `/Cliente` usam esse critério. Com o
+  prospect de outro CPF, a política troca o prospect pelo Lead da pessoa, e o
+  Lead antigo não é tocado. É o TC-021, em que a massa liga Y ao Lead de Z.
+- **Testes:** a troca do prospect de outro CPF e o `precisaVincularLeadTest`.
+
+### 2.26 `2ed8b04e05`: R4, item 5, a P7
+
+- **Antes:** o reflexo da 1.3 era "tudo ou nada". Se o e-mail ou o celular da
+  Account já estava em outro Lead, nada ia; senão, tudo ia, sobrescrevendo os
+  contatos do Lead.
+- **Aqui:** o nome, a renda, o nascimento e o CPF vão para o Lead da mesma
+  pessoa como antes. Cada contato vai só se o campo do Lead estiver vazio ou
+  igual ao valor anterior da Account (o Lead acompanhava a Account), e se não
+  for de outro Lead (`contatoPodeSerRefletido`).
+  - **O Lead Y reutilizado** mantém os contatos próprios (047, decisão 4).
+  - **O Lead que acompanhava a Account** a segue: é o MATCH do 039 e do 004,
+    em que a planilha manda o Lead receber os contatos aprovados.
+- **Testes:** os dois de reflexo que esperavam o "tudo ou nada" passaram a ter
+  o Lead acompanhando a Account antes da mudança; entraram o contato próprio
+  que fica e o contato de outro Lead que não vai.
+- **Verificação na dev (23/10):** 10 TCs no CA, no AR e no FW (047, 039, 004,
+  009, 019, 022, 023, 010, 021 e 012): 29 conformes em 30. Sobra o 021 no CA.
+  Na época, o diagnóstico foi o `IdProponente__c` do principal com o prospect
+  antigo, a corrigir no item 4. Estava errado: o principal já tinha o prospect
+  final da Account, e o que divergia era o PROS-Y que o harness lê (seção
+  2.27).
+
+### 2.27 `e3cbc42e54`: R4, item 4, o resto da P6
+
+- **Aqui:** depois que o `vincularLeadPosPac` grava o prospect na Account:
+  - **o Proponente principal:** os principais ligados à Account recebem o
+    mesmo prospect no `IdProponente__c` (`sincronizarIdProponentePrincipal`);
+  - **o MS Clientes:** o `avisarMsClientes` (`@future(callout=true)`) chama o
+    `MSClienteService.atualizarCliente` com o IdCliente e o prospect, se a
+    Account tiver IdCliente;
+  - **o lock:** os updates da Account, do principal e do Lead reutilizado
+    passam pelo `atualizarComRetry`. Ele usa DML parcial, repete até 3 vezes
+    só os registros que falharam por `UNABLE_TO_LOCK_ROW` e, se não der, só
+    registra no log, sem exceção;
+  - **o Lead reutilizado sem `Id__c`:** ganha um prospect novo antes do
+    vínculo (a `Decisao` passa a levar o `idLeadReutilizado`). Até aqui, esse
+    caso deixava a Account sem prospect.
+- **Copiado como está:** a `MSClienteService` (do `d914e60785`) e a
+  `MSClienteServiceTest` (do `1792eaa62d`), iguais byte a byte, e as 4 linhas
+  do `ATUALIZAR_CLIENTE` no `GraphQLCreator` e a mudança do
+  `GraphQLCreatorTest` (diffs aplicados sem conflito).
+- **Na 2.2:** o `sincronizarIdProponentePrincipal` do `b4be1623d2` buscava os
+  principais da Account, e o retry vinha em dois commits: o do `fe1d5a610c`
+  (DML parcial no `IdProponente__c`) e o do `72cbd884f6` (`update` em
+  try/catch na Account, relançando o erro que não fosse lock). Aqui é um
+  helper só, sem relançar, porque o Queueable já registra e segue.
+- **Testes:** no `UnificacaoLeadServiceTest`:
+  - o principal recebe o prospect, e o MS Clientes recebe o IdCliente e o
+    prospect (mock que guarda o corpo da chamada);
+  - o Lead do CPF sem `Id__c` ganha um, sem Lead novo;
+  - com 2 locks simulados, a terceira tentativa liga o Lead;
+  - com 3, a Account fica sem prospect, sem exceção.
+
+  O lock é simulado por um contador `@TestVisible` (`locksSimulados`), que
+  devolve o `SaveResult` de `UNABLE_TO_LOCK_ROW` sem fazer o DML. O lock real
+  nunca foi reproduzido (plano, seção 5.2).
+- **Verificação na dev (23/10):** 10 TCs no CA, no AR e no FW (021, 001, 006,
+  012, 019, 024, 026, 040, 045 e 047): 29 conformes em 30, igual ao item 5.
+  Nos logs, 27 vínculos (18 reutilizados, 9 novos), 18 principais
+  sincronizados, 27 avisos ao MS Clientes respondidos com sucesso pelo
+  simulador, e nenhuma falha por lock.
+- **O 021 no CA:** a primeira execução da política adia o Lead, porque a
+  Account de Y ainda não tem contato e Y não tem Proponente. O harness lê o
+  PROS-Y nesse momento, e ele ainda é o do Lead de Z. O eco que o harness
+  manda com esse PROS-Y dispara a política de novo, que cria o Lead de Y e
+  liga a Account e o principal a ele. O estado final está certo; a asserção
+  compara com o PROS-Y lido antes. Na produção, sem o vínculo não há
+  `atualizarCliente` nem eco, e quem liga o Lead é a PAC aprovada (item 6).
+
+### 2.28 `753b1e272a`: R4, item 6, a PAC aprovada
+
+- **Aqui:** depois de gravar os contatos aprovados, a PAC aprovada confere a
+  Account de cada proponente principal ligado a uma Account. Se ela precisa do
+  Lead do mesmo CPF (`precisaVincularLead`: sem prospect, ou com o prospect de
+  um Lead de outro CPF), a PAC enfileira o mesmo `VinculoLeadPosPacQueueable`
+  do `/Cliente` (`vincularLeadNaContaAprovada`).
+- **Por quê:** no CA, o `cliente-update` chega antes dos contatos e da PAC de
+  Y. A primeira execução da política adia o Lead, porque não há contato nem
+  Proponente de Y. Sem vínculo, o Salesforce não chama o `atualizarCliente`, e
+  o MS Clientes não manda eco. Antes deste commit, só o eco que o harness
+  mandava sempre (e que no real não existiria) disparava a política de novo.
+  Agora a PAC aprovada, que sempre chega e já traz os contatos aprovados, é o
+  segundo gatilho.
+- **Testes:** no `NotificacaoPACTest`, a PAC aprovada liga à Account de Y sem
+  Lead um Lead do CPF de Y e acerta o principal; a PAC em análise não liga.
+- **Harness, junto:** o eco do MS Clientes passou a sair só quando há aviso
+  (`atualizarCliente`), com o prospect do aviso, e o PROS-Y passou a ser esse
+  prospect (runbook, seção 4.6). Com o harness antigo, o 021 no CA ficava
+  DIVERGENTE pelo PROS-Y lido antes do vínculo (seção 2.27).
+- **Verificação na dev (23/10):** os 10 TCs da amostra do item 4 no CA, no AR
+  e no FW, já com o harness novo: 30 conformes em 30. No 021 do CA, o Lead de
+  Y é ligado pela PAC aprovada, e o eco sai depois dela. No 001, 012, 040 e
+  045 do CA, que também tinham o Lead adiado, a asserção do principal passou a
+  conferir o PROS-Y. O 024 fica sem eco nos três perfis, porque o Lead do CPF
+  está preso a outra Account.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -533,7 +724,7 @@ método (plano, seção 4).
 | [`09dadb24bf`](inventario-commits-2.2.md#c8) (8) | o `prospectPertenceAOutraConta` e a guarda da gravação do prospect, no commit 15; o `criarLeadDoCliente` fica para a R4 e a R5 |
 | [`b372038f43`](inventario-commits-2.2.md#c9) (9) | o descarte em todo evento, no commit 13, sem descartar o evento inteiro; a guarda do prospect em todo evento, no commit 15 |
 | [`fbd67a1216`](inventario-commits-2.2.md#c15) (15) | commit 2 |
-| [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal` do `/Cliente` fica para a R4 |
+| [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) | a regra do `IdProponente__c`, no commit 8; o `sincronizarIdProponentePrincipal`, refeito no commit 29 |
 | [`12182e7e78`](inventario-commits-2.2.md#c13) (13) | substituído pelo `contaQueAJornadaMantem` do commit 18 |
 | [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | o `obterOportunidadePorPayload` e a exceção do vínculo histórico, no commit 18; o `devePreservarContaAtualDaOportunidade` não entra |
 | [`85e4c3ba5f`](inventario-commits-2.2.md#c10) (10) | substituído pelo commit 17 |
@@ -553,3 +744,6 @@ método (plano, seção 4).
 | [`1f6844e910`](inventario-commits-2.2.md#c43) (43) | a recusa da PAC em análise é substituída pelo commit 8; o CPF no descarte, no commit 14; o guard de parciais é da R3 |
 | [`9210581ea5`](inventario-commits-2.2.md#c45) (45) | o ramo sem IdCliente e sem CPF, no commit 14; a leitura do CPF pelo `idProponente` e os testes, no commit 18 |
 | [`7c86318a05`](inventario-commits-2.2.md#c46) (46) | substituído pelo `contaQueAJornadaMantem` do commit 18 |
+| [`d914e60785`](inventario-commits-2.2.md#c2) (2) | a `MSClienteService` e o `ATUALIZAR_CLIENTE` do `GraphQLCreator`, no commit 29; o resto é reescrito pela política da R4 (commits 24 a 29) |
+| [`1792eaa62d`](inventario-commits-2.2.md#c5) (5) | a `MSClienteServiceTest` e a mudança do `GraphQLCreatorTest`, no commit 29; os testes de seletores não entram |
+| [`fe1d5a610c`](inventario-commits-2.2.md#c23) (23) e [`72cbd884f6`](inventario-commits-2.2.md#c44) (44) | o padrão do retry, refeito no `atualizarComRetry` do commit 29 |
