@@ -302,7 +302,8 @@ async function main(): Promise<void> {
   );
   if (naoAplicaveis.length > 0) {
     logStructured('runbook-perfil-nao-aplicavel', {
-      motivo: 'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update)',
+      motivo:
+        'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update); RP, RE e RF, quando ela ainda não tem Account (cliente-insert)',
       pares: naoAplicaveis,
     });
   }

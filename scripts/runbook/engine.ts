@@ -51,7 +51,10 @@ export type Perfil =
   | 'FW'
   | 'RC'
   | 'EP'
-  | 'RL';
+  | 'RL'
+  | 'RP'
+  | 'RE'
+  | 'RF';
 /** Perfis obrigatórios do runbook (§4.1.1): a campanha padrão roda só estes. */
 export const PERFIS: readonly Perfil[] = ['PA', 'CA', 'ME'];
 /**
@@ -64,9 +67,11 @@ export const PERFIS_IDENTIDADE: readonly Perfil[] = ['C1', 'C2', 'C3', 'C4'];
  * Perfis opcionais com as ordens reais da aprovação, tiradas do código do MS
  * de crédito, do WebJob dele e do MS Clientes (seção 7.2 de
  * `docs/origem-dos-eventos-no-salesforce.md`). AR, AM e FW seguem o WebJob;
- * RC, EP e RL partem da ordem CA.
+ * RC, EP e RL partem da ordem CA. RP, RE e RF partem da ordem PA e atrasam a
+ * reentrega dos parciais recusados, como o Event Grid faz (10 s, 30 s, 1 min,
+ * 5 min...): para depois da PAC aprovada, da máquina ou do eco.
  */
-export const PERFIS_ORDEM_REAL: readonly Perfil[] = ['AR', 'AM', 'FW', 'RC', 'EP', 'RL'];
+export const PERFIS_ORDEM_REAL: readonly Perfil[] = ['AR', 'AM', 'FW', 'RC', 'EP', 'RL', 'RP', 'RE', 'RF'];
 export const TODOS_PERFIS: readonly Perfil[] = [
   ...PERFIS,
   ...PERFIS_IDENTIDADE,
@@ -86,7 +91,13 @@ export const NOMES_PERFIS: Record<Perfil, string> = {
   RC: 'RELOGIO-DO-CREDITO',
   EP: 'ECO-ANTES-DO-PARCIAL',
   RL: 'REPOSTAGEM-EM-LOTE',
+  RP: 'REENTREGA-DEPOIS-DA-PAC-APROVADA',
+  RE: 'REENTREGA-ANTES-DO-ECO',
+  RF: 'REENTREGA-NO-FIM',
 };
+
+/** Perfis em que a reentrega dos parciais recusados não vem logo depois do cliente. */
+const PERFIS_REENTREGA_ATRASADA: readonly Perfil[] = ['RP', 'RE', 'RF'];
 
 export function ehPerfilIdentidade(perfil: Perfil): boolean {
   return PERFIS_IDENTIDADE.includes(perfil);
@@ -98,10 +109,14 @@ export function ehPerfilOrdemReal(perfil: Perfil): boolean {
 
 /**
  * O AM só vale quando a pessoa aprovada já existe no MS Clientes: só aí o
- * crédito conhece o IdCliente dela antes da aprovação.
+ * crédito conhece o IdCliente dela antes da aprovação. RP, RE e RF só valem
+ * quando ela ainda não tem Account (o `cliente-insert`): só aí os parciais da
+ * ordem PA são recusados e reentregues.
  */
 export function perfilAplicavel(perfil: Perfil, aprovacao: Aprovacao): boolean {
-  return perfil !== 'AM' || aprovacao.tipoEventoCliente === 'cliente-update';
+  if (perfil === 'AM') return aprovacao.tipoEventoCliente === 'cliente-update';
+  if (PERFIS_REENTREGA_ATRASADA.includes(perfil)) return aprovacao.tipoEventoCliente === 'cliente-insert';
+  return true;
 }
 
 /** Evidências do perfil, para as asserções de validade do RUN. */
@@ -110,7 +125,7 @@ export type EvidenciaDoPerfil = {
   precondicao: Snapshot | null;
   /** Contestações pendentes antes das PACs em análise (perfil C4). */
   contestacoesAntes: number | null;
-  /** Estado antes e depois do evento que o perfil testa (FW, EP e RL). */
+  /** Estado antes e depois do evento que o perfil testa (FW, EP, RL, RP, RE e RF). */
   antesDoGatilho?: Snapshot | null;
   depoisDoGatilho?: Snapshot | null;
   /** RC: instante UTC da PAC aprovada e e-mail do contato que chega atrasado. */
@@ -118,6 +133,8 @@ export type EvidenciaDoPerfil = {
   emailAtrasado?: string;
   /** AR, AM e FW: PACs em análise rejeitadas porque a pessoa ainda não existia. */
   pacsEmAnaliseRejeitadas?: number;
+  /** RP, RE e RF: parciais recusados antes do cliente e reentregues mais tarde. */
+  parciaisReentregues?: number;
 };
 
 /**
@@ -1025,7 +1042,8 @@ export class Execucao {
    * volta com a rejeição esperada (`opcoes.rejeicaoEsperada`), que a produção
    * também teria; qualquer outra resposta diferente de 200 é falha. O contato
    * ou endereço recusado por chegar antes do cliente é reenviado logo depois
-   * do evento de cliente, como o Event Grid faria.
+   * do evento de cliente, como o Event Grid faria. No RP, no RE e no RF, a
+   * reentrega fica para mais tarde (`reentregaAtrasada`).
    */
   private async enviar(
     alvo: 'Cliente' | 'PAC' | 'MaquinaEstado' | 'Pendencia',
@@ -1082,8 +1100,33 @@ export class Execucao {
         `${rotulo} respondeu ${resultado.httpStatus ?? resultado.transportError}: ${resultado.responseText.slice(0, 200)}`,
       );
     }
-    if (alvo === 'Cliente' && /^cliente-/.test(evento.eventType)) await this.reenviarParciaisRecusados();
+    if (
+      alvo === 'Cliente' &&
+      /^cliente-/.test(evento.eventType) &&
+      !PERFIS_REENTREGA_ATRASADA.includes(this.perfil)
+    ) {
+      await this.reenviarParciaisRecusados();
+    }
     return true;
+  }
+
+  /**
+   * RP, RE e RF: a reentrega dos parciais recusados chega depois que a cadeia
+   * andou, com os jobs dela já assentados. Devolve o estado antes e depois.
+   */
+  private async reentregaAtrasada(timeoutJobsMs: number): Promise<EvidenciaDoPerfil> {
+    await this.aguardarJobs(timeoutJobsMs);
+    const parciaisReentregues = this.parciaisRecusados.length;
+    const antesDoGatilho = await this.snapshot();
+    await this.reenviarParciaisRecusados();
+    await this.aguardarJobs(timeoutJobsMs);
+    return {
+      precondicao: null,
+      contestacoesAntes: null,
+      antesDoGatilho,
+      depoisDoGatilho: await this.snapshot(),
+      parciaisReentregues,
+    };
   }
 
   private async reenviarParciaisRecusados(): Promise<void> {
@@ -1628,8 +1671,14 @@ export class Execucao {
     let evidencia = ehPerfilIdentidade(this.perfil)
       ? await this.prepararCaminhoIdentidade(aprovacao, prospectJornada, timeoutJobsMs)
       : null;
-    // Os perfis de identidade, RC, EP e RL usam a ordem do CA nos eventos de cliente.
-    const ordem = this.perfil === 'PA' || this.perfil === 'ME' ? this.perfil : 'CA';
+    // Os perfis de identidade, RC, EP e RL usam a ordem do CA nos eventos de
+    // cliente; RP, RE e RF, a do PA.
+    const ordem =
+      this.perfil === 'PA' || this.perfil === 'ME'
+        ? this.perfil
+        : PERFIS_REENTREGA_ATRASADA.includes(this.perfil)
+          ? 'PA'
+          : 'CA';
 
     const identidade = { idCliente: idClienteEvento, prospect: prospectJornada };
     const cliente = (quando: string) => {
@@ -1700,6 +1749,7 @@ export class Execucao {
     }
 
     await this.enviarPacAprovada(contexto, 25);
+    if (this.perfil === 'RP') evidencia = await this.reentregaAtrasada(timeoutJobsMs);
 
     if (this.perfil === 'RC') {
       // Um contato-update do MS Clientes, de antes da aprovação, chega depois
@@ -1724,8 +1774,10 @@ export class Execucao {
 
     await this.enviarMaquina(contexto, prospectY, 30);
     await this.aguardarJobs(timeoutJobsMs);
+    if (this.perfil === 'RE') evidencia = await this.reentregaAtrasada(timeoutJobsMs);
     // O Lead ligado depois do primeiro eco (pela PAC aprovada, por exemplo) também tem eco.
     if (await this.ecoDoAviso(contexto, 32)) await this.aguardarJobs(timeoutJobsMs);
+    if (this.perfil === 'RF') evidencia = await this.reentregaAtrasada(timeoutJobsMs);
 
     if (this.perfil === 'RL') {
       // O MS Clientes reposta o cliente, os contatos e o endereço, cada um com

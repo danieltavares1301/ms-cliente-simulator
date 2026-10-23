@@ -62,7 +62,7 @@ describe('perfis', () => {
   it('mantém só PA, CA e ME na campanha padrão', () => {
     expect(PERFIS).toEqual(['PA', 'CA', 'ME']);
     expect(PERFIS_IDENTIDADE).toEqual(['C1', 'C2', 'C3', 'C4']);
-    expect(PERFIS_ORDEM_REAL).toEqual(['AR', 'AM', 'FW', 'RC', 'EP', 'RL']);
+    expect(PERFIS_ORDEM_REAL).toEqual(['AR', 'AM', 'FW', 'RC', 'EP', 'RL', 'RP', 'RE', 'RF']);
     expect(TODOS_PERFIS).toEqual([...PERFIS, ...PERFIS_IDENTIDADE, ...PERFIS_ORDEM_REAL]);
     for (const perfil of TODOS_PERFIS) expect(NOMES_PERFIS[perfil]).toBeTruthy();
     expect(PERFIS.some(ehPerfilIdentidade)).toBe(false);
@@ -77,6 +77,14 @@ describe('perfis', () => {
     expect(perfilAplicavel('AM', { ...aprovacao, tipoEventoCliente: 'cliente-insert' })).toBe(false);
     for (const perfil of TODOS_PERFIS.filter((p) => p !== 'AM')) {
       expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-insert' })).toBe(true);
+    }
+  });
+
+  it('roda o RP, o RE e o RF só quando a pessoa aprovada ainda não tem Account', () => {
+    const { aprovacao } = verificador(estado([contaX]));
+    for (const perfil of ['RP', 'RE', 'RF'] as const) {
+      expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-insert' })).toBe(true);
+      expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-update' })).toBe(false);
     }
   });
 
@@ -383,6 +391,32 @@ describe('Verificador.evidenciasDoPerfil nas ordens reais', () => {
       novos: [],
       alterados: [{ Id: '001HZ000000YYYYAAA', campos: ['PersonEmail'] }],
     });
+  });
+
+  it('RP, RE e RF acusam a reentrega que altera ou cria registro, ou que não aconteceu', () => {
+    const { execucao, aprovacao } = verificador(estado([contaX]));
+    const antes = estado([contaX, contaAprovada(execucao)]);
+    const reentrega = (perfil: 'RP' | 'RE' | 'RF', depois: Snapshot, parciaisReentregues = 3) =>
+      new Verificador(execucao, aprovacao, depois, null, 'PROS-Y').evidenciasDoPerfil(
+        perfil,
+        { precondicao: null, contestacoesAntes: null, antesDoGatilho: antes, depoisDoGatilho: depois, parciaisReentregues },
+        false,
+      )[0]!;
+
+    expect(nomesEOk([reentrega('RP', antes), reentrega('RE', antes), reentrega('RF', antes)])).toEqual([
+      ['RP: os parciais reentregues depois da PAC aprovada não alteram nem criam Account ou Lead', true],
+      ['RE: os parciais reentregues depois da máquina e antes do eco não alteram nem criam Account ou Lead', true],
+      ['RF: os parciais reentregues no fim não alteram nem criam Account ou Lead', true],
+    ]);
+    const alterada = reentrega('RP', estado([contaX, contaAprovada(execucao, { PersonEmail: 'velho@example.com' })]));
+    expect(alterada.ok).toBe(false);
+    expect(alterada.detalhe).toEqual({
+      reentregues: 3,
+      novos: [],
+      alterados: [{ Id: '001HZ000000YYYYAAA', campos: ['PersonEmail'] }],
+    });
+    // Sem parcial reentregue, o perfil não exercitou o que testa.
+    expect(reentrega('RF', antes, 0).ok).toBe(false);
   });
 
   it('RC confere a data da PAC em UTC e o contato atrasado descartado', () => {

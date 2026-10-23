@@ -574,6 +574,27 @@ export class Verificador {
       ];
     }
 
+    if (perfil === 'RP' || perfil === 'RE' || perfil === 'RF') {
+      const quando = {
+        RP: 'depois da PAC aprovada',
+        RE: 'depois da máquina e antes do eco',
+        RF: 'no fim',
+      }[perfil];
+      // O contato reentregue tem a data de antes da PAC aprovada, que gravou os
+      // contatos aprovados: perde pela data. Endereço não está no snapshot.
+      const nome = `${perfil}: os parciais reentregues ${quando} não alteram nem criam Account ou Lead`;
+      if (antes === null || depois === null) return [semSnapshot(nome)];
+      const reentregues = evidencia?.parciaisReentregues ?? 0;
+      const { novos, alterados } = mudancasEntre(antes, depois);
+      return [
+        {
+          nome,
+          ok: reentregues > 0 && novos.length === 0 && alterados.length === 0,
+          detalhe: { reentregues, ...(novos.length || alterados.length ? { novos, alterados } : {}) },
+        },
+      ];
+    }
+
     if (perfil === 'RL') {
       const nome = 'RL: a repostagem em lote não altera nem cria Account ou Lead';
       if (antes === null) return [semSnapshot(nome)];

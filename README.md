@@ -16,8 +16,9 @@ duas partes:
   - o harness do runbook da Unificação 2.2, com 44 TCs executáveis (39 no
     `--todos`; os 053 a 057, de proponente adicional, ficam fora do modelo)
     nos perfis PA, CA e ME, os perfis opcionais C1 a C4 do bug 4 e os perfis
-    opcionais AR, AM, FW, RC, EP e RL, com as ordens reais da aprovação. O
-    esperado segue a planilha oficial;
+    opcionais AR, AM, FW, RC, EP, RL, RP, RE e RF, com as ordens reais da
+    aprovação e da reentrega do Event Grid. O esperado segue a planilha
+    oficial;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
   - as consultas somente leitura de `mrv-staging` (`scripts/analise-staging/`).
@@ -519,7 +520,7 @@ O perfil C4 cria uma `Contestacao__c` e a apaga no cleanup. O trigger dela
 chama `Endpoints__c.ContestacaoInsert__c`. Confira antes que o endpoint
 aponta para o simulador, nunca para uma API da MRV.
 
-#### Perfis das ordens reais da aprovação: AR, AM, FW, RC, EP e RL
+#### Perfis das ordens reais da aprovação: AR, AM, FW, RC, EP, RL, RP, RE e RF
 
 Também são opcionais e rodam sobre os TCs existentes. Reproduzem as ordens
 de eventos que o código do MS de crédito, do WebJob dele e do MS Clientes
@@ -537,6 +538,16 @@ Exemplo:
 | RC | 6: relógio do crédito | ordem CA com as PACs no horário do crédito (Brasília rotulado como UTC, e sem fuso na data); depois da PAC aprovada, um `contato-update` de antes dela |
 | EP | 7: eco antes do parcial | ordem CA, mas o celular chega depois do eco, ainda com o prospect da jornada |
 | RL | 8: repostagem em lote | ordem CA completa e, depois, a repostagem do cliente, dos contatos e do endereço com as datas gravadas |
+| RP | reentrega depois da PAC aprovada | ordem PA: os parciais recusados antes do cliente voltam depois da PAC aprovada, antes da máquina e do eco |
+| RE | reentrega antes do eco | ordem PA, com os parciais recusados voltando depois da máquina e antes do eco |
+| RF | reentrega no fim | ordem PA, com os parciais recusados voltando depois de tudo, até do eco |
+
+RP, RE e RF só rodam nos TCs com `cliente-insert`: só neles a Account de Y
+ainda não existe, e só aí o parcial que chega antes do cliente é recusado
+("Parcial antes do cliente", 500) e reentregue. Pela documentação do Azure, o
+Event Grid repete com espera crescente (10 s, 30 s, 1 min, 5 min...), então a
+reentrega pode cair depois de qualquer evento seguinte. No PA, ela vem logo
+depois do cliente.
 
 Detalhes que valem para todos:
 
@@ -562,6 +573,9 @@ Detalhes que valem para todos:
 - **RC:** a data da PAC aprovada ficou gravada em UTC, e o contato atrasado
   foi descartado.
 - **RL:** a repostagem não altera nem cria Account ou Lead.
+- **RP, RE e RF:** houve parcial reentregue, e a reentrega não altera nem
+  cria Account ou Lead. O contato reentregue tem a data de antes da PAC
+  aprovada e perde para ela; o endereço não está no snapshot.
 
 **Resultado na `mrv-devDan` revertida (11/10):** 237 RUNs, 178 conformes. RC,
 EP e RL só repetem as divergências conhecidas do CA. AR, FW e AM mostram a
