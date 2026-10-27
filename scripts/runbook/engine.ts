@@ -1510,7 +1510,9 @@ export class Execucao {
    * Prospects que o Salesforce mandou ao MS Clientes no `atualizarCliente` para
    * o IdCliente da pessoa, na ordem, lidos no log da chamada. O log sai do
    * `@future` por evento de plataforma, então a leitura espera até haver um log
-   * para cada aviso concluído.
+   * para cada aviso concluído. Desde o `a3b71d13bc` (no master, no develop e na
+   * PreProd), o `NotificacaoHelper.autenticacao()` não publica o log do token, e
+   * o aviso sai gravado com o tipo "Token": vale o corpo da chamada, não o tipo.
    */
   private async prospectsAvisados(idCliente: string): Promise<string[]> {
     const desde = new Date((this.inicioServidorMs ?? Date.now()) - 5_000)
@@ -1526,10 +1528,10 @@ export class Execucao {
         ),
         this.consultar(
           avisoSchema,
-          `SELECT BodyRequest__c FROM LogIntegracao__c WHERE CreatedDate >= ${desde} AND EventType__c = 'MicroServicoCliente_ATUALIZAR_CLIENTE' ORDER BY CreatedDate`,
+          `SELECT BodyRequest__c FROM LogIntegracao__c WHERE CreatedDate >= ${desde} AND EventType__c IN ('MicroServicoCliente_ATUALIZAR_CLIENTE', 'Token') ORDER BY CreatedDate`,
         ),
       ]);
-      logs = registros;
+      logs = registros.filter(({ BodyRequest__c: corpo }) => (corpo ?? '').includes('atualizarCliente('));
       if (logs.length >= avisos.length || Date.now() >= limite) break;
       await sleep(INTERVALO_JOBS_MS);
     }
