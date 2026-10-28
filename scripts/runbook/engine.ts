@@ -152,6 +152,12 @@ const CLIENTE_NAO_ENCONTRADO = /Cliente\(Account\) n\S{1,4}o encontrado/;
  */
 const PARCIAL_ANTES_DO_CLIENTE = /Parcial antes do cliente/;
 
+/** Celular em E.164: o que já tem `+` fica; o resto ganha `+` e o DDI (55, sem DDI informado). */
+export function celularE164(celular: string, ddi = '55'): string {
+  if (celular.trim() === '' || celular.trim().startsWith('+')) return celular;
+  return `+${ddi}${celular.replace(/\D/g, '')}`;
+}
+
 export type Fluxo = 'JORNADA_UNIDADE' | 'VENDA_GENERICA';
 
 /**
@@ -232,6 +238,12 @@ export type Aprovacao = {
    * Proponente de `idProponente` igual a esse prospect.
    */
   maquinaSemIdCliente?: { proponenteCredito: boolean };
+  /**
+   * Celular internacional da pessoa aprovada: o DDI fica aqui, e o `celular` é
+   * o número sem ele. A PAC manda `+DDI…`, e o contato manda o número com o
+   * DDI no `complemento`, como o MS Clientes faz. Sem ele, o DDI é 55.
+   */
+  ddiCelular?: string;
 };
 
 export type Assercao = { nome: string; ok: boolean; detalhe?: unknown };
@@ -1149,6 +1161,8 @@ export class Execucao {
       email: string;
       celular: string;
       idProponente: string | null;
+      /** DDI do celular; sem ele, 55. */
+      ddiCelular?: string;
     },
   ): EventGridEnvelope {
     // No RC, os horários saem como o MS de crédito manda; nos outros, em UTC.
@@ -1171,7 +1185,8 @@ export class Execucao {
           dataAlteracao,
           nomeCompleto: proponente.nome,
           email: proponente.email,
-          telefoneCelular: proponente.celular,
+          // Desde 15/10, o MS de crédito manda o celular em E.164 (`+55…`).
+          telefoneCelular: celularE164(proponente.celular, proponente.ddiCelular),
           ...(proponente.idProponente === null
             ? {}
             : { idProponente: proponente.idProponente }),
@@ -1306,7 +1321,13 @@ export class Execucao {
   private async enviarPacEmAnalise(
     rotulo: string,
     segundos: number,
-    proponente: { idCliente: string | null; pessoa: Pessoa; email: string; celular: string },
+    proponente: {
+      idCliente: string | null;
+      pessoa: Pessoa;
+      email: string;
+      celular: string;
+      ddiCelular?: string;
+    },
     idProponente: string | null,
   ): Promise<void> {
     await this.enviar(
@@ -1317,6 +1338,7 @@ export class Execucao {
         nome: proponente.pessoa.nome,
         email: proponente.email,
         celular: proponente.celular,
+        ddiCelular: proponente.ddiCelular,
         idProponente,
       }),
       rotulo,
@@ -1445,6 +1467,7 @@ export class Execucao {
       pessoa: aprovacao.pessoa,
       email: aprovacao.email,
       celular: aprovacao.celular,
+      ddiCelular: aprovacao.ddiCelular,
     };
     await this.enviarPacEmAnalise('pac-analise-1', -50, proponente, identidade.idProponente);
     await this.enviarPacEmAnalise('pac-analise-2', -45, proponente, identidade.idProponente);
@@ -1476,12 +1499,15 @@ export class Execucao {
     descricao: string,
     quando: string,
     identidade: Identidade,
+    ddiCelular = '55',
   ): EventGridEnvelope {
     return this.envelope(tipoEvento, `contato-${tipo}`, quando, {
       idcliente: identidade.idCliente,
       ...(identidade.prospect === null ? {} : { idprospectsalesforce: identidade.prospect }),
       tipocontato: tipo,
       descricao,
+      // O MS Clientes manda o DDI do celular em `complemento` (seção 4 do doc de origem).
+      ...(tipo === 'Celular' ? { complemento: ddiCelular } : {}),
       dataalteracao: quando,
     });
   }
@@ -1599,6 +1625,7 @@ export class Execucao {
         nome: pessoa.nome,
         email: aprovacao.email,
         celular: aprovacao.celular,
+        ddiCelular: aprovacao.ddiCelular,
         idProponente: identidade.idProponente,
       }),
       rotulo,
@@ -1695,6 +1722,7 @@ export class Execucao {
         tipo === 'Email' ? aprovacao.email : aprovacao.celular,
         quando,
         identidade,
+        aprovacao.ddiCelular,
       );
     const endereco = (quando: string) =>
       this.eventoEndereco(`endereco-${sufixoParcial}`, 'COBRANCA', 'endereco', quando, identidade);
@@ -1804,7 +1832,7 @@ export class Execucao {
       );
       await this.enviar(
         'Cliente',
-        this.eventoContato('contato-update', 'Celular', aprovacao.celular, this.t(5), atual),
+        this.eventoContato('contato-update', 'Celular', aprovacao.celular, this.t(5), atual, aprovacao.ddiCelular),
         'repostagem-contato-celular',
       );
       await this.enviar(
@@ -1859,6 +1887,7 @@ export class Execucao {
         nome: pessoa.nome,
         email: aprovacao.email,
         celular: aprovacao.celular,
+        ddiCelular: aprovacao.ddiCelular,
         idProponente: identidade.idProponente,
       });
       const aceita = await this.enviar('PAC', envelope, rotulo, {
@@ -1963,7 +1992,14 @@ export class Execucao {
     );
     await this.enviar(
       'Cliente',
-      this.eventoContato(`contato-${chamadas.celular}`, 'Celular', aprovacao.celular, quando(1), identidade),
+      this.eventoContato(
+        `contato-${chamadas.celular}`,
+        'Celular',
+        aprovacao.celular,
+        quando(1),
+        identidade,
+        aprovacao.ddiCelular,
+      ),
       'contato-celular',
     );
     const parcial = chamadas.demais;

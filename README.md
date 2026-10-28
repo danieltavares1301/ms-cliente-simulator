@@ -555,6 +555,12 @@ Detalhes que valem para todos:
   BFF não publica a jornada genérica nesse ponto.
 - **Origem:** os eventos levam o `subject` real de cada publicador, e o JSONL
   traz o `publicador` de cada evento.
+- **Celular:** a PAC manda o celular em E.164 (`+55…`), como o MS de crédito
+  faz desde 15/10, e o contato de celular manda o DDI no `complemento`, como o
+  MS Clientes. A variante TC-002-INT (fora do `--todos`) usa um celular de
+  Portugal (`+351`) cujos últimos 11 dígitos são os do celular brasileiro do
+  Lead de Z: o Lead novo de Y tem de ficar com o celular internacional, e o
+  Lead de Z, intacto.
 - **PAC de quem ainda não existe:** quando o Salesforce não acha a pessoa
   (sem IdCliente, sem conta pelo CPF e sem prospect, como no TC-040), o
   código da unificação recusa a PAC em análise com 400 "Cliente(Account) não

@@ -76,6 +76,15 @@ const ID_CLIENTE_NO_ID_PROPONENTE =
 const MAQUINA_SEM_ID_CLIENTE =
   'Variante do TC-001 para a lacuna 7 da R1: o jornadausuario-update sai sem IdCliente, com o prospect da jornada. Não está na planilha.';
 
+const CELULAR_INTERNACIONAL =
+  'Variante do TC-002 para a US 1060669: o celular aprovado é internacional (+351) e termina com os mesmos 11 dígitos do celular brasileiro do Lead de Z. Não está na planilha.';
+
+/** Celular local de Portugal (9 dígitos) do RUN, e o brasileiro de DDD 51 com os mesmos dígitos no fim. */
+function celularPortugal(e: Execucao): { local: string; brasileiroParecido: string } {
+  const local = `91${e.contatos.celularD.slice(4)}`;
+  return { local, brasileiroParecido: `51${local}` };
+}
+
 /** TCs da planilha que incluem um proponente adicional, cenário que o harness não modela. */
 const PROPONENTE_ADICIONAL =
   'A planilha descreve a inclusão de um proponente adicional; o harness só modela a troca do principal na aprovação.';
@@ -198,6 +207,33 @@ export const CENARIOS: readonly Cenario[] = [
       v.contasDoCpf(1),
       v.leadsDoCpf(1),
       v.leadNovo({ email: e.contatos.emailC, celular: e.contatos.celularD }),
+      v.vinculo(),
+    ],
+  },
+  {
+    id: 'TC-002-INT',
+    titulo: 'CPF, e-mail e celular divergentes, com celular internacional de mesmos dígitos finais que o de um Lead brasileiro',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: CELULAR_INTERNACIONAL,
+    massa: async (e) => {
+      await e.xSincronizado();
+      await e.criarLead('leadZ', {
+        pessoa: e.z,
+        idProspect: e.z.idProspect,
+        email: e.contatos.emailE,
+        celular: celularPortugal(e).brasileiroParecido,
+      });
+    },
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailC, celular: celularPortugal(e).local }, 'cliente-insert', {
+        ddiCelular: '351',
+      }),
+    esperado: (v, e) => [
+      v.contaNova(),
+      v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+      v.leadNovo({ email: e.contatos.emailC, celular: `351${celularPortugal(e).local}` }),
+      v.preservado('leadZ', 'Lead Z intacto'),
       v.vinculo(),
     ],
   },

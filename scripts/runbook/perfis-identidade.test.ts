@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  celularE164,
   ehPerfilIdentidade,
   ehPerfilOrdemReal,
   Execucao,
@@ -78,6 +79,23 @@ describe('perfis', () => {
     for (const perfil of TODOS_PERFIS.filter((p) => p !== 'AM')) {
       expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-insert' })).toBe(true);
     }
+  });
+
+  it('manda o celular da PAC em E.164, com o DDI informado ou 55', () => {
+    expect(celularE164('31988887777')).toBe('+5531988887777');
+    expect(celularE164('912345678', '351')).toBe('+351912345678');
+    expect(celularE164('+351912345678', '55')).toBe('+351912345678');
+    expect(celularE164('')).toBe('');
+  });
+
+  it('espera o celular internacional com o DDI na frente, e o brasileiro como veio', () => {
+    const { execucao, aprovacao } = verificador(estado([contaX]));
+    const comDdi = (ddiCelular?: string) =>
+      new Verificador(execucao, { ...aprovacao, celular: '912345678', ddiCelular }, estado([contaX]), null, null)
+        .celularAprovado;
+    expect(comDdi('351')).toBe('351912345678');
+    expect(comDdi('55')).toBe('912345678');
+    expect(comDdi()).toBe('912345678');
   });
 
   it('roda o RP, o RE e o RF só quando a pessoa aprovada ainda não tem Account', () => {

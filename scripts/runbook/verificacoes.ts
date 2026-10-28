@@ -112,6 +112,12 @@ export class Verificador {
     return this.aprovacao.pessoa;
   }
 
+  /** Celular aprovado como o Salesforce guarda: o internacional com o DDI na frente. */
+  get celularAprovado(): string {
+    const ddi = this.aprovacao.ddiCelular;
+    return ddi && ddi !== '55' ? `${ddi}${digitos(this.aprovacao.celular)}` : this.aprovacao.celular;
+  }
+
   conta(): AccountRegistro | undefined {
     return contaDaPessoa(this.final, this.pessoa, this.aprovacao.idClienteEvento);
   }
@@ -265,7 +271,7 @@ export class Verificador {
       if ((proponente.EmailAtualizado__c ?? '').toLowerCase() !== this.aprovacao.email.toLowerCase()) {
         problemas.push(`e-mail ${proponente.EmailAtualizado__c ?? 'vazio'}`);
       }
-      if (!mesmoCelular(digitos(proponente.Celular__c), this.aprovacao.celular)) {
+      if (!mesmoCelular(digitos(proponente.Celular__c), this.celularAprovado)) {
         problemas.push(`celular ${proponente.Celular__c ?? 'vazio'}`);
       }
     }
@@ -358,7 +364,7 @@ export class Verificador {
       if (
         opcoes.contatosAprovados &&
         ((lead.Email ?? '').toLowerCase() !== this.aprovacao.email.toLowerCase() ||
-          !mesmoCelular(celularDoLead(lead), this.aprovacao.celular))
+          !mesmoCelular(celularDoLead(lead), this.celularAprovado))
       ) {
         problemas.push(
           `contatos diferentes dos aprovados: ${lead.Email ?? 'vazio'} / ${celularDoLead(lead) || 'vazio'}`,
@@ -418,7 +424,7 @@ export class Verificador {
     // A planilha pede, em todos os TCs, a Account e o Proponente refletindo a
     // PAC, o IdCliente vinculado e nenhuma Account duplicada para a pessoa.
     assercoes.push(
-      this.contaComContatos(this.aprovacao.email, this.aprovacao.celular),
+      this.contaComContatos(this.aprovacao.email, this.celularAprovado),
       this.contaComIdCliente(),
       this.nenhumaContaAMais(),
       this.proponenteComDadosDaPac(),
