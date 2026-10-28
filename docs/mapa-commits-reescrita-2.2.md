@@ -50,6 +50,8 @@ branch antiga.
 | 29 | `e3cbc42e54` | 5, seção 5.2, item 4 | Quando a Account ganha o Lead da pessoa, o Proponente principal recebe o mesmo prospect e o MS Clientes é avisado (P6) | a `MSClienteService` do [`d914e60785`](inventario-commits-2.2.md#c2) (2) e o teste do [`1792eaa62d`](inventario-commits-2.2.md#c5) (5), iguais byte a byte; refaz o `sincronizarIdProponentePrincipal` do [`b4be1623d2`](inventario-commits-2.2.md#c20) (20) e o retry do [`fe1d5a610c`](inventario-commits-2.2.md#c23) (23) e do [`72cbd884f6`](inventario-commits-2.2.md#c44) (44); o Lead reutilizado sem `Id__c` ganha um, como no [`509c87ad24`](inventario-commits-2.2.md#c18) (18) | commit novo (2.27) |
 | 30 | `753b1e272a` | 5, seção 5.2, item 6 | Na PAC aprovada, a Account do proponente principal sem prospect, ou com o prospect de um Lead de outro CPF, ganha um Lead do mesmo CPF, reutilizado ou criado | sem equivalente: na 2.2, só o `/Cliente` criava ou ligava o Lead depois da aprovação | commit novo (2.28) |
 | 31 | `8f4a205492` | 5, seção 5.2 (achado da campanha) | Sem o Proponente do CPF da Account, o pós-PAC só liga o Lead livre do mesmo CPF; reutilizar um Lead pelo contato ou criar um novo espera a PAC aprovada | sem equivalente: na 2.2, o `insertLeadQueueable` decidia com os contatos que tivesse, como o item 2 daqui | commit novo (2.29) |
+| 32 | `8ae9952e54` | fora do plano: merge da `GestaoVendasPreProd` | Merge da `origin/GestaoVendasPreProd` (ponta `132b148fbf`, de 23/10) no branch, feito pelo usuário | não se aplica | merge (2.30) |
+| 33 | `5e15a1ab6e` | fora do plano: a US 1060669 (telefone internacional) no código da unificação | O celular internacional não se confunde com um celular brasileiro de mesmos dígitos, e quem grava o celular na Account ou no Lead grava junto o código do país | sem equivalente: a 2.2 é anterior à US 1060669 | commit novo (2.31) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -740,6 +742,62 @@ método (plano, seção 4).
   013 no CA e no ME rodou mais duas vezes, conforme nas duas. Nos logs, 25
   vínculos adiados para a PAC aprovada, 54 Leads ligados (34 reutilizados e
   20 novos) e nenhuma falha.
+
+### 2.30 `8ae9952e54`: o merge da PreProd
+
+- **O que entrou:** 800 commits da `GestaoVendasPreProd`, até o `132b148fbf`
+  (23/10). No recorte da unificação, o merge mudou 47 arquivos. As nossas
+  classes ficaram como estavam, com o que a PreProd mudou por cima: a US
+  1060669 (telefone internacional) no `NotificacaoCliente`, no
+  `ClienteService`, no `ClienteSelector`, na `NotificacaoPAC` e no
+  `PersonAccount`; a deduplicação de Lead; e o `NotificacaoHelper`, que desde
+  o `a3b71d13bc` (16/07) não publica o log do token.
+- **Na dev (27/10):** o recorte que o merge mudou, mais o que ele precisa para
+  compilar (`TelefoneUtil`, `ClienteIntegration`,
+  `LeadDeduplicationPersistence` e dois campos de Lead). Ficaram de fora o
+  `OportunidadeTriggerHandler` e o `NotificacaoChatbot`
+  ([estado da dev](estado-da-mrv-devDan.md)).
+- **Verificação:** os testes das 127 classes que usam o que mudou rodaram
+  antes e depois, e nada falhou por causa do código. O runbook completo (44
+  TCs, 16 perfis) deu 626 conformes em 626, igual à etapa 6 par a par
+  ([relatório](resultado-runbook-pos-merge-preprod-2026-10-27.md)).
+
+### 2.31 `5e15a1ab6e`: a US 1060669 no código da unificação
+
+- **Por quê:** o código que a reescrita criou tratava celular por conta
+  própria, sem as regras da US 1060669 que o merge trouxe para o resto.
+  - A política e o reflexo P7 comparavam os dígitos, ficando com os últimos
+    11. Assim, um celular de Portugal (`+351 912 345 678`) virava
+    `51912345678`, um celular válido de Porto Alegre, e podia reutilizar o
+    Lead de outra pessoa ou barrar um contato.
+  - O ponto único da R3 e as gravações no Lead não mexiam no
+    `CodigoPaisCelular__c`.
+- **Aqui:**
+  - a política (`decidir`, `contatoDeOutroLead`, `leadCompartilhaCelular`) e
+    o reflexo P7 (`mesmoContato` e a busca de contatos de outros Leads)
+    comparam celular pelas chaves da `TelefoneUtil` (`toMatchKeys` e, no
+    internacional, `toStoredInternationalKeys`), como a DEC-07;
+  - o ponto único grava o celular com `toOperationalPhone` e, quando o número
+    muda, regrava o DDI (`55` para o brasileiro, vazio para o internacional,
+    porque a `TelefoneUtil` não deduz o DDI de E.164), como a DEC-02 e a
+    DEC-09;
+  - o Lead novo, o reutilizado e o reflexo levam o DDI junto com o celular.
+- **Antes, na staging (só leitura):** a PAC não tem campo de DDI, mas manda o
+  celular em E.164 desde 15/10 (até 01/10, 11 dígitos sem DDI).
+- **Testes:** os casos de Portugal (sem colisão com o brasileiro de mesmos
+  dígitos, o candidato achado com o número gravado com espaço, o DDI levado
+  ao Lead) e do Brasil (DDI 55), e o mesmo número mantendo o DDI. O caso dos
+  EUA ficou de fora: a `resolveCodigoPaisParaGravacao` não grava o DDI de um
+  `+1` com 10 dígitos, que o `isValid` do Brasil aceita como celular
+  brasileiro (limitação da `TelefoneUtil`, levada ao dono da US).
+- **Harness, junto:** a PAC passou a mandar o celular em E.164 e o contato, o
+  DDI no `complemento`. A variante TC-002-INT aprova um celular de Portugal
+  com os mesmos 11 dígitos finais do celular brasileiro do Lead de Z.
+- **Verificação na dev (27/10):** 135 testes no deploy. Nos testes das 127
+  classes, nada regrediu por causa do código (o `NotificacaoMaquinaEstadoTest`
+  caiu no lote pela classe do Einstein e, sozinho, deu 25 de 26). Uma amostra
+  do runbook (a TC-002-INT e 9 TCs brasileiros no PA, no CA, no ME, no AR e no
+  FW) deu 50 conformes em 50.
 
 ## 3. Destino dos commits da 2.2 já tratados
 
