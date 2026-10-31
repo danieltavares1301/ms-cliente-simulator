@@ -59,8 +59,9 @@ e 13 de Venda Genérica (040 a 048 e 054 a 057).
   `cliente-*` pode ter movido a Opportunity.
 
 **Os 7 conformes também sem a correção** (004, 009, 020, 022, 024, 025 e 027)
-são os TCs em que a Account de Y já existe e a PAC a acha pelo CPF. Neles, o
-bug não se aplica.
+são os TCs em que o bug não se aplica: no 004, a pessoa aprovada é a própria
+X, e a Opportunity já está na Account dela; nos outros 6, a Account de Y já
+existe, e a PAC a acha pelo CPF.
 
 **Variantes fora do modelo, com a correção:** **4 conformes em 4** (TC-001-XSI,
 TC-002-INT, TC-040-IDP e TC-040-IDX).
@@ -72,6 +73,10 @@ TC-002-INT, TC-040-IDP e TC-040-IDX).
   `cliente-insert` desse RUN também faltou.
 - **Ficaram de fora o TC-001-MSI e o TC-001-MPC:** o AS troca a jornada por uma
   com o IdCliente de Y, e as duas variantes perderiam o que testam.
+
+**Na campanha completa de 31/10** (o `--todos` novo), o AS rodou nos 31
+cenários em que se aplica: 31 conformes
+([relatório](../resultado-runbook-completo-2026-10-31.md)).
 
 **Arquivos:** `../campanhas-runbook/as-todos-sem-correcao-2026-10-31.jsonl`,
 `../campanhas-runbook/as-todos-com-correcao-2026-10-31.jsonl` e
