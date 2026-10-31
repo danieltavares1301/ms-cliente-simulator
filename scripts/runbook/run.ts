@@ -43,6 +43,7 @@ import {
  *
  *   npm run runbook -- --tcs TC-005,TC-006 [--perfis PA,CA,ME]
  *   npm run runbook -- --todos [--saida resultados.jsonl]
+ *   npm run runbook -- --todos --perfis PA,CA,ME
  *   npm run runbook -- --tcs TC-001,TC-005 --perfis C1,C2,C3,C4
  *   npm run runbook -- --tcs TC-001,TC-005 --perfis AR,AM,FW,RC,EP,RL
  *   npm run runbook -- --todos --paralelo 6
@@ -51,11 +52,15 @@ import {
  * `--paralelo N` (até 10) roda N ao mesmo tempo: é um desvio consciente do
  * runbook, e um RUN que acusa job com erro é refeito em sequência antes de
  * virar divergência. Cada resultado vai para um JSONL, que
- * `npm run runbook:relatorio` consolida. Sem `--perfis`, rodam só PA, CA e
- * ME. São opcionais os perfis C1 a C4 (bug 4 do TC-001) e os das ordens reais
- * da aprovação (AR, AM, FW, RC, EP, RL, RP, RE, RF e AS); o AM só roda nos
- * TCs em que a pessoa aprovada já existe no MS Clientes, e RP, RE, RF e AS,
- * nos em que ela ainda não tem Account.
+ * `npm run runbook:relatorio` consolida.
+ *
+ * O `--todos` roda todos os cenários, inclusive as variantes e os fora do
+ * modelo (o relatório os marca), em todos os perfis aplicáveis a cada um. Com
+ * `--tcs`, sem `--perfis`, rodam só PA, CA e ME. Os perfis C1 a C4 (bug 4 do
+ * TC-001) e os das ordens reais da aprovação (AR, AM, FW, RC, EP, RL, RP, RE,
+ * RF e AS) não valem em todo TC: o AM só roda nos TCs em que a pessoa aprovada
+ * já existe no MS Clientes, e RP, RE, RF e AS, nos em que ela ainda não tem
+ * Account (`perfilAplicavel`).
  *
  * Queda de rede: leituras e exclusões tentam de novo; a primeira falha fecha
  * o portão, e nenhum RUN novo começa até a org responder. Um RUN que caiu é
@@ -71,9 +76,10 @@ function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
     if (fora.length > 0) {
       logStructured('runbook-fora-do-modelo', {
         tcs: fora.map(({ id, foraDoModelo }) => ({ id, motivo: foraDoModelo })),
+        observacao: 'Rodam no --todos; o relatório os marca como fora do modelo.',
       });
     }
-    return CENARIOS.filter(({ foraDoModelo }) => foraDoModelo === undefined);
+    return CENARIOS;
   }
   const pedido = readCliFlag(argv, 'tcs');
   if (pedido === undefined) {
@@ -102,7 +108,7 @@ function selecionarCenarios(argv: readonly string[]): readonly Cenario[] {
 
 function selecionarPerfis(argv: readonly string[]): readonly Perfil[] {
   const pedido = readCliFlag(argv, 'perfis');
-  if (pedido === undefined) return PERFIS;
+  if (pedido === undefined) return argv.includes('--todos') ? TODOS_PERFIS : PERFIS;
   const perfis = pedido.split(',').map((valor) => valor.trim().toUpperCase());
   const invalidos = perfis.filter((perfil) => !TODOS_PERFIS.includes(perfil as Perfil));
   if (invalidos.length > 0) {
@@ -304,7 +310,7 @@ async function main(): Promise<void> {
   if (naoAplicaveis.length > 0) {
     logStructured('runbook-perfil-nao-aplicavel', {
       motivo:
-        'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update); RP, RE, RF e AS, quando ela ainda não tem Account (cliente-insert)',
+        'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update); RP, RE, RF e AS, quando ela ainda não tem Account (cliente-insert); o AS, também só com a jornada com IdCliente',
       pares: naoAplicaveis,
     });
   }

@@ -40,9 +40,10 @@ Na staging, os três saíram juntos, e o `cliente-insert` esperou o lock que a
 PAC tinha no Proponente. Mandados em paralelo na dev, ou a PAC ou a jornada
 acabava vendo a Account de Y, e a corrida não se reproduzia. Por isso o perfil
 reproduz o resultado dela, em sequência. Ele vale só nos TCs com
-`cliente-insert`: 23 dos que o `--todos` roda, mais o 054 a 057, que ficam
-fora do modelo e foram pedidos por `--tcs`. Fora do `--todos`, como todo
-perfil opcional, ele só roda com `--perfis AS`.
+`cliente-insert`, menos o TC-001-MSI e o TC-001-MPC, cuja jornada ele
+trocaria: 31 dos 50 cenários. Desde 31/10, o `--todos` roda todos os perfis
+aplicáveis, e o AS entra nele. A verificação abaixo rodou antes disso, por
+`--tcs`, nos 23 TCs do modelo com `cliente-insert` e no 054 a 057.
 
 **Sem a correção** (as classes do HEAD implantadas por alguns minutos na
 `mrv-devDan`): **20 divergentes em 27**, todos só na Opportunity, que ficou

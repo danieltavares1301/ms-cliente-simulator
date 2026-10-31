@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { CENARIOS } from './cenarios.ts';
 import {
   celularE164,
   ehPerfilIdentidade,
@@ -103,6 +104,29 @@ describe('perfis', () => {
     for (const perfil of ['RP', 'RE', 'RF', 'AS'] as const) {
       expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-insert' })).toBe(true);
       expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-update' })).toBe(false);
+    }
+  });
+
+  it('não roda o AS com a jornada sem IdCliente, que ele trocaria', () => {
+    const { aprovacao } = verificador(estado([contaX]));
+    for (const proponenteCredito of [false, true]) {
+      const semIdCliente = {
+        ...aprovacao,
+        tipoEventoCliente: 'cliente-insert' as const,
+        maquinaSemIdCliente: { proponenteCredito },
+      };
+      expect(perfilAplicavel('AS', semIdCliente)).toBe(false);
+      expect(perfilAplicavel('RP', semIdCliente)).toBe(true);
+    }
+  });
+
+  it('aplica a cada cenário do --todos 16 perfis no cliente-insert e 13 no cliente-update', () => {
+    for (const cenario of CENARIOS) {
+      const aprovacao = cenario.aprovacao(new Execucao(semConexao, cenario.id, 'PA', 1_000));
+      const aplicaveis = TODOS_PERFIS.filter((perfil) => perfilAplicavel(perfil, aprovacao));
+      const esperado =
+        aprovacao.tipoEventoCliente === 'cliente-update' ? 13 : aprovacao.maquinaSemIdCliente ? 15 : 16;
+      expect(aplicaveis, cenario.id).toHaveLength(esperado);
     }
   });
 

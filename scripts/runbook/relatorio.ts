@@ -63,6 +63,10 @@ async function main(): Promise<void> {
   const perfis = presentes.length > 0 ? presentes : PERFIS;
   const contar = (veredito: ResultadoRun['veredito']) =>
     resultados.filter((resultado) => resultado.veredito === veredito).length;
+  const foraDoModelo = new Set(
+    CENARIOS.filter(({ foraDoModelo }) => foraDoModelo !== undefined).map(({ id }) => id),
+  );
+  const runsForaDoModelo = resultados.filter(({ tc }) => foraDoModelo.has(tc));
   const inicio = resultados.map(({ inicio }) => inicio).sort()[0] ?? '';
   const fim = resultados.map(({ fim }) => fim).sort().at(-1) ?? '';
 
@@ -80,6 +84,15 @@ async function main(): Promise<void> {
     '',
     `**${resultados.length} RUNs:** ${contar('CONFORME')} conformes, ${contar('DIVERGENTE')} divergentes, ${contar('ERRO')} com erro de execução.`,
     '',
+    ...(runsForaDoModelo.length > 0
+      ? [
+          `> **${runsForaDoModelo.length} dos RUNs são de TCs fora do modelo** (marcados na tabela e`,
+          '> listados na seção "Fora do modelo"): variantes que não estão na planilha e TCs',
+          '> que o harness não monta como a planilha descreve. Um conforme neles não aprova',
+          '> o TC da planilha.',
+          '',
+        ]
+      : []),
     ...(perfis.some((perfil) => PERFIS_IDENTIDADE.includes(perfil))
       ? [
           '> **Perfis C1 a C4 (bug 4 do TC-001):** ordem CA mais PACs em análise com os',
@@ -96,7 +109,8 @@ async function main(): Promise<void> {
           '> Event Grid (RP, RE e RF) e a aprovação de pessoa nova com o cliente, a PAC e a',
           '> jornada juntos (AS). "—" é TC em que o perfil não se aplica: no AM, a pessoa',
           '> aprovada ainda não existe no MS Clientes; no RP, no RE, no RF e no AS, ela já',
-          '> tem Account. Veja a seção 7.2 de',
+          '> tem Account; no AS, também a jornada sem IdCliente do TC-001-MSI e do',
+          '> TC-001-MPC, que ele trocaria. Veja a seção 7.2 de',
           '> `docs/origem-dos-eventos-no-salesforce.md` e o estado da dev em',
           '> `docs/estado-da-mrv-devDan.md`.',
           '',
@@ -113,7 +127,8 @@ async function main(): Promise<void> {
       return resultado === undefined ? '—' : SIMBOLO[resultado.veredito];
     });
     if (celulas.every((celula) => celula === '—')) continue;
-    linhas.push(`| ${cenario.id} | ${cenario.titulo} | ${celulas.join(' | ')} |`);
+    const marca = cenario.foraDoModelo === undefined ? '' : ' _(fora do modelo)_';
+    linhas.push(`| ${cenario.id} | ${cenario.titulo}${marca} | ${celulas.join(' | ')} |`);
   }
 
   const comProblema = CENARIOS.filter((cenario) =>
@@ -151,6 +166,18 @@ async function main(): Promise<void> {
     linhas.push('## Adaptações registradas', '');
     for (const cenario of observacoes) {
       linhas.push(`- **${cenario.id}:** ${cenario.observacao}`);
+    }
+    linhas.push('');
+  }
+
+  const foraComResultado = CENARIOS.filter(
+    (cenario) =>
+      cenario.foraDoModelo !== undefined && perfis.some((perfil) => porPar.has(`${cenario.id}:${perfil}`)),
+  );
+  if (foraComResultado.length > 0) {
+    linhas.push('## Fora do modelo', '');
+    for (const cenario of foraComResultado) {
+      linhas.push(`- **${cenario.id}:** ${cenario.foraDoModelo}`);
     }
     linhas.push('');
   }

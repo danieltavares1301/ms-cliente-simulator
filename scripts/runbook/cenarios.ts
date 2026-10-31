@@ -7,8 +7,10 @@ import type { Verificador } from './verificacoes.ts';
  * Os 44 TCs executáveis do runbook (`docs/runbook-testes-manuais-
  * unificacao-2.2.md`): os 70 da planilha menos os marcados como Bloqueado e
  * os `BLOCKED-FUNCIONAL` (008, 028, 029, 050, 052, 058, 060, 064, 065), que
- * aguardam decisão de PO/QA. Cada um roda nos perfis PA, CA e ME. Cinco deles
- * (053 a 057) ficam fora do modelo (`foraDoModelo`) e fora do `--todos`.
+ * aguardam decisão de PO/QA. Cada um roda nos perfis PA, CA e ME e nos
+ * opcionais que se aplicam a ele. Cinco deles (053 a 057) ficam fora do
+ * modelo (`foraDoModelo`), assim como as 6 variantes que não estão na
+ * planilha: rodam no `--todos`, mas o relatório os marca.
  *
  * O esperado segue a planilha oficial, não só o texto do runbook
  * (`docs/convergencia-planilha-runbook-2.2.md`).
@@ -24,7 +26,11 @@ export type Cenario = {
   fluxo: 'JORNADA_UNIDADE' | 'VENDA_GENERICA';
   /** Adaptação ou leitura do texto do runbook registrada no relatório. */
   observacao?: string;
-  /** Motivo de o TC ficar fora do `--todos`: o harness não modela o cenário da planilha. */
+  /**
+   * Motivo de o TC ficar fora do modelo: é uma variante que não está na
+   * planilha, ou o harness não monta o cenário como a planilha descreve. O
+   * relatório marca o TC, e um conforme nele não aprova o TC da planilha.
+   */
   foraDoModelo?: string;
   /** MATCH: a pessoa aprovada é a própria X, que pode mudar. */
   xAlteravel?: boolean;

@@ -110,8 +110,10 @@ em `scripts/runbook/cenarios.ts`, com as verificações de
 Dos 70 TCs da planilha:
 
 - **44 executáveis:** 001 a 007, 009 a 027, 038 a 049, 053 a 057 e 062. O
-  harness roda 39: os 053 a 057 descrevem a inclusão de um proponente
-  adicional, que ele não modela, e ficam fora do `--todos` desde 12/10.
+  harness modela 39: os 053 a 057 descrevem a inclusão de um proponente
+  adicional, que ele não monta. Ficaram fora do `--todos` de 12/10 a 31/10;
+  desde 31/10, rodam nele marcados como fora do modelo, e um conforme neles
+  não aprova o TC da planilha.
 - **17 bloqueados na planilha:** os do segundo proponente (030 a 037, 051 e
   063), as priorizações de 066 a 070, a alteração cadastral pós-PAC na Venda de
   Unidade (059) e a reemissão de contrato (061).
@@ -251,7 +253,7 @@ aceita quando:
 Como medir:
 
 ```bash
-npm run runbook -- --todos --perfis PA,CA,ME,C1,C2,C3,C4,AR,AM,FW,RC,EP,RL --paralelo 6 --saida campanha.jsonl
+npm run runbook -- --todos --paralelo 6 --saida campanha.jsonl
 npm run runbook:relatorio -- --entrada campanha.jsonl --saida docs/resultado-runbook-....md
 npm run runbook:bugs -- --entrada campanha.jsonl --comparar campanha-anterior.jsonl
 ```

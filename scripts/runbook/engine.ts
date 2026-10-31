@@ -118,10 +118,13 @@ export function ehPerfilOrdemReal(perfil: Perfil): boolean {
  * crédito conhece o IdCliente dela antes da aprovação. RP, RE, RF e AS só
  * valem quando ela ainda não tem Account (o `cliente-insert`): só aí os
  * parciais da ordem PA são recusados e reentregues, e só aí a Account nasce
- * junto com a aprovação.
+ * junto com a aprovação. O AS também não vale com a jornada sem IdCliente
+ * (TC-001-MSI e TC-001-MPC): ele a troca pela jornada da staging, e a
+ * variante perde o que testa.
  */
 export function perfilAplicavel(perfil: Perfil, aprovacao: Aprovacao): boolean {
   if (perfil === 'AM') return aprovacao.tipoEventoCliente === 'cliente-update';
+  if (perfil === 'AS' && aprovacao.maquinaSemIdCliente !== undefined) return false;
   if (PERFIS_SO_PESSOA_NOVA.includes(perfil)) return aprovacao.tipoEventoCliente === 'cliente-insert';
   return true;
 }

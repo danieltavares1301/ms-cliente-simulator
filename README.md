@@ -13,12 +13,12 @@ duas partes:
   faz de volta: GraphQL `atualizarCliente`, token, PAC Crédito e Contestação.
 - **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
   Salesforce CLI:
-  - o harness do runbook da Unificação 2.2, com 44 TCs executáveis (39 no
-    `--todos`; os 053 a 057, de proponente adicional, ficam fora do modelo)
-    nos perfis PA, CA e ME, os perfis opcionais C1 a C4 do bug 4 e os perfis
-    opcionais AR, AM, FW, RC, EP, RL, RP, RE e RF, com as ordens reais da
-    aprovação e da reentrega do Event Grid. O esperado segue a planilha
-    oficial;
+  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 6
+    variantes que não estão na planilha, nos perfis PA, CA e ME, nos perfis
+    C1 a C4 do bug 4 e nos perfis AR, AM, FW, RC, EP, RL, RP, RE, RF e AS, com
+    as ordens reais da aprovação e da reentrega do Event Grid. O `--todos`
+    roda os 50 cenários em todos os perfis aplicáveis a cada um. O esperado
+    segue a planilha oficial;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
   - as consultas somente leitura de `mrv-staging` (`scripts/analise-staging/`).
@@ -402,13 +402,28 @@ do catálogo copiado para a decisão de arquitetura pendente.
 ### Runbook da Unificação 2.2 (recorte 2.2)
 
 `npm run runbook -- --tcs TC-005,TC-006 [--perfis PA,CA,ME] [--saida resultados.jsonl]`
-(ou `--todos`) roda os **TCs executáveis** do
-[runbook](docs/runbook-testes-manuais-unificacao-2.2.md) na `mrv-devDan`, cada
-um nos três perfis obrigatórios (`ORDEM-PARCIAIS-ANTES`, `ORDEM-CLIENTE-ANTES`
-e `ORDEM-MESMO-EVENTTIME`), com massa nova por RUN. Os TCs bloqueados, os
-`BLOCKED-FUNCIONAL` e os de proponente adicional (053 a 057, fora do modelo do
-harness) ficam de fora. Requer o mesmo ambiente local autenticado
-descrito acima.
+roda os TCs pedidos do
+[runbook](docs/runbook-testes-manuais-unificacao-2.2.md) na `mrv-devDan`. Sem
+`--perfis`, cada um roda nos três perfis obrigatórios (`ORDEM-PARCIAIS-ANTES`,
+`ORDEM-CLIENTE-ANTES` e `ORDEM-MESMO-EVENTTIME`), com massa nova por RUN.
+Requer o mesmo ambiente local autenticado descrito acima.
+
+`npm run runbook -- --todos [--paralelo 6] [--saida campanha.jsonl]` roda a
+**campanha completa**: os 50 cenários, cada um em todos os perfis que se
+aplicam a ele. São 747 RUNs:
+
+| Cenários | Perfis |
+|---|---|
+| Com `cliente-insert` (31) | 16: todos menos o AM |
+| Com `cliente-insert` e a jornada sem IdCliente (TC-001-MSI e TC-001-MPC) | 15: também sem o AS |
+| Com `cliente-update` (17) | 13: todos menos RP, RE, RF e AS |
+
+Com `--perfis`, o `--todos` roda só os perfis pedidos. Os TCs bloqueados e os
+`BLOCKED-FUNCIONAL` ficam de fora. Entram, marcados no relatório como **fora
+do modelo**, as 6 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
+TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
+planilha descreve a inclusão de um proponente adicional, e o harness só monta
+a troca do principal. Um conforme neles não aprova o TC da planilha.
 
 - **Massa:** entra como fixture, e a cadeia 2.2 roda inteira (PAC, eventos na
   ordem do perfil, Queueable/callback, `cliente-update(PROS-Y)`, `pac-update`
@@ -478,7 +493,7 @@ reteste `npm run retest:tc005`, está em
 
 Os TCs do runbook são um escopo fechado, então os caminhos do bug 4 não
 viraram TCs novos: são perfis opcionais que rodam sobre os TCs existentes. A
-campanha padrão (`--todos`, perfis PA, CA e ME) não muda. Exemplo:
+campanha completa (`--todos`) os inclui. Exemplo:
 
 `npm run runbook -- --tcs TC-001,TC-005 --perfis C1,C2,C3,C4`
 
@@ -520,7 +535,7 @@ O perfil C4 cria uma `Contestacao__c` e a apaga no cleanup. O trigger dela
 chama `Endpoints__c.ContestacaoInsert__c`. Confira antes que o endpoint
 aponta para o simulador, nunca para uma API da MRV.
 
-#### Perfis das ordens reais da aprovação: AR, AM, FW, RC, EP, RL, RP, RE e RF
+#### Perfis das ordens reais da aprovação: AR, AM, FW, RC, EP, RL, RP, RE, RF e AS
 
 Também são opcionais e rodam sobre os TCs existentes. Reproduzem as ordens
 de eventos que o código do MS de crédito, do WebJob dele e do MS Clientes
@@ -548,7 +563,9 @@ ainda não existe, e só aí o parcial que chega antes do cliente é recusado
 ("Parcial antes do cliente", 500) e reentregue. Pela documentação do Azure, o
 Event Grid repete com espera crescente (10 s, 30 s, 1 min, 5 min...), então a
 reentrega pode cair depois de qualquer evento seguinte. No PA, ela vem logo
-depois do cliente.
+depois do cliente. O AS também não roda no TC-001-MSI e no TC-001-MPC: ele
+troca a jornada sem IdCliente dessas variantes pela jornada da staging, e
+elas perderiam o que testam.
 
 Detalhes que valem para todos:
 
@@ -558,7 +575,7 @@ Detalhes que valem para todos:
   traz o `publicador` de cada evento.
 - **Celular:** a PAC manda o celular em E.164 (`+55…`), como o MS de crédito
   faz desde 15/10, e o contato de celular manda o DDI no `complemento`, como o
-  MS Clientes. A variante TC-002-INT (fora do `--todos`) usa um celular de
+  MS Clientes. A variante TC-002-INT (fora do modelo) usa um celular de
   Portugal (`+351`) cujos últimos 11 dígitos são os do celular brasileiro do
   Lead de Z: o Lead novo de Y tem de ficar com o celular internacional, e o
   Lead de Z, intacto.
