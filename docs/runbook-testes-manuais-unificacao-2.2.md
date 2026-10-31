@@ -936,7 +936,7 @@ A ausência dessas evidências deve constar no relatório como **não validado f
 - **Modo:** CLI completo obrigatório com três RUNs independentes: `ORDEM-PARCIAIS-ANTES`, `ORDEM-CLIENTE-ANTES` e `ORDEM-MESMO-EVENTTIME`.
 - **Massa:** X sincronizado com A/B. Y e e-mail C inexistentes.
 - **Execução:** aprovar Y com e-mail C e celular B.
-- **Esperado:** Account Y nova; Lead Y com CPF/e-mail C e sem celular; X intacto.
+- **Esperado:** Account Y nova; Lead Y com CPF/e-mail C e sem celular; Opportunity na Account Y; X intacto. A Opportunity tem de ir para Y mesmo quando a Account de Y nasce depois da PAC aprovada e da jornada, como na staging em 30/10 (perfil AS do harness).
 - **Logs:** `LOG-NOVA-ESTRUTURA` + `LOG-CLI`.
 
 ### TC-018 - Y inexistente; e-mail colide [Planilha: Não iniciado]
@@ -944,7 +944,7 @@ A ausência dessas evidências deve constar no relatório como **não validado f
 - **Modo:** CLI completo obrigatório com três RUNs independentes: `ORDEM-PARCIAIS-ANTES`, `ORDEM-CLIENTE-ANTES` e `ORDEM-MESMO-EVENTTIME`.
 - **Massa:** X sincronizado com A/B. Y e celular D inexistentes.
 - **Execução:** aprovar Y com e-mail A e celular D.
-- **Esperado:** Account Y nova; Lead Y com CPF/celular D e sem e-mail; X intacto.
+- **Esperado:** Account Y nova; Lead Y com CPF/celular D e sem e-mail; Opportunity na Account Y; X intacto. A Opportunity tem de ir para Y mesmo quando a Account de Y nasce depois da PAC aprovada e da jornada (perfil AS do harness).
 - **Logs:** `LOG-NOVA-ESTRUTURA` + `LOG-CLI`.
 
 ### TC-019 - Lead Y livre por CPF, contatos diferentes [Planilha: Não iniciado]

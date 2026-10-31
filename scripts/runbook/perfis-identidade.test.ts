@@ -63,7 +63,7 @@ describe('perfis', () => {
   it('mantém só PA, CA e ME na campanha padrão', () => {
     expect(PERFIS).toEqual(['PA', 'CA', 'ME']);
     expect(PERFIS_IDENTIDADE).toEqual(['C1', 'C2', 'C3', 'C4']);
-    expect(PERFIS_ORDEM_REAL).toEqual(['AR', 'AM', 'FW', 'RC', 'EP', 'RL', 'RP', 'RE', 'RF']);
+    expect(PERFIS_ORDEM_REAL).toEqual(['AR', 'AM', 'FW', 'RC', 'EP', 'RL', 'RP', 'RE', 'RF', 'AS']);
     expect(TODOS_PERFIS).toEqual([...PERFIS, ...PERFIS_IDENTIDADE, ...PERFIS_ORDEM_REAL]);
     for (const perfil of TODOS_PERFIS) expect(NOMES_PERFIS[perfil]).toBeTruthy();
     expect(PERFIS.some(ehPerfilIdentidade)).toBe(false);
@@ -98,9 +98,9 @@ describe('perfis', () => {
     expect(comDdi()).toBe('912345678');
   });
 
-  it('roda o RP, o RE e o RF só quando a pessoa aprovada ainda não tem Account', () => {
+  it('roda o RP, o RE, o RF e o AS só quando a pessoa aprovada ainda não tem Account', () => {
     const { aprovacao } = verificador(estado([contaX]));
-    for (const perfil of ['RP', 'RE', 'RF'] as const) {
+    for (const perfil of ['RP', 'RE', 'RF', 'AS'] as const) {
       expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-insert' })).toBe(true);
       expect(perfilAplicavel(perfil, { ...aprovacao, tipoEventoCliente: 'cliente-update' })).toBe(false);
     }
@@ -435,6 +435,26 @@ describe('Verificador.evidenciasDoPerfil nas ordens reais', () => {
     });
     // Sem parcial reentregue, o perfil não exercitou o que testa.
     expect(reentrega('RF', antes, 0).ok).toBe(false);
+  });
+
+  it('AS confere a Opportunity na Account aprovada e diz quem a moveu', () => {
+    const { execucao, aprovacao } = verificador(estado([contaX]));
+    const conta = contaAprovada(execucao);
+    const comOportunidade = (accountId: string): Snapshot => ({
+      ...estado([contaX, conta]),
+      oportunidade: { Id: '006HZ000000OPPAAA', AccountId: accountId } as Snapshot['oportunidade'],
+    });
+    const assercao = (final: Snapshot, quemMoveuAOportunidade?: string[]) =>
+      new Verificador(execucao, aprovacao, final, null, 'PROS-Y').evidenciasDoPerfil(
+        'AS',
+        { precondicao: null, contestacoesAntes: null, quemMoveuAOportunidade },
+        false,
+      )[0]!;
+
+    const movida = assercao(comOportunidade(conta.Id), ['cliente-insert']);
+    expect(movida.ok).toBe(true);
+    expect(movida.detalhe).toEqual({ movidaPor: ['cliente-insert'] });
+    expect(assercao(comOportunidade(contaX.Id), []).ok).toBe(false);
   });
 
   it('RC confere a data da PAC em UTC e o contato atrasado descartado', () => {

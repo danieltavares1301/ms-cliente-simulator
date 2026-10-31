@@ -54,7 +54,8 @@ export type Perfil =
   | 'RL'
   | 'RP'
   | 'RE'
-  | 'RF';
+  | 'RF'
+  | 'AS';
 /** Perfis obrigatórios do runbook (§4.1.1): a campanha padrão roda só estes. */
 export const PERFIS: readonly Perfil[] = ['PA', 'CA', 'ME'];
 /**
@@ -69,9 +70,11 @@ export const PERFIS_IDENTIDADE: readonly Perfil[] = ['C1', 'C2', 'C3', 'C4'];
  * `docs/origem-dos-eventos-no-salesforce.md`). AR, AM e FW seguem o WebJob;
  * RC, EP e RL partem da ordem CA. RP, RE e RF partem da ordem PA e atrasam a
  * reentrega dos parciais recusados, como o Event Grid faz (10 s, 30 s, 1 min,
- * 5 min...): para depois da PAC aprovada, da máquina ou do eco.
+ * 5 min...): para depois da PAC aprovada, da máquina ou do eco. AS manda o
+ * cliente, a PAC aprovada e a jornada juntos, como chegaram na staging no
+ * TC-017 (30/10).
  */
-export const PERFIS_ORDEM_REAL: readonly Perfil[] = ['AR', 'AM', 'FW', 'RC', 'EP', 'RL', 'RP', 'RE', 'RF'];
+export const PERFIS_ORDEM_REAL: readonly Perfil[] = ['AR', 'AM', 'FW', 'RC', 'EP', 'RL', 'RP', 'RE', 'RF', 'AS'];
 export const TODOS_PERFIS: readonly Perfil[] = [
   ...PERFIS,
   ...PERFIS_IDENTIDADE,
@@ -94,10 +97,13 @@ export const NOMES_PERFIS: Record<Perfil, string> = {
   RP: 'REENTREGA-DEPOIS-DA-PAC-APROVADA',
   RE: 'REENTREGA-ANTES-DO-ECO',
   RF: 'REENTREGA-NO-FIM',
+  AS: 'APROVACAO-SIMULTANEA-PESSOA-NOVA',
 };
 
 /** Perfis em que a reentrega dos parciais recusados não vem logo depois do cliente. */
 const PERFIS_REENTREGA_ATRASADA: readonly Perfil[] = ['RP', 'RE', 'RF'];
+/** Perfis que só valem quando a pessoa aprovada ainda não tem Account (o `cliente-insert`). */
+const PERFIS_SO_PESSOA_NOVA: readonly Perfil[] = [...PERFIS_REENTREGA_ATRASADA, 'AS'];
 
 export function ehPerfilIdentidade(perfil: Perfil): boolean {
   return PERFIS_IDENTIDADE.includes(perfil);
@@ -109,13 +115,14 @@ export function ehPerfilOrdemReal(perfil: Perfil): boolean {
 
 /**
  * O AM só vale quando a pessoa aprovada já existe no MS Clientes: só aí o
- * crédito conhece o IdCliente dela antes da aprovação. RP, RE e RF só valem
- * quando ela ainda não tem Account (o `cliente-insert`): só aí os parciais da
- * ordem PA são recusados e reentregues.
+ * crédito conhece o IdCliente dela antes da aprovação. RP, RE, RF e AS só
+ * valem quando ela ainda não tem Account (o `cliente-insert`): só aí os
+ * parciais da ordem PA são recusados e reentregues, e só aí a Account nasce
+ * junto com a aprovação.
  */
 export function perfilAplicavel(perfil: Perfil, aprovacao: Aprovacao): boolean {
   if (perfil === 'AM') return aprovacao.tipoEventoCliente === 'cliente-update';
-  if (PERFIS_REENTREGA_ATRASADA.includes(perfil)) return aprovacao.tipoEventoCliente === 'cliente-insert';
+  if (PERFIS_SO_PESSOA_NOVA.includes(perfil)) return aprovacao.tipoEventoCliente === 'cliente-insert';
   return true;
 }
 
@@ -135,6 +142,10 @@ export type EvidenciaDoPerfil = {
   pacsEmAnaliseRejeitadas?: number;
   /** RP, RE e RF: parciais recusados antes do cliente e reentregues mais tarde. */
   parciaisReentregues?: number;
+  /** AS: os eventos cujo log diz que levaram a Opportunity para a Account aprovada. */
+  quemMoveuAOportunidade?: string[];
+  /** AS: a jornada voltou recusada (sem a Account, ou lock) e não foi reentregue. */
+  jornadaRecusada?: boolean;
 };
 
 /**
@@ -143,6 +154,9 @@ export type EvidenciaDoPerfil = {
  * codificação quebrada, então o padrão aceita as duas formas.
  */
 const CLIENTE_NAO_ENCONTRADO = /Cliente\(Account\) n\S{1,4}o encontrado/;
+
+/** AS: a jornada que chega antes da Account de Y pode voltar sem a Account ou com lock. */
+const RECUSA_DA_JORNADA_SEM_A_ACCOUNT = /Cliente\(Account\) n\S{1,4}o encontrado|UNABLE_TO_LOCK_ROW/;
 
 /**
  * Resposta do `/Cliente` ao contato ou endereço que chega antes da Account da
@@ -388,6 +402,7 @@ const logSchema = z
   .passthrough();
 const idSchema = z.object({ Id: z.string() }).passthrough();
 const avisoSchema = z.object({ BodyRequest__c: texto }).passthrough();
+const movimentoSchema = z.object({ EventType__c: texto, StackTrace__c: texto }).passthrough();
 
 function registros<T extends z.ZodTypeAny>(schema: T) {
   return z.object({
@@ -1611,25 +1626,25 @@ export class Execucao {
     segundos: number,
     rotulo = 'pac-update',
   ): Promise<void> {
+    await this.enviar('PAC', this.envelopePacAprovada(contexto, segundos), rotulo);
+  }
+
+  private envelopePacAprovada(contexto: ContextoCadeia, segundos: number): EventGridEnvelope {
     const { aprovacao, pessoa } = contexto;
     const identidade = this.identidadeDaPacDeY(
       aprovacao,
       contexto.idClienteEvento,
       contexto.prospectJornada,
     );
-    await this.enviar(
-      'PAC',
-      this.pacEnvelope('pac-update', 'CREDITO_APROVADO_CONDICIONADO', this.t(segundos), {
-        idCliente: identidade.idCliente,
-        cpf: pessoa.cpf,
-        nome: pessoa.nome,
-        email: aprovacao.email,
-        celular: aprovacao.celular,
-        ddiCelular: aprovacao.ddiCelular,
-        idProponente: identidade.idProponente,
-      }),
-      rotulo,
-    );
+    return this.pacEnvelope('pac-update', 'CREDITO_APROVADO_CONDICIONADO', this.t(segundos), {
+      idCliente: identidade.idCliente,
+      cpf: pessoa.cpf,
+      nome: pessoa.nome,
+      email: aprovacao.email,
+      celular: aprovacao.celular,
+      ddiCelular: aprovacao.ddiCelular,
+      idProponente: identidade.idProponente,
+    });
   }
 
   /** `jornadausuario-update` da Plataforma BFF, que leva a jornada para Documentação. */
@@ -1638,35 +1653,53 @@ export class Execucao {
     prospectY: string | null,
     segundos: number,
   ): Promise<void> {
+    await this.enviar('MaquinaEstado', this.envelopeMaquina(contexto, prospectY, segundos), 'jornadausuario-update');
+  }
+
+  /**
+   * O `jornadausuario-update`. Com `proponenteSemCpf`, o `ProponenteCredito`
+   * vai com o IdCliente da pessoa aprovada e o CPF vazio, como na staging no
+   * TC-017.
+   */
+  private envelopeMaquina(
+    contexto: ContextoCadeia,
+    prospectY: string | null,
+    segundos: number,
+    opcoes: { proponenteSemCpf?: boolean } = {},
+  ): EventGridEnvelope {
     const semIdCliente = contexto.aprovacao.maquinaSemIdCliente;
     const prospectDaJornada = contexto.prospectJornada ?? this.x.idProspect;
-    const proponenteCredito = semIdCliente?.proponenteCredito
+    const proponenteCredito = opcoes.proponenteSemCpf
       ? {
           proponentecredito: {
             proponentes: [
-              { idProponente: prospectDaJornada, idCliente: null, cpf: contexto.pessoa.cpf },
+              { idProponente: prospectDaJornada, idCliente: contexto.idClienteEvento, cpf: null },
             ],
           },
         }
-      : {};
-    await this.enviar(
-      'MaquinaEstado',
-      this.envelope('jornadausuario-update', 'maquina', this.t(segundos), {
-        cliente: semIdCliente
-          ? { idCliente: null, idProspectSalesforce: prospectDaJornada }
-          : {
-              idCliente: contexto.idClienteEvento,
-              idProspectSalesforce:
-                prospectY ?? contexto.prospectJornada ?? contexto.pessoa.idProspect,
+      : semIdCliente?.proponenteCredito
+        ? {
+            proponentecredito: {
+              proponentes: [
+                { idProponente: prospectDaJornada, idCliente: null, cpf: contexto.pessoa.cpf },
+              ],
             },
-        ...proponenteCredito,
-        id: this.oportunidadeExterna,
-        dataalteracao: this.t(segundos),
-        estado: 'Documentacao',
-        idunidade: PRODUTO_UNIDADE_ATIVA,
-      }),
-      'jornadausuario-update',
-    );
+          }
+        : {};
+    return this.envelope('jornadausuario-update', 'maquina', this.t(segundos), {
+      cliente: semIdCliente
+        ? { idCliente: null, idProspectSalesforce: prospectDaJornada }
+        : {
+            idCliente: contexto.idClienteEvento,
+            idProspectSalesforce:
+              prospectY ?? contexto.prospectJornada ?? contexto.pessoa.idProspect,
+          },
+      ...proponenteCredito,
+      id: this.oportunidadeExterna,
+      dataalteracao: this.t(segundos),
+      estado: 'Documentacao',
+      idunidade: PRODUTO_UNIDADE_ATIVA,
+    });
   }
 
   /**
@@ -1697,6 +1730,7 @@ export class Execucao {
     if (this.perfil === 'AR' || this.perfil === 'AM' || this.perfil === 'FW') {
       return this.cadeiaDoWebJob(contexto);
     }
+    if (this.perfil === 'AS') return this.cadeiaSimultanea(contexto);
     let evidencia = ehPerfilIdentidade(this.perfil)
       ? await this.prepararCaminhoIdentidade(aprovacao, prospectJornada, timeoutJobsMs)
       : null;
@@ -1866,6 +1900,87 @@ export class Execucao {
    * - Na Venda Genérica, a Plataforma BFF não publica a jornada nesse ponto
    *   (seção 3.1), então não há máquina.
    */
+  /**
+   * AS: o resultado da corrida da staging no TC-017 (30/10;
+   * `docs/unificacao-clientes/2026-10-31-tc017-…` no `com_salesforce_mrv`). Lá,
+   * a PAC aprovada, o `cliente-insert` de Y e o `jornadausuario-update` saíram
+   * juntos, e o `cliente-insert` esperou o lock que a PAC tinha no Proponente:
+   * a PAC e a jornada foram processadas sem ver a Account de Y. Em paralelo, a
+   * dev não reproduz essa intercalação, então o perfil manda em sequência:
+   *
+   * 1. a PAC aprovada, já com o IdCliente de Y: grava o Proponente sem Account;
+   * 2. o `jornadausuario-update`, com o IdCliente de Y e o CPF vazio no
+   *    `ProponenteCredito`: não acha Y. Uma recusa ("Cliente(Account) não
+   *    encontrado" ou lock) não é reentregue, como na staging, em que a
+   *    jornada voltou 200 e nenhuma outra veio depois;
+   * 3. o `cliente-insert`, que cria a Account de Y por último.
+   *
+   * Só o `cliente-*` que cria a Account pode, então, mover a Opportunity.
+   * Depois vêm os parciais e o eco. Na Venda Genérica, não há jornada.
+   */
+  private async cadeiaSimultanea(contexto: ContextoCadeia): Promise<ResultadoCadeia> {
+    const { aprovacao, pessoa, idClienteEvento, prospectJornada, timeoutJobsMs } = contexto;
+    const identidade = { idCliente: idClienteEvento, prospect: prospectJornada };
+    await this.enviar('PAC', this.envelopePacAprovada(contexto, 0), 'pac-update');
+    const jornadaRecusada =
+      contexto.fluxo === 'JORNADA_UNIDADE' &&
+      !(await this.enviar(
+        'MaquinaEstado',
+        this.envelopeMaquina(contexto, prospectJornada, 1, { proponenteSemCpf: true }),
+        'jornadausuario-update',
+        { rejeicaoEsperada: RECUSA_DA_JORNADA_SEM_A_ACCOUNT },
+      ));
+    await this.enviar(
+      'Cliente',
+      this.eventoCliente(aprovacao.tipoEventoCliente, 'cliente', this.t(2), identidade, pessoa),
+      aprovacao.tipoEventoCliente,
+    );
+    await this.enviar(
+      'Cliente',
+      this.eventoContato('contato-insert', 'Email', aprovacao.email, this.t(3), identidade),
+      'contato-email',
+    );
+    await this.enviar(
+      'Cliente',
+      this.eventoContato('contato-insert', 'Celular', aprovacao.celular, this.t(3), identidade, aprovacao.ddiCelular),
+      'contato-celular',
+    );
+    await this.enviar('Cliente', this.eventoEndereco('endereco-insert', 'COBRANCA', 'endereco', this.t(3), identidade), 'endereco');
+    await this.aguardarJobs(timeoutJobsMs);
+    if (await this.ecoDoAviso(contexto, 20)) await this.aguardarJobs(timeoutJobsMs);
+    this.cadeiaConcluida = true;
+    return {
+      intermediario: null,
+      final: await this.snapshot(),
+      prospectY: this.prospectAvisado,
+      evidencia: {
+        precondicao: null,
+        contestacoesAntes: null,
+        quemMoveuAOportunidade: await this.quemMoveuAOportunidade(),
+        jornadaRecusada,
+      },
+    };
+  }
+
+  /**
+   * Os eventos do RUN cujo log diz que levaram a Opportunity da jornada para
+   * outra Account: a PAC aprovada ou o `cliente-*` ("… Opportunity <Id> sai da
+   * Account …"). A jornada move sem esse log, e nem todo evento deixa log (em
+   * 31/10, 3 de 5 `cliente-insert` do perfil AS não deixaram nenhum).
+   */
+  private async quemMoveuAOportunidade(): Promise<string[]> {
+    if (this.idOportunidade === null || this.inicioServidorMs === null) return [];
+    const desde = new Date(this.inicioServidorMs - 5_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const logs = await this.consultar(
+      movimentoSchema,
+      `SELECT EventType__c, StackTrace__c FROM LogIntegracao__c WHERE CreatedDate >= ${desde} ORDER BY CreatedDate`,
+    );
+    const marca = `Opportunity ${this.idOportunidade} sai da Account`;
+    return logs
+      .filter(({ StackTrace__c: pilha }) => (pilha ?? '').includes(marca))
+      .map(({ EventType__c: tipo }) => tipo ?? '?');
+  }
+
   private async cadeiaDoWebJob(contexto: ContextoCadeia): Promise<ResultadoCadeia> {
     const { aprovacao, pessoa, idClienteEvento, prospectJornada, timeoutJobsMs } = contexto;
     // Quem o Salesforce ainda não acha (sem IdCliente, sem conta pelo CPF e sem

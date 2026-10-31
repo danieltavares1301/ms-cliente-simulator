@@ -541,8 +541,9 @@ Exemplo:
 | RP | reentrega depois da PAC aprovada | ordem PA: os parciais recusados antes do cliente voltam depois da PAC aprovada, antes da máquina e do eco |
 | RE | reentrega antes do eco | ordem PA, com os parciais recusados voltando depois da máquina e antes do eco |
 | RF | reentrega no fim | ordem PA, com os parciais recusados voltando depois de tudo, até do eco |
+| AS | aprovação de pessoa nova com a Account nascendo por último (TC-017 da staging, 30/10) | em sequência: a PAC aprovada, já com o IdCliente de Y; o `jornadausuario-update` com o CPF vazio no `ProponenteCredito` (sem reentrega, como na staging); e só então o `cliente-insert` de Y. Na Venda Genérica, sem jornada |
 
-RP, RE e RF só rodam nos TCs com `cliente-insert`: só neles a Account de Y
+RP, RE, RF e AS só rodam nos TCs com `cliente-insert`: só neles a Account de Y
 ainda não existe, e só aí o parcial que chega antes do cliente é recusado
 ("Parcial antes do cliente", 500) e reentregue. Pela documentação do Azure, o
 Event Grid repete com espera crescente (10 s, 30 s, 1 min, 5 min...), então a
@@ -582,6 +583,12 @@ Detalhes que valem para todos:
 - **RP, RE e RF:** houve parcial reentregue, e a reentrega não altera nem
   cria Account ou Lead. O contato reentregue tem a data de antes da PAC
   aprovada e perde para ela; o endereço não está no snapshot.
+- **AS:** a Opportunity sai de X para a Account de Y, que nasce depois da PAC
+  e da jornada; só o `cliente-*` que cria a Account pode movê-la. O detalhe
+  diz quem a moveu, pelo log ("… Opportunity <Id> sai da Account …"). A
+  staging mandou os três eventos juntos, e o `cliente-insert` esperou o lock
+  da PAC; a dev não reproduz essa intercalação em paralelo, então o perfil
+  reproduz o resultado dela, em sequência.
 
 **Resultado na `mrv-devDan` revertida (11/10):** 237 RUNs, 178 conformes. RC,
 EP e RL só repetem as divergências conhecidas do CA. AR, FW e AM mostram a

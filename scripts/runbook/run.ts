@@ -53,8 +53,9 @@ import {
  * virar divergência. Cada resultado vai para um JSONL, que
  * `npm run runbook:relatorio` consolida. Sem `--perfis`, rodam só PA, CA e
  * ME. São opcionais os perfis C1 a C4 (bug 4 do TC-001) e os das ordens reais
- * da aprovação (AR, AM, FW, RC, EP e RL); o AM só roda nos TCs em que a
- * pessoa aprovada já existe no MS Clientes.
+ * da aprovação (AR, AM, FW, RC, EP, RL, RP, RE, RF e AS); o AM só roda nos
+ * TCs em que a pessoa aprovada já existe no MS Clientes, e RP, RE, RF e AS,
+ * nos em que ela ainda não tem Account.
  *
  * Queda de rede: leituras e exclusões tentam de novo; a primeira falha fecha
  * o portão, e nenhum RUN novo começa até a org responder. Um RUN que caiu é
@@ -303,7 +304,7 @@ async function main(): Promise<void> {
   if (naoAplicaveis.length > 0) {
     logStructured('runbook-perfil-nao-aplicavel', {
       motivo:
-        'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update); RP, RE e RF, quando ela ainda não tem Account (cliente-insert)',
+        'o AM só vale quando a pessoa aprovada já existe no MS Clientes (cliente-update); RP, RE, RF e AS, quando ela ainda não tem Account (cliente-insert)',
       pares: naoAplicaveis,
     });
   }

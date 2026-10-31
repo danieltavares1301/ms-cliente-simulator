@@ -91,11 +91,12 @@ async function main(): Promise<void> {
       : []),
     ...(perfis.some((perfil) => PERFIS_ORDEM_REAL.includes(perfil))
       ? [
-          '> **Perfis AR, AM, FW, RC, EP, RL, RP, RE e RF (ordens reais):** a ordem que o',
-          '> MS de crédito, o WebJob e o MS Clientes produzem, e a reentrega atrasada do',
-          '> Event Grid (RP, RE e RF). "—" é TC em que o perfil não se aplica: no AM, a',
-          '> pessoa aprovada ainda não existe no MS Clientes; no RP, no RE e no RF, ela já',
-          '> tem Account, e nenhum parcial é recusado. Veja a seção 7.2 de',
+          '> **Perfis AR, AM, FW, RC, EP, RL, RP, RE, RF e AS (ordens reais):** a ordem que',
+          '> o MS de crédito, o WebJob e o MS Clientes produzem, a reentrega atrasada do',
+          '> Event Grid (RP, RE e RF) e a aprovação de pessoa nova com o cliente, a PAC e a',
+          '> jornada juntos (AS). "—" é TC em que o perfil não se aplica: no AM, a pessoa',
+          '> aprovada ainda não existe no MS Clientes; no RP, no RE, no RF e no AS, ela já',
+          '> tem Account. Veja a seção 7.2 de',
           '> `docs/origem-dos-eventos-no-salesforce.md` e o estado da dev em',
           '> `docs/estado-da-mrv-devDan.md`.',
           '',

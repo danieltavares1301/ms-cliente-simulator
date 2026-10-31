@@ -580,6 +580,28 @@ export class Verificador {
       ];
     }
 
+    if (perfil === 'AS') {
+      // A mesma condição da asserção comum, com o evento que moveu a Opportunity
+      // no detalhe: com corrida, o "conforme" sozinho não diz qual caminho valeu.
+      const conta = this.conta();
+      const movidaPor = evidencia?.quemMoveuAOportunidade ?? [];
+      const naContaAprovada = conta !== undefined && this.final.oportunidade?.AccountId === conta.Id;
+      return [
+        {
+          nome: 'AS: com a Account de Y nascendo depois da PAC e da jornada, a Opportunity sai de X para ela',
+          ok: naContaAprovada,
+          detalhe: {
+            movidaPor: movidaPor.length
+              ? movidaPor
+              : naContaAprovada
+                ? 'sem log de movimento encontrado'
+                : 'ninguém: a Opportunity ficou em X',
+            ...(evidencia?.jornadaRecusada ? { jornada: 'recusada e não reentregue' } : {}),
+          },
+        },
+      ];
+    }
+
     if (perfil === 'RP' || perfil === 'RE' || perfil === 'RF') {
       const quando = {
         RP: 'depois da PAC aprovada',
