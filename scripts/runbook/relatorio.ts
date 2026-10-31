@@ -106,8 +106,8 @@ async function main(): Promise<void> {
       ? [
           '> **Perfis AR, AM, FW, RC, EP, RL, RP, RE, RF e AS (ordens reais):** a ordem que',
           '> o MS de crédito, o WebJob e o MS Clientes produzem, a reentrega atrasada do',
-          '> Event Grid (RP, RE e RF) e a aprovação de pessoa nova com o cliente, a PAC e a',
-          '> jornada juntos (AS). "—" é TC em que o perfil não se aplica: no AM, a pessoa',
+          '> Event Grid (RP, RE e RF) e a aprovação de pessoa nova com a Account nascendo',
+          '> depois da PAC e da jornada (AS). "—" é TC em que o perfil não se aplica: no AM, a pessoa',
           '> aprovada ainda não existe no MS Clientes; no RP, no RE, no RF e no AS, ela já',
           '> tem Account; no AS, também a jornada sem IdCliente do TC-001-MSI e do',
           '> TC-001-MPC, que ele trocaria. Veja a seção 7.2 de',
