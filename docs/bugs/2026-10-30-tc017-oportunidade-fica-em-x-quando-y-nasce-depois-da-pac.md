@@ -6,9 +6,10 @@
   `docs/unificacao-clientes/2026-10-31-tc017-oportunidade-fica-em-x-quando-y-nasce-depois-da-pac.md`
   (cópia local, fora do git). A correção faz o `cliente-*` que cria ou acha a
   Account da pessoa trazer a Opportunity cuja PAC atual está aprovada
-  (`NotificacaoCliente.trazerOportunidadesDasPacsAprovadas`). Em 31/10, ela
-  estava no working tree do `GV_909649_918914`, sem commit, e implantada na
-  `mrv-devDan`.
+  (`NotificacaoCliente.trazerOportunidadesDasPacsAprovadas`). Implantada na
+  `mrv-devDan` em 31/10, do working tree, e commitada em 03/11 no
+  `GV_909649_918914` como `0d5f6ed558`. Na staging, foi implantada em 31/10,
+  fora da pipeline, para o reteste da QA.
 - **Status:** corrigido na `mrv-devDan` e verificado pelo simulador (seção 3).
   Falta o reteste da QA na staging.
 
@@ -84,7 +85,11 @@ cenários em que se aplica: 31 conformes
 
 ## 4. O que fica em aberto
 
-- **O reteste da QA na staging,** depois que a correção chegar ao `develop`.
+- **O reteste da QA na staging:** a correção está lá desde 31/10, fora da
+  pipeline, até o próximo deploy do `develop`. Recomendados: o 017, o 001, o
+  002 e o 016 (cliente novo, como o 017) e o 005 como amostra da PAC que já
+  acha a Account. Do 018 em diante, conferir o cliente da Oportunidade nos
+  TCs de cliente novo.
 - **Os logs de `cliente-insert` que a dev não gravou** (12 de 27 na rodada com
   a correção): não investigado.
 - **O ponto 8.7 do doc da MRV:** a PAC, que decidiu "sem Account" antes de

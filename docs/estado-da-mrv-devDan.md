@@ -216,6 +216,7 @@ branches mudaram e os deploys conhecidos pelo ID. Horários em UTC.
 | **31/10 13:56 a 14:10** | Verificação do perfil AS do harness: as 6 classes da correção voltaram duas vezes à versão do HEAD, sem a correção (`0AfHZ00000RCE4T0AX` às 13:56 e `0AfHZ00000RCER30AP` às 14:05), e a correção foi reimplantada do working tree (`0AfHZ00000RCENp0AP` às 14:04 e `0AfHZ00000RCEcL0AX` às 14:10). Sem a correção, o AS deu 20 divergentes em 27; com ela, 27 conformes. No fim, as classes da dev são iguais ao working tree | [registro do bug](bugs/2026-10-30-tc017-oportunidade-fica-em-x-quando-y-nasce-depois-da-pac.md) |
 | **31/10 14:25 a 15:06** | O perfil AS em 4 variantes fora do modelo (TC-001-XSI, TC-002-INT, TC-040-IDP e TC-040-IDX), com a correção do TC-017: 4 conformes. O Mac dormiu de 14:25 a 15:05, e o runner refez os 4 RUNs quando a rede voltou. Sem deploy | [registro do bug](bugs/2026-10-30-tc017-oportunidade-fica-em-x-quando-y-nasce-depois-da-pac.md) |
 | **31/10 15:17 a 16:47** | Primeira campanha do `--todos` novo (747 RUNs: os 50 cenários, cada um em todos os perfis aplicáveis, dos 17), com a correção do TC-017: 747 conformes. Nos 626 pares que já existiam, igual a 27/10 par a par. O espaço de dados terminou com 87 MB livres de 200. Sem deploy | [relatório](resultado-runbook-completo-2026-10-31.md) |
+| **03/11** | A correção do TC-017 virou o commit `0d5f6ed558` (commit 34). O corpo das 6 classes na dev é igual ao do commit. Sem deploy | [mapa dos commits](mapa-commits-reescrita-2.2.md) |
 
 Fora do Apex e dos branches:
 

@@ -52,6 +52,7 @@ branch antiga.
 | 31 | `8f4a205492` | 5, seção 5.2 (achado da campanha) | Sem o Proponente do CPF da Account, o pós-PAC só liga o Lead livre do mesmo CPF; reutilizar um Lead pelo contato ou criar um novo espera a PAC aprovada | sem equivalente: na 2.2, o `insertLeadQueueable` decidia com os contatos que tivesse, como o item 2 daqui | commit novo (2.29) |
 | 32 | `8ae9952e54` | fora do plano: merge da `GestaoVendasPreProd` | Merge da `origin/GestaoVendasPreProd` (ponta `132b148fbf`, de 23/10) no branch, feito pelo usuário | não se aplica | merge (2.30) |
 | 33 | `5e15a1ab6e` | fora do plano: a US 1060669 (telefone internacional) no código da unificação | O celular internacional não se confunde com um celular brasileiro de mesmos dígitos, e quem grava o celular na Account ou no Lead grava junto o código do país | sem equivalente: a 2.2 é anterior à US 1060669 | commit novo (2.31) |
+| 34 | `0d5f6ed558` | fora do plano: o bug do TC-017, reportado pela QA na staging em 30/10 | Quando a Account do proponente principal aparece depois da PAC aprovada, o `cliente-*` que a cria ou acha traz para ela a Opportunity que ficou na Account de outra pessoa | sem equivalente: na 2.2, só a PAC aprovada ([`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36), refeito no commit 19) e a jornada moviam a Opportunity, e nenhuma das duas olhava a Account que nasce depois | commit novo (2.32) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -799,6 +800,55 @@ método (plano, seção 4).
   do runbook (a TC-002-INT e 9 TCs brasileiros no PA, no CA, no ME, no AR e no
   FW) deu 50 conformes em 50.
 
+### 2.32 `0d5f6ed558`: o TC-017, a Opportunity que ficava em X
+
+- **Por quê:** no TC-017 da staging (30/10), a pessoa aprovada era nova. A
+  PAC aprovada e a jornada foram processadas antes de o `cliente-insert`
+  criar a Account dela: a PAC gravou o Proponente sem Account, a jornada não
+  achou a Account, e nenhuma das duas moveu a Opportunity, que ficou na
+  Account X. Na Venda Genérica, nenhum evento posterior a corrige
+  ([registro do bug](bugs/2026-10-30-tc017-oportunidade-fica-em-x-quando-y-nasce-depois-da-pac.md);
+  análise no `com_salesforce_mrv`, em
+  `docs/unificacao-clientes/2026-10-31-tc017-oportunidade-fica-em-x-quando-y-nasce-depois-da-pac.md`).
+- **Aqui:** quem chega por último move a Opportunity.
+  - `ClienteService.moverOportunidadesParaConta( Map<Id, Id> )`: o update com
+    bypass do `ClienteTriggerHandler`, DML parcial e falha só no log, que
+    antes estava dentro da `NotificacaoPAC`.
+  - A `NotificacaoPAC.moverOportunidadeParaContaAprovada` passa a usar esse
+    método. A decisão, do commit 19, não mudou.
+  - `ProponenteSelector.getPrincipaisDePacAprovadaComOportunidadeEmOutraConta( Id )`:
+    os Proponentes principais da Account com PAC aprovada e a Opportunity em
+    outra Account.
+  - `NotificacaoCliente.trazerOportunidadesDasPacsAprovadas( Id )`, logo
+    depois do `ligarProponentesSemConta`, no `cliente-*` da Account da pessoa
+    (nunca na achada só pelo prospect). Só move quando a PAC do principal é
+    a `PACAtual__c` da Opportunity. Olha todos os principais da Account, e
+    não só os recém-ligados, então o `cliente-update` do eco é uma segunda
+    chance.
+- **Decisões de 31/10:** filtrar pela PAC atual da Opportunity; não filtrar
+  Opportunity fechada, como a `NotificacaoPAC`.
+- **Testes:** no `NotificacaoClienteTest`, a PAC aprovada traz a Opportunity
+  no `cliente-insert` e no `cliente-update` da pessoa já ligada, e não traz
+  com a PAC em análise, com a PAC que não é a atual, com o Proponente que não
+  é o principal e com a Account achada pelo prospect; no
+  `ClienteServiceTest`, o `moverOportunidadesParaContaTest`.
+- **Harness, junto:** o perfil AS manda a PAC aprovada e a jornada antes do
+  `cliente-insert` de Y (`a52f765`), e o `--todos` passou a rodar os 50
+  cenários em todos os perfis aplicáveis (`eede0b5`).
+- **Verificação na dev:** implantado do working tree em 31/10; em 03/11, o
+  corpo das 6 classes na dev era igual ao do commit. Nos testes, 185 de 186
+  (run `707HZ00001nqQDl`); a falha, no
+  `NotificacaoMaquinaEstadoTest.jornadaVendaGenericaSemOportunidadeAguardaReenvioTest`,
+  é anterior e depende de um mapeamento que a dev não tem. No AS, sem a
+  correção, 20 de 27 TCs ficaram com a Opportunity em X; com ela, 27 de 27
+  conformes, e 4 de 4 nas variantes. A campanha completa do `--todos` novo
+  deu 747 conformes em 747, igual a 27/10 nos 626 pares que já existiam
+  ([relatório](resultado-runbook-completo-2026-10-31.md)).
+- **Na staging:** implantada em 31/10, às 17:25 UTC
+  (`0AfHZ00000RCJVZ0A5`), fora da pipeline, a pedido do usuário, para o
+  reteste da QA. O próximo deploy do `develop` sobrescreve essas classes até
+  a correção chegar a ele por PR.
+
 ## 3. Destino dos commits da 2.2 já tratados
 
 | Commit da 2.2 | Destino |
@@ -815,7 +865,7 @@ método (plano, seção 4).
 | [`ec9d1a6a7c`](inventario-commits-2.2.md#c24) (24) | o `obterOportunidadePorPayload` e a exceção do vínculo histórico, no commit 18; o `devePreservarContaAtualDaOportunidade` não entra |
 | [`85e4c3ba5f`](inventario-commits-2.2.md#c10) (10) | substituído pelo commit 17 |
 | [`fc7077f94d`](inventario-commits-2.2.md#c16) (16) | refeito no commit 12, com conferência de CPF |
-| [`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36) | refeito no commit 19, com a Account vinda da identidade da PAC |
+| [`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36) | refeito no commit 19, com a Account vinda da identidade da PAC; o update foi para o `ClienteService` no commit 34, que também move a Opportunity pelo `cliente-*` |
 | [`70f3295319`](inventario-commits-2.2.md#c37) (37) | não entra (decisão 1 da R3: a data decide) |
 | [`de3731957d`](inventario-commits-2.2.md#c17) (17) | a guarda do eco, no commit 15; a criação de Lead no `vincularLeadExistente` fica para a R4 |
 | [`dea0460ade`](inventario-commits-2.2.md#c26) (26) | commit 3 |
