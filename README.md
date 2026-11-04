@@ -737,8 +737,10 @@ máquina, eles ficam ao lado deste diretório:
 | `com_analise_credito_web_job` | `../com_analise_credito_web_job` | "Análise Crédito Web Job": depois da aprovação, cria o cliente no MS Clientes e grava o IdCliente no crédito. Também recebe o callback PAC Crédito do Salesforce |
 
 - **Branch do Salesforce:** o checkout local do `com_salesforce_mrv` pode estar
-  na branch de outra frente. Não troque a branch. Para ler o código da
-  unificação, use `git show origin/GV_918914_UnificPosAprovPAC:<arquivo>`.
+  na branch de outra frente. Não troque a branch. O código atual da unificação
+  (1.3 e 2.2 reescrita) está no `GV_909649_918914`; para lê-lo sem trocar de
+  branch, use `git show GV_909649_918914:<arquivo>`. O
+  `GV_918914_UnificPosAprovPAC` é a 2.2 legada.
 - **MS de crédito:** é o `com_proponente_credito`. O serviço se identifica como
   `proponentecredito` na rota da API
   (`/v1.0/qualidadedecredito/proponentecredito/...`) e no prefixo do subject
@@ -755,7 +757,11 @@ máquina, eles ficam ao lado deste diretório:
   dos `.cmd`.
 - **Arquivos fora do git do Salesforce:** a skill
   `salesforce-unificacao-clientes`, citada como fonte normativa pelo plano e
-  pelo runbook, não está em nenhum ref git do `com_salesforce_mrv`. Em 11/10,
+  pelo runbook, não está em nenhum ref git do `com_salesforce_mrv`. Desde
+  03/11, ela manda o agente começar todo bug por este repo: a seção "🧪
+  Simulador e harness do runbook" do `SKILL.md` diz onde buscar aqui cada
+  informação a partir do bug. Ao mudar a estrutura deste repo (docs, perfis,
+  comandos), atualize aquela seção. Em 11/10,
   ela e a pasta `docs/unificacao-clientes/` foram copiadas para o checkout
   desta máquina, em `.github/skills/salesforce-unificacao-clientes/` e
   `docs/unificacao-clientes/`, como arquivos não rastreados. Seguem só no
