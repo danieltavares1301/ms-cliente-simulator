@@ -53,6 +53,7 @@ branch antiga.
 | 32 | `8ae9952e54` | fora do plano: merge da `GestaoVendasPreProd` | Merge da `origin/GestaoVendasPreProd` (ponta `132b148fbf`, de 23/10) no branch, feito pelo usuário | não se aplica | merge (2.30) |
 | 33 | `5e15a1ab6e` | fora do plano: a US 1060669 (telefone internacional) no código da unificação | O celular internacional não se confunde com um celular brasileiro de mesmos dígitos, e quem grava o celular na Account ou no Lead grava junto o código do país | sem equivalente: a 2.2 é anterior à US 1060669 | commit novo (2.31) |
 | 34 | `0d5f6ed558` | fora do plano: o bug do TC-017, reportado pela QA na staging em 30/10 | Quando a Account do proponente principal aparece depois da PAC aprovada, o `cliente-*` que a cria ou acha traz para ela a Opportunity que ficou na Account de outra pessoa | sem equivalente: na 2.2, só a PAC aprovada ([`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36), refeito no commit 19) e a jornada moviam a Opportunity, e nenhuma das duas olhava a Account que nasce depois | commit novo (2.32) |
+| 35 | `66f1613e17` | fora do plano: o bug 1142660, reportado pela QA na staging em 31/10 (variação do TC-005) | A Account com um IdProspect que não é de nenhum Lead ganha o Lead da pessoa com os dados aprovados, no lugar de manter o prospect inválido | sem equivalente: a regra "prospect que não existe fica como está" entrou no commit 27 (`2c34f6f7c9`), sem justificativa | commit novo (2.33) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -848,6 +849,64 @@ método (plano, seção 4).
   (`0AfHZ00000RCJVZ0A5`), fora da pipeline, a pedido do usuário, para o
   reteste da QA. O próximo deploy do `develop` sobrescreve essas classes até
   a correção chegar a ele por PR.
+
+### 2.33 `66f1613e17`: o bug 1142660, o prospect que não é de nenhum Lead
+
+- **Por quê:** na staging (31/10), a Account da pessoa aprovada foi criada por
+  um usuário no Salesforce antes do primeiro `cliente-insert`, com CPF,
+  IdCliente e celular, e com um `IdProspectSalesforce__c` que nenhum Lead tem.
+  A PAC aprovada e o Proponente principal carregavam o mesmo prospect. O
+  `precisaVincularLead` devolvia `false` para prospect sem Lead ("prospect que
+  não existe fica como está"), o `VinculoLeadPosPac` nem foi enfileirado, e o
+  Lead com os dados aprovados nunca nasceu
+  ([registro do bug](bugs/2026-10-31-bug-1142660-account-com-prospect-invalido-nao-cria-lead.md);
+  análise no `com_salesforce_mrv`, em
+  `docs/unificacao-clientes/2026-11-03-bug-1142660-account-com-prospect-invalido-nao-cria-lead.md`).
+- **De onde vinha a regra:** a cláusula entrou no commit 27 (`2c34f6f7c9`), na
+  renomeação para `UnificacaoLeadService`, sem justificativa. O
+  `contaComProspectNaoMudaTest` protegia o Bug 6 com um prospect sem Lead e
+  acabava codificando o próprio bug. A planilha pede o contrário: no TC-005, no
+  TC-021, no TC-050 e no TC-064, a Account sem Lead válido ganha um Lead novo e
+  troca o prospect. O `AccountIdProspectSanitizationBatch` também trata
+  prospect sem Lead como inválido.
+- **Aqui (opção A da análise):** só o `UnificacaoLeadService.precisaVincularLead`
+  mudou. Prospect que não é de nenhum Lead passa a "precisar do Lead da
+  pessoa", mesmo com a Account sem CPF. Continuam sem mudança o prospect de um
+  Lead do mesmo CPF ou de um Lead sem CPF (Bug 6) e, com a Account sem CPF, o
+  de qualquer Lead que existe. O resto já existia no `vincularLeadPosPac`:
+  decidir com os contatos aprovados, reutilizar o Lead livre do CPF ou criar
+  um, gravar o prospect, sincronizar o Proponente principal e avisar o MS
+  Clientes. O `prospectPodeSerGravado` não mudou (opção B, descartada).
+- **Testes:** no `UnificacaoLeadServiceTest`, o `precisaVincularLeadTest`
+  passa a esperar `true` para o prospect sem Lead, com dois casos sem CPF na
+  Account; o `contaComProspectNaoMudaTest` virou o
+  `contaComProspectDeLeadDoMesmoCpfNaoMudaTest`, agora com o Lead criado; e
+  entram quatro casos de prospect sem Lead (com Proponente aprovado, com Lead
+  livre do mesmo CPF, sem Proponente e sem CPF na Account). No
+  `NotificacaoPACTest`, o
+  `pacAprovadaTrocaOProspectSemLeadDaContaDaPessoaPeloLeadDelaTest`.
+- **Harness, junto:** a variante TC-005-PSL (`1530c7b`), fora do modelo, com
+  a Account Y trazendo um IdProspect aleatório, e o registro do bug
+  (`35eec4c`).
+- **Verificação na dev (03/11):** deploy `0AfHZ00000RE56k0AD`, às 17:36 UTC,
+  com `NoTestRun`, depois de um `--dry-run` limpo. Nas 5 classes de teste que
+  passam pelo `precisaVincularLead`, 147 passando antes e 152 depois. A
+  TC-005-PSL deu 13 divergentes em 13 perfis sem a correção e 13 conformes
+  com ela. A campanha completa deu 760 conformes em 760, e nenhum par que era
+  conforme em 31/10 passou a divergir
+  ([estado da dev](estado-da-mrv-devDan.md)). Em 04/11, as 3 classes na dev
+  eram iguais às do commit, menos a quebra de linha no fim do
+  `UnificacaoLeadServiceTest`.
+- **Na staging:** não implantado; o reteste da QA depende de um deploy lá, que
+  só com pedido explícito. Depois dele, a Account da staging só ganha o Lead
+  com um novo evento ou pelo `AccountIdProspectSanitizationBatch`.
+- **Riscos:** um prospect legítimo que chegue antes do Lead existir pode ser
+  trocado pelo Lead livre do mesmo CPF (o mesmo critério do batch); e, no
+  `cliente-*` com o Proponente principal já gravado, o Lead pode nascer antes
+  da PAC aprovada, como já acontecia com a Account sem prospect.
+- **Em aberto:** confirmar com o PO e a QA a regra "prospect inexistente →
+  criar o Lead e trocar o prospect"; e alinhar o runbook do TC-050 e do
+  TC-064, que ainda descrevem a regra antiga.
 
 ## 3. Destino dos commits da 2.2 já tratados
 

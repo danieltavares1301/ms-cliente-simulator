@@ -4,7 +4,7 @@
 - **Análise completa:** no `com_salesforce_mrv`, em
   `docs/unificacao-clientes/2026-11-03-bug-1142660-account-com-prospect-invalido-nao-cria-lead.md`
   (cópia local, fora do git): causa raiz, a regra documentada, o que a US diz, a correção proposta e os riscos.
-- **Status:** reproduzido pelo simulador na `mrv-devDan` (seção 2). Correção aplicada no working tree do `GV_909649_918914` (sem commit) e implantada só na `mrv-devDan`; falta o reteste da QA na staging.
+- **Status:** reproduzido pelo simulador na `mrv-devDan` (seção 2). Corrigido no `GV_909649_918914` pelo commit `66f1613e17` (03/11) e implantado só na `mrv-devDan`; falta o reteste da QA na staging.
 
 ## 1. O bug, em uma frase
 
@@ -48,9 +48,10 @@ O harness descarta sozinho os perfis que não se aplicam (RP, RE, RF e AS).
 ## 3. A correção e a verificação
 
 A correção (Opção A) é uma mudança em `UnificacaoLeadService.precisaVincularLead`, no `com_salesforce_mrv`: prospect
-que não é de nenhum Lead passa a "precisar do Lead da pessoa". Está no working tree do `GV_909649_918914` (sem commit)
-e foi implantada **só na `mrv-devDan`** em 03/11 (deploy `0AfHZ00000RE56k0AD`, 3 classes, NoTestRun, depois de um
-`--dry-run` limpo).
+que não é de nenhum Lead passa a "precisar do Lead da pessoa". Foi implantada **só na `mrv-devDan`** em 03/11 (deploy
+`0AfHZ00000RE56k0AD`, 3 classes, NoTestRun, depois de um `--dry-run` limpo) e commitada no `GV_909649_918914` como
+`66f1613e17` (commit 35 do [mapa](../mapa-commits-reescrita-2.2.md)). Em 04/11, as classes na dev eram iguais às do
+commit.
 
 - **Testes Apex** (5 classes que passam pelo `precisaVincularLead`): 147 passando antes, **152 passando depois**, 0 falhas.
 - **Provas dos dois lados:** a variante diverge nos 13 perfis com o HEAD e fica conforme nos 13 com a correção.
@@ -59,7 +60,7 @@ e foi implantada **só na `mrv-devDan`** em 03/11 (deploy `0AfHZ00000RE56k0AD`, 
 
 ## 4. O que fica em aberto
 
-- **Commit** da correção no `com_salesforce_mrv` e deste repo.
+- **Runbook:** o TC-050 e o TC-064 (`BLOCKED-FUNCIONAL`) ainda descrevem a regra antiga, e falta conferir o TC-021.
 - **Confirmar com o PO/QA** que "prospect inexistente → criar Lead e substituir" vale como regra. A planilha
   (TC-050 e TC-064, hoje `BLOCKED-FUNCIONAL`) sustenta.
 - **O reteste da QA na staging** exige deploy lá, que só com pedido explícito. A Account da staging não se corrige
