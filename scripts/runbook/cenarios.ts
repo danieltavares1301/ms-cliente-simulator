@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { Aprovacao, Assercao, Execucao } from './engine.ts';
+import type { AccountRegistro, Aprovacao, Assercao, Execucao } from './engine.ts';
 import type { Verificador } from './verificacoes.ts';
 
 /**
@@ -9,7 +9,7 @@ import type { Verificador } from './verificacoes.ts';
  * os `BLOCKED-FUNCIONAL` (008, 028, 029, 050, 052, 058, 060, 064, 065), que
  * aguardam decisão de PO/QA. Cada um roda nos perfis PA, CA e ME e nos
  * opcionais que se aplicam a ele. Cinco deles (053 a 057) ficam fora do
- * modelo (`foraDoModelo`), assim como as 6 variantes que não estão na
+ * modelo (`foraDoModelo`), assim como as 7 variantes que não estão na
  * planilha: rodam no `--todos`, mas o relatório os marca.
  *
  * O esperado segue a planilha oficial, não só o texto do runbook
@@ -84,6 +84,9 @@ const MAQUINA_SEM_ID_CLIENTE =
 
 const CELULAR_INTERNACIONAL =
   'Variante do TC-002 para a US 1060669: o celular aprovado é internacional (+351) e termina com os mesmos 11 dígitos do celular brasileiro do Lead de Z. Não está na planilha.';
+
+const PROSPECT_SEM_LEAD =
+  'Variante do TC-005 para o bug 1142660 (US 918914): a Account Y existente, com CPF, IdCliente e celular e sem e-mail, traz um IdProspect que nenhum Lead possui. Não está na planilha.';
 
 /** Celular local de Portugal (9 dígitos) do RUN, e o brasileiro de DDD 51 com os mesmos dígitos no fim. */
 function celularPortugal(e: Execucao): { local: string; brasileiroParecido: string } {
@@ -306,6 +309,38 @@ export const CENARIOS: readonly Cenario[] = [
       v.leadNovo({ email: e.contatos.emailC, celular: e.contatos.celularD }),
       v.vinculo(),
     ],
+  },
+  {
+    id: 'TC-005-PSL',
+    titulo: 'Account Y existente com IdProspect sem Lead, Lead Y ausente',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: PROSPECT_SEM_LEAD,
+    massa: async (e) => {
+      await e.xSincronizado();
+      await e.criarAccount('accountY', {
+        pessoa: e.y,
+        idCliente: e.y.idCliente,
+        idProspect: randomUUID(),
+        celular: e.contatos.celularD,
+      });
+    },
+    aprovacao: (e) =>
+      aprovarY(e, { email: e.contatos.emailC, celular: e.contatos.celularD }, 'cliente-update'),
+    esperado: (v, e) => {
+      const prospectInvalido = (e.fixture('accountY') as AccountRegistro).IdProspectSalesforce__c;
+      return [
+        v.contaReutilizada('accountY'),
+        v.contasDoCpf(1),
+        v.leadsDoCpf(1),
+        v.leadNovo({ email: e.contatos.emailC, celular: e.contatos.celularD }),
+        v.vinculo(),
+        {
+          nome: 'IdProspect sem Lead da massa substituído na Account',
+          ok: v.conta()?.IdProspectSalesforce__c !== prospectInvalido,
+          detalhe: { prospectInvalido, obtido: v.conta()?.IdProspectSalesforce__c ?? null },
+        },
+      ];
+    },
   },
   {
     id: 'TC-006',

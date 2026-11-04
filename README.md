@@ -13,11 +13,11 @@ duas partes:
   faz de volta: GraphQL `atualizarCliente`, token, PAC Crédito e Contestação.
 - **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
   Salesforce CLI:
-  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 6
+  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 7
     variantes que não estão na planilha, nos perfis PA, CA e ME, nos perfis
     C1 a C4 do bug 4 e nos perfis AR, AM, FW, RC, EP, RL, RP, RE, RF e AS, com
     as ordens reais da aprovação e da reentrega do Event Grid. O `--todos`
-    roda os 50 cenários em todos os perfis aplicáveis a cada um. O esperado
+    roda os 51 cenários em todos os perfis aplicáveis a cada um. O esperado
     segue a planilha oficial;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
@@ -409,19 +409,19 @@ roda os TCs pedidos do
 Requer o mesmo ambiente local autenticado descrito acima.
 
 `npm run runbook -- --todos [--paralelo 6] [--saida campanha.jsonl]` roda a
-**campanha completa**: os 50 cenários, cada um em todos os perfis que se
-aplicam a ele. São 747 RUNs:
+**campanha completa**: os 51 cenários, cada um em todos os perfis que se
+aplicam a ele. São 760 RUNs:
 
 | Cenários | Perfis |
 |---|---|
 | Com `cliente-insert` (31) | 16: todos menos o AM |
 | Com `cliente-insert` e a jornada sem IdCliente (TC-001-MSI e TC-001-MPC) | 15: também sem o AS |
-| Com `cliente-update` (17) | 13: todos menos RP, RE, RF e AS |
+| Com `cliente-update` (18) | 13: todos menos RP, RE, RF e AS |
 
 Com `--perfis`, o `--todos` roda só os perfis pedidos. Os TCs bloqueados e os
 `BLOCKED-FUNCIONAL` ficam de fora. Entram, marcados no relatório como **fora
-do modelo**, as 6 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
-TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
+do modelo**, as 7 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
+TC-005-PSL, TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
 planilha descreve a inclusão de um proponente adicional, e o harness só monta
 a troca do principal. Um conforme neles não aprova o TC da planilha.
 
