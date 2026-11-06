@@ -60,7 +60,9 @@ commit.
 
 ## 4. O que fica em aberto
 
-- **Runbook:** o TC-050 e o TC-064 (`BLOCKED-FUNCIONAL`) ainda descrevem a regra antiga, e falta conferir o TC-021.
+- **Runbook:** o texto do TC-050 e do TC-064 não cita a regra antiga. Os dois seguem `BLOCKED-FUNCIONAL` por outros
+  motivos (a chave de localização por e-mail e celular, e o IdCliente no campo errado). O Esperado do TC-021 já pede
+  substituir o vínculo inválido. Desbloquear o TC-050 e o TC-064 é decisão do PO/QA.
 - **Confirmar com o PO/QA** que "prospect inexistente → criar Lead e substituir" vale como regra. A planilha
   (TC-050 e TC-064, hoje `BLOCKED-FUNCIONAL`) sustenta.
 - **O reteste da QA na staging** exige deploy lá, que só com pedido explícito. A Account da staging não se corrige

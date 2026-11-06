@@ -907,8 +907,9 @@ método (plano, seção 4).
   `cliente-*` com o Proponente principal já gravado, o Lead pode nascer antes
   da PAC aprovada, como já acontecia com a Account sem prospect.
 - **Em aberto:** confirmar com o PO e a QA a regra "prospect inexistente →
-  criar o Lead e trocar o prospect"; e alinhar o runbook do TC-050 e do
-  TC-064, que ainda descrevem a regra antiga.
+  criar o Lead e trocar o prospect"; e decidir com eles se o TC-050 e o
+  TC-064, hoje `BLOCKED-FUNCIONAL` por outros motivos (a chave de localização
+  e o IdCliente no campo errado), podem ser desbloqueados.
 
 ### 2.34 `1946fd8901`: a jornada e a PAC em análise na Account do prospect de outra pessoa
 
