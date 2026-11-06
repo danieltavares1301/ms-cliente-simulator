@@ -56,7 +56,9 @@ import {
  *
  * O `--todos` roda todos os cenários, inclusive as variantes e os fora do
  * modelo (o relatório os marca), em todos os perfis aplicáveis a cada um. Com
- * `--tcs`, sem `--perfis`, rodam só PA, CA e ME. Os perfis C1 a C4 (bug 4 do
+ * `--tcs`, sem `--perfis`, rodam só PA, CA e ME. Um cenário novo ou alterado
+ * roda em todos os perfis aplicáveis (`--perfis` com a lista completa), não só
+ * nesses três; o runner pula os que não se aplicam. Os perfis C1 a C4 (bug 4 do
  * TC-001) e os das ordens reais da aprovação (AR, AM, FW, RC, EP, RL, RP, RE,
  * RF e AS) não valem em todo TC: o AM só roda nos TCs em que a pessoa aprovada
  * já existe no MS Clientes, e RP, RE, RF e AS, nos em que ela ainda não tem

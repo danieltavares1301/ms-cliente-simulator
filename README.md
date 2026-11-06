@@ -13,11 +13,11 @@ duas partes:
   faz de volta: GraphQL `atualizarCliente`, token, PAC Crédito e Contestação.
 - **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
   Salesforce CLI:
-  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 8
+  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 9
     variantes que não estão na planilha, nos perfis PA, CA e ME, nos perfis
     C1 a C4 do bug 4 e nos perfis AR, AM, FW, RC, EP, RL, RP, RE, RF e AS, com
     as ordens reais da aprovação e da reentrega do Event Grid. O `--todos`
-    roda os 52 cenários em todos os perfis aplicáveis a cada um. O esperado
+    roda os 53 cenários em todos os perfis aplicáveis a cada um. O esperado
     segue a planilha oficial;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
@@ -408,20 +408,28 @@ roda os TCs pedidos do
 `ORDEM-CLIENTE-ANTES` e `ORDEM-MESMO-EVENTTIME`), com massa nova por RUN.
 Requer o mesmo ambiente local autenticado descrito acima.
 
+**Cenário novo ou alterado roda em todos os perfis aplicáveis**, e não só nos
+três do padrão. PA, CA e ME são o mínimo obrigatório do runbook (§4.1.1) e o
+que o `--tcs` roda sem `--perfis`; os demais perfis mudam a ordem e a origem dos
+eventos e podem dar outro resultado. Para um cenário novo, passe a lista
+completa (`--perfis PA,CA,ME,C1,C2,C3,C4,AR,AM,FW,RC,EP,RL,RP,RE,RF,AS`): o
+runner pula os que não se aplicam ao cenário, e um `--saida` que já existe só
+roda o que falta. O mesmo vale para a `--todos` depois de mexer no harness.
+
 `npm run runbook -- --todos [--paralelo 6] [--saida campanha.jsonl]` roda a
-**campanha completa**: os 52 cenários, cada um em todos os perfis que se
-aplicam a ele. São 775 RUNs:
+**campanha completa**: os 53 cenários, cada um em todos os perfis que se
+aplicam a ele. São 788 RUNs:
 
 | Cenários | Perfis |
 |---|---|
 | Com `cliente-insert` (31) | 16: todos menos o AM |
 | Com `cliente-insert` e a jornada sem IdCliente (TC-001-MSI, TC-001-MPC e TC-024-CLI) | 15: também sem o AS |
-| Com `cliente-update` (18) | 13: todos menos RP, RE, RF e AS |
+| Com `cliente-update` (19) | 13: todos menos RP, RE, RF e AS |
 
 Com `--perfis`, o `--todos` roda só os perfis pedidos. Os TCs bloqueados e os
 `BLOCKED-FUNCIONAL` ficam de fora. Entram, marcados no relatório como **fora
-do modelo**, as 8 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
-TC-005-PSL, TC-024-CLI, TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
+do modelo**, as 9 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
+TC-005-PSL, TC-024-CLI, TC-024-CPF, TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
 planilha descreve a inclusão de um proponente adicional, e o harness só monta
 a troca do principal. Um conforme neles não aprova o TC da planilha.
 
@@ -434,6 +442,18 @@ outra pessoa (com IdCliente). As asserções próprias conferem em que Account a
 Opportunity ficou depois do insert e do update, e a do Proponente depois da PAC,
 porque o estado final não mostra o defeito: a cadeia a leva para a Account certa mais tarde. Bug em
 [`docs/bugs/2026-11-05-jornada-resolvida-para-account-do-prospect-de-outra-pessoa.md`](docs/bugs/2026-11-05-jornada-resolvida-para-account-do-prospect-de-outra-pessoa.md).
+
+**TC-024-CPF** (bug 1145695, US 918899, e a regra da QA de 06/11): duas Accounts da
+mesma pessoa (mesmo CPF), uma com IdCliente e sem prospect e a outra com o
+prospect do Lead e sem IdCliente. Os eventos saem como os do TC-024-CLI, com o
+`cliente-update` de uma pessoa que já é cliente. A 2.1 real não é chamada. As
+três primeiras asserções são só observação, sem veredito: registram em que
+Account o `jornadausuario-insert`, o `jornadausuario-update` inicial e o
+`pac-insert` em análise deixam a Opportunity e o Proponente. O veredito vem do
+estado final: a Opportunity e o prospect na Account com IdCliente, e a Account
+que guardava o prospect sem ele (a troca do pós-PAC). Roda nos 13 perfis
+aplicáveis, e no HEAD do `GV_909649_918914` os 13 divergem só pela troca do
+prospect, que não acontece.
 
 - **Massa:** entra como fixture, e a cadeia 2.2 roda inteira (PAC, eventos na
   ordem do perfil, Queueable/callback, `cliente-update(PROS-Y)`, `pac-update`
