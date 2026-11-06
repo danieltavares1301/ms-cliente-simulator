@@ -88,6 +88,9 @@ const CELULAR_INTERNACIONAL =
 const PROSPECT_SEM_LEAD =
   'Variante do TC-005 para o bug 1142660 (US 918914): a Account Y existente, com CPF, IdCliente e celular e sem e-mail, traz um IdProspect que nenhum Lead possui. Não está na planilha.';
 
+const PROSPECT_PRESO_A_OUTRA_PESSOA =
+  'Variante do TC-024 para o teste da QA de 05/11 (2.1 → 2.2): o prospect do Lead da jornada está preso a uma Account de outra pessoa (com IdCliente e CPF diferente); a 2.1 criou a Account da pessoa sem prospect, e a Opportunity nasce do jornadausuario-insert, sem IdCliente e sem CPF. Não está na planilha.';
+
 /** Celular local de Portugal (9 dígitos) do RUN, e o brasileiro de DDD 51 com os mesmos dígitos no fim. */
 function celularPortugal(e: Execucao): { local: string; brasileiroParecido: string } {
   const local = `91${e.contatos.celularD.slice(4)}`;
@@ -675,6 +678,53 @@ export const CENARIOS: readonly Cenario[] = [
       v.contaSemProspect(),
       v.preservado('leadY', 'Lead Y intacto (não transferido)'),
       v.preservado('accountZ', 'Account Z intacta'),
+      v.leadsDoCpf(1),
+    ],
+  },
+  {
+    id: 'TC-024-CLI',
+    titulo: 'Jornada iniciada com o prospect preso à Account de outra pessoa (saída da 2.1)',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: PROSPECT_PRESO_A_OUTRA_PESSOA,
+    xAlteravel: true,
+    observacao:
+      'X é a pessoa da jornada (o "Y" do teste da QA). Massa = o que a 2.1 deixa: Account de X só com CPF e contatos, sem IdCliente e sem prospect; o Lead de X mantém o prospect, que continua na Account Z, de outra pessoa, com IdCliente.',
+    massa: async (e) => {
+      await e.criarAccount('accountZ', {
+        pessoa: e.z,
+        idCliente: e.z.idCliente,
+        idProspect: e.x.idProspect,
+      });
+      await e.criarAccount('accountX', {
+        pessoa: e.x,
+        idCliente: null,
+        idProspect: null,
+        email: e.contatos.emailA,
+        celular: e.contatos.celularB,
+      });
+      await e.criarLead('leadX', {
+        pessoa: e.x,
+        idProspect: e.x.idProspect,
+        email: e.contatos.emailA,
+        celular: e.contatos.celularB,
+      });
+    },
+    aprovacao: (e) => ({
+      pessoa: e.x,
+      email: e.contatos.emailA,
+      celular: e.contatos.celularB,
+      tipoEventoCliente: 'cliente-insert',
+      match: true,
+      jornadaPorEvento: true,
+      maquinaSemIdCliente: { proponenteCredito: false },
+    }),
+    esperado: (v) => [
+      ...v.jornadaIniciadaNaContaDaPessoa(),
+      v.contaReutilizada('accountX'),
+      v.contaSemProspect(),
+      v.preservado('accountZ', 'Account Z (dona do prospect) intacta'),
+      v.preservado('leadX', 'Lead da jornada intacto'),
+      v.contasDoCpf(1),
       v.leadsDoCpf(1),
     ],
   },

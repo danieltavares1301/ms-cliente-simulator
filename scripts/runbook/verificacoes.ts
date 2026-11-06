@@ -292,6 +292,40 @@ export class Verificador {
     };
   }
 
+  /**
+   * Jornada aberta pelo `jornadausuario-insert` da BFF, que só traz o prospect
+   * (TC-024-CLI): a Opportunity tem de nascer e ficar na Account da pessoa da
+   * jornada, e não na que guarda o prospect de outra pessoa. O mesmo vale para o
+   * Proponente da PAC em análise sem IdCliente e sem CPF. O estado final
+   * não basta: na staging (05/11) ela ficou cinco minutos na Account errada e
+   * só depois foi para a certa.
+   */
+  jornadaIniciadaNaContaDaPessoa(refPessoa = 'accountX', refDonaDoProspect = 'accountZ'): Assercao[] {
+    const pessoa = this.execucao.fixtures.get(refPessoa)?.registro.Id;
+    const dona = this.execucao.fixtures.get(refDonaDoProspect)?.registro.Id;
+    const inicial = this.execucao.jornadaInicial;
+    const rotular = (conta: string | null | undefined) =>
+      conta == null ? 'nenhuma' : conta === pessoa ? 'Account da pessoa' : conta === dona ? 'Account dona do prospect' : 'outra';
+    const na = (conta: string | null | undefined) => inicial !== null && pessoa !== undefined && conta === pessoa;
+    return [
+      {
+        nome: 'jornadausuario-insert (sem IdCliente e sem CPF) cria a Opportunity na Account da pessoa da jornada',
+        ok: na(inicial?.aposInsert),
+        detalhe: inicial === null ? 'o RUN não abriu a jornada por evento' : { conta: rotular(inicial.aposInsert) },
+      },
+      {
+        nome: 'jornadausuario-update inicial mantém a Opportunity na Account da pessoa da jornada',
+        ok: na(inicial?.aposUpdate),
+        detalhe: inicial === null ? 'o RUN não abriu a jornada por evento' : { conta: rotular(inicial.aposUpdate) },
+      },
+      {
+        nome: 'pac-insert em análise (sem IdCliente e sem CPF) liga o Proponente à Account da pessoa da jornada',
+        ok: na(inicial?.proponenteAposPac),
+        detalhe: inicial === null ? 'o RUN não abriu a jornada por evento' : { conta: rotular(inicial.proponenteAposPac) },
+      },
+    ];
+  }
+
   /** Lead novo vinculado à Account aprovada; `null` exige o campo vazio. */
   leadNovo(esperado: {
     email: string | null;

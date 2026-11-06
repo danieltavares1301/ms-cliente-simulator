@@ -256,6 +256,13 @@ export type Aprovacao = {
    */
   maquinaSemIdCliente?: { proponenteCredito: boolean };
   /**
+   * A jornada nasce como na staging, na saída da 2.1 (TC-024-CLI): sem
+   * Opportunity criada por DML, a BFF manda o `jornadausuario-insert` e um
+   * `jornadausuario-update` sem IdCliente e sem CPF, só com o prospect da
+   * jornada. A Opportunity nasce do evento, na Account que o Salesforce achar.
+   */
+  jornadaPorEvento?: boolean;
+  /**
    * Celular internacional da pessoa aprovada: o DDI fica aqui, e o `celular` é
    * o número sem ele. A PAC manda `+DDI…`, e o contato manda o número com o
    * DDI no `complemento`, como o MS Clientes faz. Sem ele, o DDI é 55.
@@ -599,6 +606,16 @@ export class Execucao {
   private contatosDeX = { email: '', celular: '' };
   /** Parciais recusados por chegarem antes do cliente, reenviados depois dele. */
   private parciaisRecusados: Array<{ envelope: EventGridEnvelope; rotulo: string }> = [];
+  /**
+   * Account da Opportunity depois do `jornadausuario-insert` e do primeiro
+   * `jornadausuario-update` da BFF, e Account do Proponente depois da PAC em
+   * análise sem IdCliente e sem CPF (`jornadaPorEvento`); `null` fora desse modelo.
+   */
+  jornadaInicial: {
+    aposInsert: string | null;
+    aposUpdate: string | null;
+    proponenteAposPac: string | null;
+  } | null = null;
 
   constructor(
     readonly conexao: TargetOrgConnection,
@@ -1174,7 +1191,8 @@ export class Execucao {
     proponente: {
       /** `null` omite o campo, como nas PACs em análise do incidente de staging. */
       idCliente: string | null;
-      cpf: string;
+      /** `null` manda o CPF nulo, como as PACs em análise que só trazem o prospect. */
+      cpf: string | null;
       nome: string;
       email: string;
       celular: string;
@@ -1318,14 +1336,69 @@ export class Execucao {
     };
   }
 
+  /**
+   * `jornadaPorEvento`: a Opportunity nasce do `jornadausuario-insert` da BFF,
+   * que identifica o cliente só pelo prospect da jornada (sem IdCliente e sem
+   * CPF), como na staging em 05/11. O insert e o primeiro update vão antes da
+   * PAC; guarda em que Account a Opportunity ficou depois de cada um.
+   */
+  private async abrirJornadaPorEvento(prospectJornada: string | null): Promise<void> {
+    const envelope = (eventType: string, rotulo: string, segundos: number) =>
+      this.envelope(eventType, rotulo, this.t(segundos), {
+        cliente: { idCliente: null, idProspectSalesforce: prospectJornada },
+        id: this.oportunidadeExterna,
+        dataalteracao: this.t(segundos),
+        // O Apex compara o estado em maiúsculas; "UNIDADES" vira a fase "Escolher Unidade".
+        estado: 'UNIDADES',
+        idunidade: PRODUTO_UNIDADE_ATIVA,
+        jornadalead: true,
+        origem: 'SALESFORCE',
+        tipojornada: 'JornadaFinanciamento',
+      });
+    await this.enviar('MaquinaEstado', envelope('jornadausuario-insert', 'jornada-insert', -95), 'jornadausuario-insert');
+    const aposInsert = await this.contaDaOportunidadeDaJornada();
+    await this.enviar('MaquinaEstado', envelope('jornadausuario-update', 'jornada-update-inicial', -90), 'jornadausuario-update-inicial');
+    this.jornadaInicial = {
+      aposInsert,
+      aposUpdate: await this.contaDaOportunidadeDaJornada(),
+      proponenteAposPac: null,
+    };
+  }
+
+  /** Account do Proponente principal da PAC do RUN agora; `null` se ele não existe ou está sem Account. */
+  private async contaDoProponenteDaPac(): Promise<string | null> {
+    const [proponente] = await this.consultar(
+      proponenteSchema,
+      `SELECT Id, Proponente__c, IdCliente__c, IdProponente__c, CpfProponente__c, TipoClassificacao__c, EmailAtualizado__c, Celular__c, EnviarNotificacaoPendencia__c FROM Proponente__c WHERE Id__c = ${literal(this.proponenteExterno)}`,
+    );
+    return proponente?.Proponente__c ?? null;
+  }
+
+  /** Account em que a Opportunity da jornada está agora; `null` se o evento não a criou. */
+  private async contaDaOportunidadeDaJornada(): Promise<string | null> {
+    const [oportunidade] = await this.consultar(
+      oportunidadeSchema,
+      `SELECT Id, AccountId, StageName FROM Opportunity WHERE Id__c = ${literal(this.oportunidadeExterna)}`,
+    );
+    if (oportunidade === undefined) return null;
+    if (this.idOportunidade === null) {
+      this.idOportunidade = oportunidade.Id;
+      this.criados.Opportunity.push(oportunidade.Id);
+    }
+    return oportunidade.AccountId ?? null;
+  }
+
   /** Opportunity da jornada em X e PAC/Proponente de X antes da cadeia (runbook, TC-001). */
-  private async iniciarJornada(prospectJornada: string | null): Promise<void> {
-    await this.criarOportunidade();
+  private async iniciarJornada(prospectJornada: string | null, porEvento = false): Promise<void> {
+    if (porEvento) await this.abrirJornadaPorEvento(prospectJornada);
+    else await this.criarOportunidade();
+    // Na jornada por evento, a PAC em análise sai como na staging (05/11): sem
+    // IdCliente e sem CPF, só com o prospect em `idProponente`.
     await this.enviar(
       'PAC',
       this.pacEnvelope('pac-insert', 'EM_ANALISE_CREDITO', this.t(-60), {
-        idCliente: this.x.idCliente,
-        cpf: this.x.cpf,
+        idCliente: porEvento ? null : this.x.idCliente,
+        cpf: porEvento ? null : this.x.cpf,
         nome: this.x.nome,
         email: this.contatosDeX.email || this.contatos.emailA,
         celular: this.contatosDeX.celular || this.contatos.celularB,
@@ -1333,6 +1406,9 @@ export class Execucao {
       }),
       'pac-insert-x',
     );
+    if (porEvento && this.jornadaInicial !== null) {
+      this.jornadaInicial.proponenteAposPac = await this.contaDoProponenteDaPac();
+    }
   }
 
   /** `pac-update` EM_ANALISE_CREDITO do Proponente principal, com o prospect da jornada. */
@@ -1729,7 +1805,7 @@ export class Execucao {
     };
     const { idClienteEvento, prospectJornada } = contexto;
 
-    await this.iniciarJornada(prospectJornada);
+    await this.iniciarJornada(prospectJornada, aprovacao.jornadaPorEvento === true);
     if (this.perfil === 'AR' || this.perfil === 'AM' || this.perfil === 'FW') {
       return this.cadeiaDoWebJob(contexto);
     }

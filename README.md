@@ -13,11 +13,11 @@ duas partes:
   faz de volta: GraphQL `atualizarCliente`, token, PAC Crédito e Contestação.
 - **Scripts locais** (`scripts/`), que falam direto com a `mrv-devDan` pela
   Salesforce CLI:
-  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 7
+  - o harness do runbook da Unificação 2.2, com os 44 TCs executáveis e 8
     variantes que não estão na planilha, nos perfis PA, CA e ME, nos perfis
     C1 a C4 do bug 4 e nos perfis AR, AM, FW, RC, EP, RL, RP, RE, RF e AS, com
     as ordens reais da aprovação e da reentrega do Event Grid. O `--todos`
-    roda os 51 cenários em todos os perfis aplicáveis a cada um. O esperado
+    roda os 52 cenários em todos os perfis aplicáveis a cada um. O esperado
     segue a planilha oficial;
   - as ferramentas das ordens O06, O07, O09, O10 e O12;
   - os diagnósticos do TC-001;
@@ -409,21 +409,31 @@ roda os TCs pedidos do
 Requer o mesmo ambiente local autenticado descrito acima.
 
 `npm run runbook -- --todos [--paralelo 6] [--saida campanha.jsonl]` roda a
-**campanha completa**: os 51 cenários, cada um em todos os perfis que se
-aplicam a ele. São 760 RUNs:
+**campanha completa**: os 52 cenários, cada um em todos os perfis que se
+aplicam a ele. São 775 RUNs:
 
 | Cenários | Perfis |
 |---|---|
 | Com `cliente-insert` (31) | 16: todos menos o AM |
-| Com `cliente-insert` e a jornada sem IdCliente (TC-001-MSI e TC-001-MPC) | 15: também sem o AS |
+| Com `cliente-insert` e a jornada sem IdCliente (TC-001-MSI, TC-001-MPC e TC-024-CLI) | 15: também sem o AS |
 | Com `cliente-update` (18) | 13: todos menos RP, RE, RF e AS |
 
 Com `--perfis`, o `--todos` roda só os perfis pedidos. Os TCs bloqueados e os
 `BLOCKED-FUNCIONAL` ficam de fora. Entram, marcados no relatório como **fora
-do modelo**, as 7 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
-TC-005-PSL, TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
+do modelo**, as 8 variantes (TC-001-XSI, TC-001-MSI, TC-001-MPC, TC-002-INT,
+TC-005-PSL, TC-024-CLI, TC-040-IDP e TC-040-IDX), que não estão na planilha, e os TCs 053 a 057: a
 planilha descreve a inclusão de um proponente adicional, e o harness só monta
 a troca do principal. Um conforme neles não aprova o TC da planilha.
+
+**TC-024-CLI** (teste da QA de 05/11, 2.1 → 2.2): a Opportunity não nasce por
+DML, e sim do `jornadausuario-insert` da BFF, seguido de um
+`jornadausuario-update` e de um `pac-insert` em análise, os três sem IdCliente e
+sem CPF, só com o prospect da jornada. A massa é a saída da 2.1: a Account da pessoa só com CPF e contatos,
+sem IdCliente e sem prospect, e o prospect do Lead ainda gravado na Account de
+outra pessoa (com IdCliente). As asserções próprias conferem em que Account a
+Opportunity ficou depois do insert e do update, e a do Proponente depois da PAC,
+porque o estado final não mostra o defeito: a cadeia a leva para a Account certa mais tarde. Bug em
+[`docs/bugs/2026-11-05-jornada-resolvida-para-account-do-prospect-de-outra-pessoa.md`](docs/bugs/2026-11-05-jornada-resolvida-para-account-do-prospect-de-outra-pessoa.md).
 
 - **Massa:** entra como fixture, e a cadeia 2.2 roda inteira (PAC, eventos na
   ordem do perfil, Queueable/callback, `cliente-update(PROS-Y)`, `pac-update`
@@ -563,9 +573,9 @@ ainda não existe, e só aí o parcial que chega antes do cliente é recusado
 ("Parcial antes do cliente", 500) e reentregue. Pela documentação do Azure, o
 Event Grid repete com espera crescente (10 s, 30 s, 1 min, 5 min...), então a
 reentrega pode cair depois de qualquer evento seguinte. No PA, ela vem logo
-depois do cliente. O AS também não roda no TC-001-MSI e no TC-001-MPC: ele
-troca a jornada sem IdCliente dessas variantes pela jornada da staging, e
-elas perderiam o que testam.
+depois do cliente. O AS também não roda no TC-001-MSI, no TC-001-MPC e no
+TC-024-CLI: ele troca a jornada sem IdCliente dessas variantes pela jornada da
+staging, e elas perderiam o que testam.
 
 Detalhes que valem para todos:
 

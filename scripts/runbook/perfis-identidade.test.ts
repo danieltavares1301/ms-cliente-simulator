@@ -120,6 +120,39 @@ describe('perfis', () => {
     }
   });
 
+  it('confere em que Account a jornada aberta por evento deixou a Opportunity e o Proponente (TC-024-CLI)', () => {
+    const { execucao, v } = verificador(estado([contaX]));
+    const contaZ: AccountRegistro = { ...contaX, Id: '001HZ000000ZZZZAAA', Id__c: 'IDCLI-Z' };
+    execucao.fixtures.set('accountZ', { objeto: 'Account', registro: contaZ });
+    const oks = () => v.jornadaIniciadaNaContaDaPessoa().map(({ ok }) => ok);
+
+    expect(oks()).toEqual([false, false, false]);
+    execucao.jornadaInicial = { aposInsert: contaX.Id, aposUpdate: contaX.Id, proponenteAposPac: contaX.Id };
+    expect(oks()).toEqual([true, true, true]);
+    execucao.jornadaInicial = { aposInsert: contaZ.Id, aposUpdate: contaZ.Id, proponenteAposPac: contaZ.Id };
+    const naDona = v.jornadaIniciadaNaContaDaPessoa();
+    expect(naDona.map(({ ok }) => ok)).toEqual([false, false, false]);
+    expect(naDona.map(({ detalhe }) => detalhe)).toEqual(
+      Array(3).fill({ conta: 'Account dona do prospect' }),
+    );
+    // Proponente sem Account, ou na Account da pessoa só depois: a asserção do Proponente é a que falha.
+    execucao.jornadaInicial = { aposInsert: contaX.Id, aposUpdate: contaX.Id, proponenteAposPac: null };
+    expect(oks()).toEqual([true, true, false]);
+    execucao.jornadaInicial = { aposInsert: null, aposUpdate: contaX.Id, proponenteAposPac: contaX.Id };
+    expect(oks()).toEqual([false, true, true]);
+  });
+
+  it('abre a jornada por evento só no TC-024-CLI, que roda em 15 perfis (sem o AS)', () => {
+    const porEvento = CENARIOS.filter((cenario) =>
+      cenario.aprovacao(new Execucao(semConexao, cenario.id, 'PA', 1_000)).jornadaPorEvento === true,
+    );
+    expect(porEvento.map(({ id }) => id)).toEqual(['TC-024-CLI']);
+    const aprovacao = porEvento[0]!.aprovacao(new Execucao(semConexao, 'TC-024-CLI', 'PA', 1_000));
+    expect(TODOS_PERFIS.filter((perfil) => perfilAplicavel(perfil, aprovacao))).toEqual(
+      TODOS_PERFIS.filter((perfil) => perfil !== 'AM' && perfil !== 'AS'),
+    );
+  });
+
   it('aplica a cada cenário do --todos 16 perfis no cliente-insert e 13 no cliente-update', () => {
     for (const cenario of CENARIOS) {
       const aprovacao = cenario.aprovacao(new Execucao(semConexao, cenario.id, 'PA', 1_000));

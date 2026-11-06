@@ -54,6 +54,7 @@ branch antiga.
 | 33 | `5e15a1ab6e` | fora do plano: a US 1060669 (telefone internacional) no código da unificação | O celular internacional não se confunde com um celular brasileiro de mesmos dígitos, e quem grava o celular na Account ou no Lead grava junto o código do país | sem equivalente: a 2.2 é anterior à US 1060669 | commit novo (2.31) |
 | 34 | `0d5f6ed558` | fora do plano: o bug do TC-017, reportado pela QA na staging em 30/10 | Quando a Account do proponente principal aparece depois da PAC aprovada, o `cliente-*` que a cria ou acha traz para ela a Opportunity que ficou na Account de outra pessoa | sem equivalente: na 2.2, só a PAC aprovada ([`4d54e3b7d9`](inventario-commits-2.2.md#c36) (36), refeito no commit 19) e a jornada moviam a Opportunity, e nenhuma das duas olhava a Account que nasce depois | commit novo (2.32) |
 | 35 | `66f1613e17` | fora do plano: o bug 1142660, reportado pela QA na staging em 31/10 (variação do TC-005) | A Account com um IdProspect que não é de nenhum Lead ganha o Lead da pessoa com os dados aprovados, no lugar de manter o prospect inválido | sem equivalente: a regra "prospect que não existe fica como está" entrou no commit 27 (`2c34f6f7c9`), sem justificativa | commit novo (2.33) |
+| 36 | `1946fd8901` | fora do plano: o teste da QA de 05/11 (2.1 → 2.2), a jornada e a PAC em análise na Account que guarda o prospect de outra pessoa | Sem IdCliente e sem CPF no evento, a pessoa é a do Lead dono do prospect: o CPF do Lead acha a Account (CPF é a chave principal, prospect é o plano B, só vale se o CPF não divergir) | sem equivalente: a busca por prospect só comparava com o CPF e o IdCliente do evento, vazios nesses eventos | commit novo (2.34) |
 
 Os commits 2 a 4 e o 7 saíram sem a linha "(cherry picked from commit …)" que
 o `-x` acrescenta. A origem fica registrada aqui.
@@ -907,6 +908,46 @@ método (plano, seção 4).
 - **Em aberto:** confirmar com o PO e a QA a regra "prospect inexistente →
   criar o Lead e trocar o prospect"; e alinhar o runbook do TC-050 e do
   TC-064, que ainda descrevem a regra antiga.
+
+### 2.34 `1946fd8901`: a jornada e a PAC em análise na Account do prospect de outra pessoa
+
+- **Origem:** o teste da QA de 05/11 na `mrv-staging`, que começa na 2.1 e
+  termina na 2.2 ([registro do bug](bugs/2026-11-05-jornada-resolvida-para-account-do-prospect-de-outra-pessoa.md);
+  plano no `com_salesforce_mrv`, em
+  `docs/unificacao-clientes/plano-correcao-maquina-estado-prospect-preso-a-outra-account.md`).
+- **O defeito:** o prospect do Lead da jornada estava gravado na Account de
+  outra pessoa (com IdCliente e CPF diferente). A 2.1 criou a Account da pessoa
+  sem prospect, como deve, mas os `jornadausuario-*` e as PACs em análise
+  chegam só com o prospect, sem IdCliente e sem CPF. A busca por prospect
+  achava a Account da outra pessoa, e a Opportunity e o Proponente nasciam nela.
+- **Regra do negócio (Isabela):** o CPF é a chave principal; o prospect é o
+  plano B, só quando nenhuma Account é achada pelo CPF; e só vale se o CPF da
+  Account não divergir do CPF do Lead.
+- **Aqui:** `ClienteService.obterCpfDaPessoa( idCliente, cpfDoEvento, prospect )`
+  devolve o CPF do evento, ou, sem CPF e sem IdCliente, o do Lead dono do
+  prospect. `NotificacaoMaquinaEstado` e `NotificacaoPAC.criarInstanciaProponente`
+  o chamam antes de `getClientePosPac` e `deveDescartarMatchPosPac`, que não
+  mudaram. O `/Cliente` ficou de fora (todo evento traz IdCliente).
+- **Testes:** 11 novos, 3 no `ClienteServiceTest`, 4 no `NotificacaoMaquinaEstadoTest`
+  e 4 no `NotificacaoPACTest`.
+- **Harness, junto:** a variante TC-024-CLI, fora do modelo, que abre a jornada
+  pelo `jornadausuario-insert` e confere a Account da Opportunity logo depois
+  do insert e do update, e a do Proponente logo depois da PAC.
+- **Verificação na dev (05/11):** deploy `0AfHZ00000RIJ9W0AX`, com `NoTestRun`,
+  depois de um `--dry-run` limpo. Nas 8 classes de teste, 245 testes antes
+  (242 passando) e 256 depois (253 passando), com as mesmas 3 falhas de antes.
+  A TC-024-CLI deu 15 divergentes em 15 perfis sem a correção e 15 conformes
+  com ela. A campanha completa deu 774 conformes em 775; o divergente é o
+  TC-041 no AS, de outro bug (Cliente da Jornada), já reproduzido antes
+  ([estado da dev](estado-da-mrv-devDan.md)).
+- **Na staging:** implantado em 05/11, a pedido explícito do usuário, no
+  deploy `0AfHZ00000RIM5m0AH` (6 classes, `NoTestRun`), mesclado com o que a
+  staging já tinha (igual à `origin/develop`), por merge de 3 vias sem conflito.
+  Os testes Apex não foram rodados lá.
+- **Em aberto:** o commit está só no `GV_909649_918914`; falta o merge para a
+  `develop` e o reteste da Isabela. O `Error_Response_Mapping` de
+  `Cliente_Account_nao_encontrado` (500) está na `develop`, na staging e na
+  dev, e não neste branch.
 
 ## 3. Destino dos commits da 2.2 já tratados
 
