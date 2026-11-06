@@ -3,6 +3,7 @@ import {
   type AccountRegistro,
   type Aprovacao,
   type Assercao,
+  type ClienteDaJornadaRegistro,
   type EvidenciaDoPerfil,
   type Execucao,
   type LeadRegistro,
@@ -290,6 +291,47 @@ export class Verificador {
       ok: lead !== undefined,
       detalhe: { prospect: conta?.IdProspectSalesforce__c ?? null },
     };
+  }
+
+  /**
+   * "Clientes da Jornada" (`ClientesRelacionados__c`) de uma Opportunity
+   * `UnidadeVendaGenerica`: de X antes da aprovação e, depois dela, um só
+   * registro, principal, na Account aprovada. O vazio (sem Account) é o
+   * defeito do TC-041 na staging, em 05/11: a PAC aprovada veio antes da
+   * Account de Y e nada refez o registro depois.
+   */
+  clienteDaJornada(): Assercao[] {
+    const contaX = this.execucao.fixtures.get('accountX')?.registro.Id;
+    const conta = this.conta();
+    const rotular = (cliente: ClienteDaJornadaRegistro) => ({
+      cliente:
+        cliente.Cliente__c == null
+          ? 'vazio'
+          : cliente.Cliente__c === conta?.Id
+            ? 'aprovada (Y)'
+            : cliente.Cliente__c === contaX
+              ? 'X'
+              : 'outra',
+      principal: cliente.ClientePrincipal__c ?? false,
+    });
+    const antes = this.execucao.clientesDaJornadaAntes;
+    const final = this.final.clientesDaJornada;
+    return [
+      {
+        nome: 'Cliente da Jornada de X antes da aprovação (precondição)',
+        ok: antes !== null && antes.length === 1 && antes[0]!.Cliente__c === contaX && antes[0]!.ClientePrincipal__c === true,
+        detalhe: antes === null ? 'o RUN não modelou o Cliente da Jornada' : antes.map(rotular),
+      },
+      {
+        nome: 'Cliente da Jornada na Account aprovada (Y), único e principal',
+        ok:
+          conta !== undefined &&
+          final.length === 1 &&
+          final[0]!.Cliente__c === conta.Id &&
+          final[0]!.ClientePrincipal__c === true,
+        detalhe: final.map(rotular),
+      },
+    ];
   }
 
   /**

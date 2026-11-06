@@ -934,10 +934,15 @@ export const CENARIOS: readonly Cenario[] = [
     id: 'TC-041',
     titulo: 'Venda Genérica com colisão total',
     fluxo: 'VENDA_GENERICA',
-    massa: (e) => e.xSincronizado(),
+    observacao:
+      'Modela o Cliente da Jornada (Opportunity UnidadeVendaGenerica + ClientesRelacionados__c), que o runbook cobra em "Clientes da Jornada" e o harness não lia: bug do TC-041 na staging (05/11).',
+    massa: async (e) => {
+      e.comClienteDaJornada();
+      await e.xSincronizado();
+    },
     aprovacao: (e) =>
       aprovarY(e, { email: e.contatos.emailA, celular: e.contatos.celularB }, 'cliente-insert'),
-    esperado: (v) => [v.contaNova(), v.leadsDoCpf(1), leadSoCpf(v), v.vinculo()],
+    esperado: (v) => [v.contaNova(), v.leadsDoCpf(1), leadSoCpf(v), v.vinculo(), ...v.clienteDaJornada()],
   },
   {
     id: 'TC-042',

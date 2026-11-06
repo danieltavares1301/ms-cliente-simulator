@@ -45,7 +45,7 @@ function estado(
   contas: AccountRegistro[],
   proponente: Snapshot['proponente'] = null,
 ): Snapshot {
-  return { accounts: contas, leads: [], oportunidade: null, pac: null, proponente };
+  return { accounts: contas, leads: [], oportunidade: null, pac: null, proponente, clientesDaJornada: [] };
 }
 
 function verificador(final: Snapshot) {
@@ -575,5 +575,52 @@ describe('Verificador.evidenciasDoPerfil nas ordens reais', () => {
   it('não acrescenta nada nos perfis obrigatórios', () => {
     const { v } = verificador(estado([contaX]));
     for (const perfil of PERFIS) expect(v.evidenciasDoPerfil(perfil, null, false)).toEqual([]);
+  });
+});
+
+describe('Verificador.clienteDaJornada', () => {
+  const idContaY = '001HZ000000YYYYAAA';
+  const clienteX = { Id: 'a2oHZ0000000001AAA', Cliente__c: contaX.Id, ClientePrincipal__c: true };
+
+  function conferir(antes: Snapshot['clientesDaJornada'] | null, final: Snapshot['clientesDaJornada']) {
+    const { execucao, aprovacao } = verificador(estado([contaX]));
+    execucao.clientesDaJornadaAntes = antes;
+    const contaY: AccountRegistro = { ...contaX, Id: idContaY, Id__c: execucao.y.idCliente, CPF__pc: execucao.y.cpf };
+    const snapshot = { ...estado([contaX, contaY]), clientesDaJornada: final };
+    return new Verificador(execucao, aprovacao, snapshot, null, null).clienteDaJornada();
+  }
+
+  it('passa com X antes da aprovação e um só registro principal em Y depois', () => {
+    const [precondicao, final] = conferir([clienteX], [
+      { Id: 'a2oHZ0000000002AAA', Cliente__c: idContaY, ClientePrincipal__c: true },
+    ]);
+    expect(precondicao!.ok).toBe(true);
+    expect(final!.ok).toBe(true);
+  });
+
+  it('acusa o registro sem Account, como na staging (TC-041, 05/11)', () => {
+    const [precondicao, final] = conferir([clienteX], [
+      { Id: 'a2oHZ0000000002AAA', Cliente__c: null, ClientePrincipal__c: true },
+    ]);
+    expect(precondicao!.ok).toBe(true);
+    expect(final!.ok).toBe(false);
+    expect(final!.detalhe).toEqual([{ cliente: 'vazio', principal: true }]);
+  });
+
+  it('acusa o Cliente da Jornada que continua em X, em duplicidade ou sem registro', () => {
+    expect(conferir([clienteX], [clienteX])[1]!.ok).toBe(false);
+    expect(
+      conferir([clienteX], [
+        { Id: 'a2oHZ0000000002AAA', Cliente__c: idContaY, ClientePrincipal__c: true },
+        clienteX,
+      ])[1]!.ok,
+    ).toBe(false);
+    expect(conferir([clienteX], [])[1]!.ok).toBe(false);
+  });
+
+  it('reprova a precondição quando o RUN não modelou o Cliente da Jornada de X', () => {
+    const [precondicao] = conferir(null, []);
+    expect(precondicao!.ok).toBe(false);
+    expect(precondicao!.detalhe).toBe('o RUN não modelou o Cliente da Jornada');
   });
 });

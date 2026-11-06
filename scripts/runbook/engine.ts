@@ -382,6 +382,22 @@ export type LeadRegistro = z.infer<typeof leadSchema>;
 const oportunidadeSchema = z
   .object({ Id: z.string(), AccountId: texto, StageName: texto })
   .passthrough();
+/** Item do `GET /GETClientesRelacionados`, o mesmo que a Plataforma BFF consome. */
+const clienteDaJornadaRespostaSchema = z.array(
+  z
+    .object({
+      IdSalesforce: z.string(),
+      IdClienteSalesforce: texto,
+      ClientePrincipal: z.boolean().nullable().optional(),
+    })
+    .passthrough(),
+);
+export type ClienteDaJornadaRegistro = {
+  Id: string;
+  /** `ClientesRelacionados__c.Cliente__c`; `null` é o registro sem Account. */
+  Cliente__c: string | null;
+  ClientePrincipal__c: boolean | null;
+};
 const pacSchema = z
   .object({ Id: z.string(), Status__c: texto, DataAlteracaoEvento__c: texto })
   .passthrough();
@@ -556,6 +572,8 @@ export type Snapshot = {
   oportunidade: z.infer<typeof oportunidadeSchema> | null;
   pac: z.infer<typeof pacSchema> | null;
   proponente: z.infer<typeof proponenteSchema> | null;
+  /** `ClientesRelacionados__c` da Opportunity; vazio quando o RUN não modela o Cliente da Jornada. */
+  clientesDaJornada: ClienteDaJornadaRegistro[];
 };
 
 /**
@@ -606,6 +624,10 @@ export class Execucao {
   private contatosDeX = { email: '', celular: '' };
   /** Parciais recusados por chegarem antes do cliente, reenviados depois dele. */
   private parciaisRecusados: Array<{ envelope: EventGridEnvelope; rotulo: string }> = [];
+  /** O RUN modela o Cliente da Jornada (Opportunity `UnidadeVendaGenerica`); ver `comClienteDaJornada`. */
+  private modelaClienteDaJornada = false;
+  /** Clientes da Jornada logo depois da PAC de X, antes da aprovação de Y; `null` sem o modelo. */
+  clientesDaJornadaAntes: ClienteDaJornadaRegistro[] | null = null;
   /**
    * Account da Opportunity depois do `jornadausuario-insert` e do primeiro
    * `jornadausuario-update` da BFF, e Account do Proponente depois da PAC em
@@ -1028,9 +1050,65 @@ export class Execucao {
     return fixture.registro;
   }
 
+  /**
+   * Liga o modelo do Cliente da Jornada neste RUN: a Opportunity nasce com o
+   * record type `UnidadeVendaGenerica`, o único em que a PAC mantém o
+   * `ClientesRelacionados__c` (`AtualizaClientesRelacionadosService`). O Cliente
+   * da Jornada de X nasce da própria `pac-insert-x`, como o serviço faz, e o
+   * snapshot passa a lê-lo. Sem isto, o harness nunca vê esse objeto (bug do
+   * TC-041 na staging, 05/11). A leitura é pelo `GETClientesRelacionados`: o
+   * usuário da CLI não tem FLS em `Cliente__c` na dev, e o Apex lê sem FLS.
+   * Exclusão: o vínculo com a Opportunity é master-detail, então o cleanup da
+   * Opportunity leva os registros.
+   */
+  comClienteDaJornada(): void {
+    this.modelaClienteDaJornada = true;
+  }
+
+  private async clientesDaJornada(): Promise<ClienteDaJornadaRegistro[]> {
+    if (!this.modelaClienteDaJornada || this.idOportunidade === null) return [];
+    const idOportunidade = this.idOportunidade;
+    const corpo = await this.comRede(async () => {
+      const access = await this.conexao.safetyGuard.validate();
+      const url = new URL('/services/apexrest/GETClientesRelacionados', access.instanceUrl);
+      url.searchParams.set('opportunityId', idOportunidade);
+      const resposta = await this.fetchDireto('GETClientesRelacionados', url, {
+        method: 'GET',
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.timeoutRequisicaoMs),
+        headers: { authorization: `Bearer ${access.accessToken}` },
+      });
+      const texto = await resposta.text();
+      if (!resposta.ok) {
+        throw new Error(`GETClientesRelacionados respondeu ${resposta.status}: ${texto.slice(0, 200)}`);
+      }
+      return texto;
+    });
+    // O endpoint devolve o JSON como string: `JSON.serialize` dentro de `@HttpGet String`.
+    const lido: unknown = JSON.parse(corpo);
+    const itens = clienteDaJornadaRespostaSchema.parse(typeof lido === 'string' ? JSON.parse(lido) : lido);
+    return itens.map((item) => ({
+      Id: item.IdSalesforce,
+      Cliente__c: item.IdClienteSalesforce ?? null,
+      ClientePrincipal__c: item.ClientePrincipal ?? null,
+    }));
+  }
+
+  private async recordTypeVendaGenerica(): Promise<string> {
+    const [recordType] = await this.consultar(
+      idSchema,
+      "SELECT Id FROM RecordType WHERE SObjectType = 'Opportunity' AND DeveloperName = 'UnidadeVendaGenerica' AND IsActive = true",
+    );
+    if (recordType === undefined) {
+      throw new Error('Record type UnidadeVendaGenerica da Opportunity não encontrado na org.');
+    }
+    return recordType.Id;
+  }
+
   private async criarOportunidade(): Promise<void> {
     const contaX = this.fixtures.get('accountX')?.registro.Id;
     if (contaX === undefined) throw new Error('A massa precisa de accountX');
+    const recordTypeId = this.modelaClienteDaJornada ? await this.recordTypeVendaGenerica() : undefined;
     const resposta = z
       .object({
         compositeResponse: z.array(z.object({ body: z.unknown() })),
@@ -1047,6 +1125,7 @@ export class Execucao {
               CloseDate: '2027-12-31',
               Id__c: this.oportunidadeExterna,
               AccountId: contaX,
+              ...(recordTypeId === undefined ? {} : { RecordTypeId: recordTypeId }),
             },
           },
         ])),
@@ -1299,7 +1378,7 @@ export class Execucao {
       ? ` OR Id IN (${lista(this.criados.Lead)})`
       : '';
     // Duas etapas em paralelo: os Leads e o carimbo dependem das Accounts.
-    const [contas, [oportunidade], [pac], [proponente]] = await Promise.all([
+    const [contas, [oportunidade], [pac], [proponente], clientesDaJornada] = await Promise.all([
       this.consultar(
         accountSchema,
         `SELECT ${accountCampos} FROM Account WHERE CPF__pc IN (${lista(cpfs)}) OR Id__c IN (${lista(idClientes)}) OR IdProspectSalesforce__c IN (${lista(prospects)})${idsContas} ORDER BY CreatedDate`,
@@ -1316,6 +1395,7 @@ export class Execucao {
         proponenteSchema,
         `SELECT Id, Proponente__c, IdCliente__c, IdProponente__c, CpfProponente__c, TipoClassificacao__c, EmailAtualizado__c, Celular__c, EnviarNotificacaoPendencia__c FROM Proponente__c WHERE Id__c = ${literal(this.proponenteExterno)}`,
       ),
+      this.clientesDaJornada(),
     ]);
     const prospectsAtuais = contas.flatMap(({ IdProspectSalesforce__c }) =>
       IdProspectSalesforce__c ? [IdProspectSalesforce__c] : [],
@@ -1333,6 +1413,7 @@ export class Execucao {
       oportunidade: oportunidade ?? null,
       pac: pac ?? null,
       proponente: proponente ?? null,
+      clientesDaJornada,
     };
   }
 
@@ -1409,6 +1490,7 @@ export class Execucao {
     if (porEvento && this.jornadaInicial !== null) {
       this.jornadaInicial.proponenteAposPac = await this.contaDoProponenteDaPac();
     }
+    if (this.modelaClienteDaJornada) this.clientesDaJornadaAntes = await this.clientesDaJornada();
   }
 
   /** `pac-update` EM_ANALISE_CREDITO do Proponente principal, com o prospect da jornada. */
@@ -2469,6 +2551,11 @@ export function resumirEstado(estado: Snapshot) {
           EnviarNotificacaoPendencia__c: estado.proponente.EnviarNotificacaoPendencia__c ?? null,
         }
       : null,
+    clientesDaJornada: estado.clientesDaJornada.map((cliente) => ({
+      Id: cliente.Id,
+      Cliente__c: cliente.Cliente__c ?? null,
+      ClientePrincipal__c: cliente.ClientePrincipal__c ?? null,
+    })),
   };
 }
 
