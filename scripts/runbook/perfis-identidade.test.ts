@@ -142,15 +142,49 @@ describe('perfis', () => {
     expect(oks()).toEqual([false, true, true]);
   });
 
-  it('abre a jornada por evento só no TC-024-CLI, que roda em 15 perfis (sem o AS)', () => {
+  it('abre a jornada por evento só no TC-024-CLI e no TC-024-CPF; o TC-024-CLI roda em 15 perfis (sem o AS)', () => {
     const porEvento = CENARIOS.filter((cenario) =>
       cenario.aprovacao(new Execucao(semConexao, cenario.id, 'PA', 1_000)).jornadaPorEvento === true,
     );
-    expect(porEvento.map(({ id }) => id)).toEqual(['TC-024-CLI']);
+    expect(porEvento.map(({ id }) => id)).toEqual(['TC-024-CLI', 'TC-024-CPF']);
     const aprovacao = porEvento[0]!.aprovacao(new Execucao(semConexao, 'TC-024-CLI', 'PA', 1_000));
     expect(TODOS_PERFIS.filter((perfil) => perfilAplicavel(perfil, aprovacao))).toEqual(
       TODOS_PERFIS.filter((perfil) => perfil !== 'AM' && perfil !== 'AS'),
     );
+  });
+
+  it('confere, no TC-024-CPF, onde a jornada caiu e a troca do prospect para a Account com IdCliente', () => {
+    const idProspect = new Execucao(semConexao, 'TC-024-CPF', 'PA', 1_000).x.idProspect;
+    const comIdCliente: AccountRegistro = { ...contaX, IdProspectSalesforce__c: null };
+    const dona: AccountRegistro = { ...contaX, Id: '001HZ000000PPPPAAA', Id__c: null, IdProspectSalesforce__c: idProspect };
+    const medir = (contas: AccountRegistro[], contaDaOportunidade: string) => {
+      const { execucao, v } = verificador({
+        ...estado(contas),
+        oportunidade: { Id: '006HZ000000OOOOAAA', AccountId: contaDaOportunidade, StageName: 'Escolher Unidade' },
+      });
+      execucao.x.idProspect = idProspect;
+      execucao.fixtures.set('accountX', { objeto: 'Account', registro: comIdCliente });
+      execucao.fixtures.set('accountP', { objeto: 'Account', registro: dona });
+      execucao.jornadaInicial = { aposInsert: dona.Id, aposUpdate: dona.Id, proponenteAposPac: comIdCliente.Id };
+      return v.cpfRepetidoComProspectEmOutraConta().map(({ ok, detalhe }) => ({ ok, detalhe }));
+    };
+
+    // Sem a troca: a Opportunity e o prospect ficam na Account do prospect.
+    const antes = medir([comIdCliente, dona], dona.Id);
+    expect(antes.slice(0, 3).map(({ ok }) => ok)).toEqual([true, true, true]);
+    expect(antes.slice(0, 3).map(({ detalhe }) => detalhe)).toEqual([
+      { conta: 'Account que guarda o prospect' },
+      { conta: 'Account que guarda o prospect' },
+      { conta: 'Account com IdCliente' },
+    ]);
+    expect(antes.slice(3).map(({ ok }) => ok)).toEqual([false, false, false]);
+
+    // Com a troca: o prospect e a Opportunity ficam na Account com IdCliente.
+    const depois = medir(
+      [{ ...comIdCliente, IdProspectSalesforce__c: idProspect }, { ...dona, IdProspectSalesforce__c: null }],
+      comIdCliente.Id,
+    );
+    expect(depois.slice(3).map(({ ok }) => ok)).toEqual([true, true, true]);
   });
 
   it('aplica a cada cenário do --todos 16 perfis no cliente-insert e 13 no cliente-update', () => {

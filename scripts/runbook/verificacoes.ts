@@ -368,6 +368,60 @@ export class Verificador {
     ];
   }
 
+  /**
+   * Duas Accounts da mesma pessoa (TC-024-CPF, bug 1145695): `refComIdCliente`
+   * tem IdCliente e não tem prospect; `refDonaDoProspect` tem o prospect da
+   * jornada e não tem IdCliente. Os três primeiros itens só registram em que
+   * Account a jornada aberta por evento caiu (`ok` sempre verdadeiro), porque
+   * a regra do evento está em aberto. O veredito é o estado final, pela regra
+   * da QA de 06/11: a Opportunity e o prospect ficam na Account com IdCliente
+   * (a troca do pós-PAC), e a Account que guardava o prospect fica sem ele.
+   */
+  cpfRepetidoComProspectEmOutraConta(
+    refComIdCliente = 'accountX',
+    refDonaDoProspect = 'accountP',
+  ): Assercao[] {
+    const comIdCliente = this.execucao.fixtures.get(refComIdCliente)?.registro.Id;
+    const dona = this.execucao.fixtures.get(refDonaDoProspect)?.registro.Id;
+    const rotular = (conta: string | null | undefined) =>
+      conta == null
+        ? 'nenhuma'
+        : conta === comIdCliente
+          ? 'Account com IdCliente'
+          : conta === dona
+            ? 'Account que guarda o prospect'
+            : 'outra';
+    const inicial = this.execucao.jornadaInicial;
+    const observacao = (nome: string, conta: string | null | undefined): Assercao => ({
+      nome: `Observação, sem veredito: ${nome}`,
+      ok: true,
+      detalhe: inicial === null ? 'o RUN não abriu a jornada por evento' : { conta: rotular(conta) },
+    });
+    const contaFinal = (id: string | undefined) => this.final.accounts.find((conta) => conta.Id === id);
+    const prospectDe = (id: string | undefined) => contaFinal(id)?.IdProspectSalesforce__c ?? null;
+    const oportunidadeFinal = this.final.oportunidade?.AccountId ?? null;
+    return [
+      observacao('jornadausuario-insert (sem IdCliente e sem CPF) cria a Opportunity em', inicial?.aposInsert),
+      observacao('jornadausuario-update inicial deixa a Opportunity em', inicial?.aposUpdate),
+      observacao('pac-insert em análise (sem IdCliente e sem CPF) liga o Proponente a', inicial?.proponenteAposPac),
+      {
+        nome: 'Ao final, a Opportunity está na Account com IdCliente',
+        ok: oportunidadeFinal !== null && oportunidadeFinal === comIdCliente,
+        detalhe: { conta: rotular(oportunidadeFinal) },
+      },
+      {
+        nome: 'Ao final, a Account com IdCliente tem o prospect da jornada (troca no pós-PAC)',
+        ok: (prospectDe(comIdCliente) ?? '').toLowerCase() === this.execucao.x.idProspect.toLowerCase(),
+        detalhe: { prospect: prospectDe(comIdCliente) },
+      },
+      {
+        nome: 'Ao final, a Account que guardava o prospect fica sem ele',
+        ok: vazio(prospectDe(dona)),
+        detalhe: { prospect: prospectDe(dona) },
+      },
+    ];
+  }
+
   /** Lead novo vinculado à Account aprovada; `null` exige o campo vazio. */
   leadNovo(esperado: {
     email: string | null;

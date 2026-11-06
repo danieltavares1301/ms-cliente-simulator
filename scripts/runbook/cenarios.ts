@@ -91,6 +91,9 @@ const PROSPECT_SEM_LEAD =
 const PROSPECT_PRESO_A_OUTRA_PESSOA =
   'Variante do TC-024 para o teste da QA de 05/11 (2.1 → 2.2): o prospect do Lead da jornada está preso a uma Account de outra pessoa (com IdCliente e CPF diferente); a 2.1 criou a Account da pessoa sem prospect, e a Opportunity nasce do jornadausuario-insert, sem IdCliente e sem CPF. Não está na planilha.';
 
+const CPF_REPETIDO_PROSPECT_EM_OUTRA_ACCOUNT =
+  'Variante do TC-024 para o bug 1145695 (US 918899) e a regra da QA de 06/11: duas Accounts da mesma pessoa (mesmo CPF), uma com IdCliente e sem prospect e a outra com o prospect do Lead e sem IdCliente. A 2.1 real não é chamada; a massa é o que ela deixa quando reaproveita a Account do prospect. Mede onde o jornadausuario-insert cria a Opportunity e o que a PAC aprovada faz com o prospect (a troca do pós-PAC). Não está na planilha.';
+
 /** Celular local de Portugal (9 dígitos) do RUN, e o brasileiro de DDD 51 com os mesmos dígitos no fim. */
 function celularPortugal(e: Execucao): { local: string; brasileiroParecido: string } {
   const local = `91${e.contatos.celularD.slice(4)}`;
@@ -725,6 +728,49 @@ export const CENARIOS: readonly Cenario[] = [
       v.preservado('accountZ', 'Account Z (dona do prospect) intacta'),
       v.preservado('leadX', 'Lead da jornada intacto'),
       v.contasDoCpf(1),
+      v.leadsDoCpf(1),
+    ],
+  },
+  {
+    id: 'TC-024-CPF',
+    titulo: 'Duas Accounts do mesmo CPF: uma com IdCliente e sem prospect, outra com o prospect do Lead e sem IdCliente',
+    fluxo: 'JORNADA_UNIDADE',
+    foraDoModelo: CPF_REPETIDO_PROSPECT_EM_OUTRA_ACCOUNT,
+    xAlteravel: true,
+    observacao:
+      'Cenário 1 (Account com IdCliente, sem prospect) e Cenário 2 (Account com o prospect X, sem IdCliente) da QA. As asserções de onde a Opportunity nasce são só observação, sem veredito: a regra do evento ainda está em aberto. O veredito vem do estado final: a regra da QA de 06/11 é a troca do prospect para a Account com IdCliente no pós-PAC.',
+    massa: async (e) => {
+      await e.criarAccount('accountX', {
+        pessoa: e.x,
+        idCliente: e.x.idCliente,
+        idProspect: null,
+        email: e.contatos.emailA,
+        celular: e.contatos.celularB,
+      });
+      await e.criarAccount('accountP', {
+        pessoa: e.x,
+        idCliente: null,
+        idProspect: e.x.idProspect,
+      });
+      await e.criarLead('leadX', {
+        pessoa: e.x,
+        idProspect: e.x.idProspect,
+        email: e.contatos.emailA,
+        celular: e.contatos.celularB,
+      });
+    },
+    aprovacao: (e) => ({
+      pessoa: e.x,
+      email: e.contatos.emailA,
+      celular: e.contatos.celularB,
+      tipoEventoCliente: 'cliente-update',
+      match: true,
+      jornadaPorEvento: true,
+      maquinaSemIdCliente: { proponenteCredito: false },
+    }),
+    esperado: (v) => [
+      ...v.cpfRepetidoComProspectEmOutraConta(),
+      v.contasDoCpf(2),
       v.leadsDoCpf(1),
     ],
   },
